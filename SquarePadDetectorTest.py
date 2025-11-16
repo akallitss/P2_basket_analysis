@@ -23,44 +23,69 @@ from SquarePadDetector import SquareDetector
 #     detector.plot_detector(global_coords=True)
 #     print('bonzo')
 
+# ---------------------------------------------------------------
+# Build LARGE pads (8 columns × 4 rows)
+# Using:
+#   pad size = 12.4 mm (half-width = 6.2 mm)
+#   pitch     = 12.5 mm
+# ---------------------------------------------------------------
+
 def build_large_pads():
-    large = SquareDetector(6.2)   # half width 12.4 / 2
-    pitch = 12.5                  # 12.4 + 0.1
+    half_width = 6.2
+    pitch = 12.5
 
-    # First pad stays at (0,0)
-    idx = 0
+    det = SquareDetector()
 
-    # 4 rows × 8 columns
+    # First pad at (0, 0)
+    det.add_pad_absolute(0, 0, half_width)
+
+    # Now place the others
     for c in range(8):
         for r in range(4):
             if r == 0 and c == 0:
-                continue  # already placed first pad
-            large.add_pad(0, (pitch * c) / (2*large.pad_half_width),
-                             (pitch * r) / (2*large.pad_half_width))
+                continue  # pad already added
 
-    return large
+            x = c * pitch
+            y = r * pitch
 
+            det.add_pad_absolute(x, y, half_width)
+
+    return det
+
+
+# ---------------------------------------------------------------
+# Build SMALL pads (10 columns × 5 rows)
+# Using:
+#   pad size = 9.9 mm (half-width = 4.95 mm)
+#   pitch     = 10.0 mm
+# ---------------------------------------------------------------
 
 def build_small_pads(y_offset):
-    small = SquareDetector(4.95)  # half width 9.9 / 2
-    pitch = 10.0                  # 9.9 + 0.1
+    half_width = 4.95
+    pitch = 10.0
 
-    # First pad in small region
-    small.square_pads[0].y = y_offset
+    det = SquareDetector()
 
-    # 5 rows × 10 columns
-    for r in range(5):
-        for c in range(10):
+    # First pad
+    det.add_pad_absolute(0, y_offset, half_width)
+
+    for c in range(10):
+        for r in range(5):
             if r == 0 and c == 0:
                 continue
-            small.add_pad(0, (pitch * c) / (2*small.pad_half_width),
-                             (pitch * r) / (2*small.pad_half_width))
 
-    return small
+            x = c * pitch
+            y = y_offset + r * pitch
+
+            det.add_pad_absolute(x, y, half_width)
+
+    return det
+
 
 # ---------------------------------------------------------------
-# NEW: Create mapping text file directly from your pad objects
+# WRITE PAD MAPPING
 # ---------------------------------------------------------------
+
 def write_mapping_to_txt(large, small, filename="p2_small_pad_mapping.txt"):
     with open(filename, "w") as f:
         f.write("PadID\tX(mm)\tY(mm)\tSize(mm)\tType\n")
@@ -71,39 +96,43 @@ def write_mapping_to_txt(large, small, filename="p2_small_pad_mapping.txt"):
                 f"{i}\t{pad.x:.2f}\t{pad.y:.2f}\t{2*pad.half_width:.2f}\tlarge\n"
             )
 
-        # Small pads (ID continues from large)
+        # Small pads (continue numbering)
         offset = len(large.square_pads)
+
         for i, pad in enumerate(small.square_pads):
             f.write(
                 f"{offset + i}\t{pad.x:.2f}\t{pad.y:.2f}\t{2*pad.half_width:.2f}\tsmall\n"
             )
 
-    print(f"\n Pad mapping written to {filename}\n")
+    print(f"\n✔ Pad mapping written to {filename}\n")
 
 
 # ---------------------------------------------------------------
-
+# MAIN
+# ---------------------------------------------------------------
 
 def main():
-    # Build large region
     large = build_large_pads()
 
-    # Compute where small pads should begin in y:
-    y_offset = 4 * 12.5   # 4 rows * pitch
+    # small pads begin after 4 large-pad rows
+    y_offset = 4 * 12.5
 
     small = build_small_pads(y_offset)
 
+    # Plot
     large.plot_detector(global_coords=False)
     small.plot_detector(global_coords=False)
 
+    # Export mapping
     write_mapping_to_txt(large, small, "p2_small_pad_mapping.txt")
-    plt.show()
 
-    print("bonzo")
+    plt.show()
 
 
 if __name__ == '__main__':
     main()
+
+    print("bonzo")
 
 
 #3 15.400 mm pad width
