@@ -150,6 +150,7 @@ vmm_hybrid_mapping = {
     'p2_small_1': [10, 11],
     'p2_small_3': [8, 9],
 }
+
 # VMM connector mapping and orientations
 vmm_connector_mapping = {
     10: 0,
@@ -167,6 +168,33 @@ vmm_connector_channel_mapping = {
     'inverted': {x: x + 1 if x % 2 == 0 else x - 1 for x in range(64)},
     # 'reversed_inverted': {x: 62 - x if x % 2 == 0 else 64 - x for x in range(64)},  # Didn't check
 }
+
+# VMM mapping details combined
+vmm_mapping = {
+    'trigger': {
+        'vmm_ids': [0, 1],
+        'connector_ids': [10, 11],
+        'orientation': None,
+    },
+    'p2_large_1': {
+        'vmm_ids': [12, 13, 14, 15],
+        'connector_ids': [0, 1, 2, 3],
+        'orientation': ['normal', 'normal', 'normal', 'normal'],
+    },
+    'p2_small_1': {
+        'vmm_ids': [10, 11],
+        'connector_ids': [0, 1],
+        'orientation': ['normal', 'normal', 'normal', 'normal'],
+
+    },
+    'p2_small_3': {
+        'vmm_ids': [8, 9],
+        'connector_ids': [8, 9],
+        'orientation': ['normal', 'normal', 'normal', 'normal'],
+    },
+}
+
+
 
 
 detector = 'trigger'
@@ -291,7 +319,7 @@ for vmm in df_trigger_hits['vmm'].unique():
 
         plt.tight_layout()
         mpl.rcParams.update(rc_backup)
-# plt.show()
+plt.show()
 
 
 
