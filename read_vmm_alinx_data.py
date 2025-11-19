@@ -14,10 +14,10 @@ from matplotlib.colors import LogNorm
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 from sklearn.cluster import DBSCAN
 
 from SquarePadDetector import SquareDetector
-
 
 
 def cluster_events(df, time_threshold):
@@ -142,15 +142,15 @@ df_hits = tree.arrays(library="pd")
 print(df_hits.head())
 #
 df_padmap = pd.read_csv("p2_small_detector_map.csv")
-print(df_padmap.head())
-
-#make a dictionary of the detectors under test and the vmm ids associated with them
+# print(df_padmap.head())
+## VMM to hybrid mapping
 vmm_hybrid_mapping = {
     'trigger': [0, 1],
     'p2_large_1': [12, 13, 14, 15],
     'p2_small_1': [10, 11],
     'p2_small_3': [8, 9],
 }
+# VMM connector mapping and orientations
 vmm_connector_mapping = {
     10: 0,
     11: 1
@@ -169,6 +169,133 @@ vmm_connector_channel_mapping = {
 }
 
 
+detector = 'trigger'
+vmm_ids_trigger = vmm_hybrid_mapping[detector]
+print(f'Detector: {detector} is associated with VMM IDs: {vmm_ids_trigger}')
+# print(df_hits['vmm'])
+df_trigger_hits = df_hits[df_hits["vmm"].isin(vmm_ids_trigger)]
+print(df_trigger_hits.head())
+print(f'Unique channels: {df_trigger_hits["ch"].unique()}')
+print(f'Counts per unique channel:\n{df_trigger_hits["ch"].value_counts()}')
+
+for vmm_num in df_trigger_hits['vmm'].unique():
+    df_trigger_hits_ch = df_trigger_hits[df_trigger_hits['vmm'] == vmm_num]
+    print(f'Counts per unique channel for VMM {vmm_num}:\n{df_trigger_hits_ch["ch"].value_counts()}')
+
+
+#get the time of the trigger hits
+for vmm in df_trigger_hits['vmm'].unique():
+    df_trigger_hits_vmm = df_trigger_hits[df_trigger_hits['vmm'] == vmm]
+    print(f'Processing VMM {vmm}')
+    for ch in df_trigger_hits['ch'].unique():
+        print(f' Processing channel {ch}')
+        df_trigger_hits_ch = df_trigger_hits[df_trigger_hits['ch'] == ch]
+        # df_trigger_hits_ch = df_trigger_hits_vmm[df_trigger_hits['ch'] == ch]
+        trigger_times = df_trigger_hits_ch['time'].values
+        # print("Trigger times:", trigger_times)
+        # if ch == 40:
+        #     print(df_trigger_hits_ch[['vmm', 'time']])
+
+        #convert from ns to us
+        trigger_times = trigger_times / 1000.0
+
+        # plot histogram of trigger times
+        # python
+        # ROOT-like histogram: step outline + light fill, inward ticks, stats box, log y-scale
+
+        # Save and tweak rcParams for a ROOT-like look
+        # rc_backup = mpl.rcParams.copy()
+        # mpl.rcParams.update({
+        #     "figure.figsize": (10, 6),
+        #     "axes.linewidth": 1.2,
+        #     "xtick.direction": "in",
+        #     "ytick.direction": "in",
+        #     "xtick.top": True,
+        #     "ytick.right": True,
+        #     "font.size": 12,
+        # })
+        #
+        # fig, ax = plt.subplots()
+        #
+        # # Draw step outline and a faint filled underlay (ROOT-esque)
+        # counts, bins, _ = ax.hist(trigger_times, bins=100, histtype="step", color="black", linewidth=1.5)
+        # ax.hist(trigger_times, bins=bins, histtype="stepfilled", color="C0", alpha=0.18)
+        #
+        # # Labels, title, grid and aspect
+        # ax.set_title("Trigger Hit Times Distribution")
+        # ax.set_xlabel("Time [s]")
+        # ax.set_ylabel("Counts")
+        # ax.grid(True, linestyle="--", alpha=0.3)
+        #
+        # # Use log scale for the y axis (common in ROOT plots)
+        # ax.set_yscale("log")
+        #
+        # # Compute and show simple stats box (Entries, Mean, RMS)
+        # entries = len(trigger_times)
+        # mean = np.mean(trigger_times)
+        # rms = np.sqrt(np.mean((trigger_times - mean) ** 2))
+        # stats = f"Entries = {entries}\nMean = {mean:.3e} s\nRMS = {rms:.3e} s"
+        # ax.text(0.98, 0.95, stats, transform=ax.transAxes, ha="right", va="top",
+        #         bbox=dict(facecolor="white", edgecolor="black", pad=6))
+        #
+        # plt.tight_layout()
+        #
+        # # Restore rcParams if desired
+        # mpl.rcParams.update(rc_backup)
+        # plt.show()
+
+        #find the time difference between each trigger hit and the next trigger hit
+        time_differences = np.diff(trigger_times)
+        # print("Time differences between trigger hits:", time_differences)
+        #plot histogram of time differences
+        # python
+        # ROOT-like time-difference histogram (step + filled, inward ticks, stats box, log y-scale)
+        rc_backup = mpl.rcParams.copy()
+        mpl.rcParams.update({
+            "figure.figsize": (10, 6),
+            "axes.linewidth": 1.2,
+            "xtick.direction": "in",
+            "ytick.direction": "in",
+            "xtick.top": True,
+            "ytick.right": True,
+            "font.size": 12,
+        })
+
+        fig, ax = plt.subplots()
+
+        # Step outline + faint filled underlay (ROOT-esque)
+        bins = np.linspace(-0.1, 1000, 50)
+        counts, bins, _ = ax.hist(time_differences, bins=bins, histtype="step", color="black", linewidth=1.5)
+        ax.hist(time_differences, bins=bins, histtype="stepfilled", color="C0", alpha=0.18)
+
+        # Labels, title, grid
+        ax.set_title(f"Time Differences Between Trigger Hits for Channel {ch}, on VMM {vmm}")
+        ax.set_xlabel("Time Difference [us]")
+        ax.set_ylabel("Counts")
+        ax.grid(True, linestyle="--", alpha=0.3)
+
+        # Log scale for the y axis (common in ROOT plots)
+        ax.set_yscale("log")
+
+        # Compute and show simple stats box (Entries, Mean, RMS) — handle empty arrays safely
+        if len(time_differences) > 0:
+            entries = len(time_differences)
+            mean = np.nanmean(time_differences)
+            rms = np.sqrt(np.nanmean((time_differences - mean) ** 2))
+            stats = f"Entries = {entries}\nMean = {mean:.3e} us\nRMS = {rms:.3e} us"
+        else:
+            stats = "No entries"
+
+        ax.text(0.98, 0.95, stats, transform=ax.transAxes, ha="right", va="top",
+                bbox=dict(facecolor="white", edgecolor="black", pad=6))
+
+        plt.tight_layout()
+        mpl.rcParams.update(rc_backup)
+# plt.show()
+
+
+
+
 detector = 'p2_small_1'  # Change this to analyze a different detector
 vmm_ids = vmm_hybrid_mapping[detector]
 print(f'Detector: {detector} is associated with VMM IDs: {vmm_ids}')
@@ -176,7 +303,8 @@ print(f'Detector: {detector} is associated with VMM IDs: {vmm_ids}')
 df_det_hits = df_hits[df_hits["vmm"].isin(vmm_ids)]
 # print(df_det_hits.head())
 # print(df_det_hits[["vmm", "ch", "adc"]])
-
+print(df_hits['time'])
+input()
 # Invert: connector → vmm
 connector_to_vmm = {v: k for k, v in vmm_connector_mapping.items()}
 
@@ -273,9 +401,9 @@ df_xy = df_xy.merge(hit_counts, on=["X_mm", "Y_mm"], how="left")
 
 detector_model = SquareDetector()
 detector_model.read_mapping("p2_small_detector_map.csv")
-detector_model.plot_hit_heatmap(df_xy, cmap="viridis", global_coords=False)
-detector_model.plot_hit_heatmap(df_xy, cmap="viridis", global_coords=False, area_norm=True)
-detector_model.plot_hit_heatmap(df_xy, cmap="viridis", global_coords=False, adc_weighted=True)
+detector_model.plot_hit_heatmap(df_xy, cmap="jet", global_coords=False, log_scale=True)
+detector_model.plot_hit_heatmap(df_xy, cmap="jet", global_coords=False, area_norm=True, log_scale=True)
+detector_model.plot_hit_heatmap(df_xy, cmap="jet", global_coords=False, adc_weighted=True, log_scale=True)
 detector_model.plot_detector()
 # plt.show()
 
