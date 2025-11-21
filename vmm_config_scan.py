@@ -88,6 +88,10 @@ def main():
     print(runs_with_sng_0.tolist())
     # input()
 
+    #filter runs with sng = 1.0
+    runs_with_sng_1 = df_run_scan[(df_run_scan["sng"] == 1.0) & (df_run_scan["sg"] == 3.0)]["run_no"]
+    print("Runs with sng 1.0 and gain 3.0:")
+    print(runs_with_sng_1.tolist())
 
     #path to run files
     data_dir = "/media/akallits/EXTERNAL_USB/2312292/Extras/Physics/Post-Doc-Saclay/SPS_beam_test/data/VMM-alinx_data/5kHz-muons-config-scan"
@@ -116,7 +120,8 @@ def main():
 
 
     #load hits from the first file of the runs with gain 3.0
-    for run_no in runs_with_sng_0:
+    # for run_no in runs_with_sng_0:
+    for run_no in runs_with_sng_1:
     # for run_no in runs_with_gain_3:
         run_dir = os.path.join(data_dir, f"run_{run_no}")
         if os.path.isdir(run_dir):
@@ -133,26 +138,18 @@ def main():
             print(f"Run directory does not exist: {run_dir}")
 
 
-    #print vmm mapping
-
-    # print("VMM Mapping:")
-    # for config_name, config in vmm_mapping.items():
-    #     print(f"Configuration: {config_name}")
-    #     print(f"  VMM IDs: {config['vmm_ids']}")
-    #     print(f"  Connector IDs: {config['connector_ids']}")
-    #     print(f"  Orientation: {config['orientation']}")
-
-
     #for each run with gain 3.0, print the vmm ids used
     # for run_no in runs_with_gain_3:
-    for run_no in runs_with_sng_0:
+    for run_no in runs_with_sng_1:
+    # for run_no in runs_with_sng_0:
         print(f"Run {run_no} VMM IDs:")
         for config_name, config in vmm_mapping.items():
             print(f"  Configuration: {config_name} - VMM IDs: {config['vmm_ids']}")
 
     #for each run with gain 3.0, plot a histogram of adc values for each vmm id
     fig, ax = plt.subplots()
-    for run_no in runs_with_sng_0:
+    # for run_no in runs_with_sng_0:
+    for run_no in runs_with_sng_1:
     # for run_no in runs_with_gain_3:
         run_dir = os.path.join(data_dir, f"run_{run_no}")
         if os.path.isdir(run_dir):
@@ -177,6 +174,7 @@ def main():
     vmm_ids = sorted(list(vmm_ids))
     print(f"Unique VMM IDs: {vmm_ids}")
     # input()
+
     #plot on seperate figures for each vmm id the adc value distribution from runs with gain 3.0
     for vmm_id in vmm_ids:
         # For vmm_id, get corresponding config name
@@ -189,7 +187,8 @@ def main():
 
         fig, ax = plt.subplots()
         # for run_no in runs_with_gain_3:
-        for run_no in runs_with_sng_0:
+        # for run_no in runs_with_sng_0:
+        for run_no in runs_with_sng_1:
             run_dir = os.path.join(data_dir, f"run_{run_no}")
 
             # Get parameter string for run for legend
@@ -209,6 +208,51 @@ def main():
         ax.set_ylabel("Counts")
         ax.set_title(f"ADC Value Distribution for {name} VMM {vmm_id} (Gain 3.0 Runs)")
         ax.legend()
+    # plt.show()
+
+
+    #set a cut on adc < 100 and save the mean adc value and the rms for each vmm id and each run with gain 3.0 and sng 1.0
+    adc_cut = 100
+    results = []
+    for vmm_id in vmm_ids:
+        for run_no in runs_with_sng_1:
+            run_dir = os.path.join(data_dir, f"run_{run_no}")
+            if os.path.isdir(run_dir):
+                root_files = [f for f in os.listdir(run_dir) if f.startswith("enp") and f.endswith(".root")]
+                if root_files:
+                    first_file = root_files[1]
+                    file_path = os.path.join(run_dir, first_file)
+                    df_hits = load_hits_root(file_path, branches=["hits/adc", "hits/vmm", "hits/ch", "hits/time"])
+                    adc_values = df_hits[(df_hits["vmm"]==vmm_id) & (df_hits["adc"] < adc_cut)]["adc"]
+                    mean_adc = adc_values.mean()
+                    rms_adc = adc_values.std()
+                    results.append({
+                        "run_no": run_no,
+                        "vmm_id": vmm_id,
+                        "peaking_time": df_run_scan[df_run_scan["run_no"] == run_no].iloc[0]["snt"],
+                        "mean_adc": mean_adc,
+                        "rms_adc": rms_adc
+                    })
+    df_results = pd.DataFrame(results)
+    print("Mean and RMS ADC values for each VMM ID and run (ADC < 100):")
+    print(df_results)
+    df_results.to_csv("vmm_adc_analysis.csv", index=False)
+
+    #filter the nan values from the dataframe
+    df_results = df_results.dropna()
+    print(df_results)
+
+    #plot mean adc vs peaking time for each vmm id
+    for vmm_id in vmm_ids:
+        df_vmm = df_results[df_results["vmm_id"] == vmm_id]
+        if df_vmm.empty:
+            continue
+        plt.errorbar(df_vmm["peaking_time"], df_vmm["mean_adc"], yerr=df_vmm["rms_adc"], fmt='o-', label=f"VMM {vmm_id}")
+    plt.xlabel("Peaking Time (snt)")
+    plt.ylabel("Mean ADC Value (ADC < 100)")
+    plt.title("Mean ADC vs Peaking Time for Each VMM ID (Gain 3.0, sng 1.0)")
+    plt.legend()
+    # plt.savefig("mean_adc_vs_peaking_time.png")
     plt.show()
 
     pass
