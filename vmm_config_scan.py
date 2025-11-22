@@ -228,11 +228,11 @@ def compare_full_vs_cut(df_hits, vmm_id, run_no, adc_cut=100, use_over_threshold
         label_cut = f"ADC < {adc_cut}"
 
     plt.figure()
-    plt.hist(full_adc, bins=80, alpha=0.3, label="Full", density=True)
-    plt.hist(cut_adc, bins=80, alpha=0.6, label=label_cut, density=True)
+    plt.hist(full_adc, bins=80, alpha=0.3, label="Full", density=False)
+    plt.hist(cut_adc, bins=80, alpha=0.6, label=label_cut, density=False)
     plt.title(f"Run {run_no} – VMM {vmm_id}")
     plt.xlabel("ADC")
-    plt.ylabel("Density")
+    plt.ylabel("Numb of Hits")
     plt.legend()
     plt.show()
 
