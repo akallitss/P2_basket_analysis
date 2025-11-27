@@ -18,9 +18,8 @@ from matplotlib.colors import LogNorm
 from sklearn.cluster import DBSCAN
 from SquarePadDetector import SquareDetector
 
-
 #######################
-# Data Handling
+# DATA LOADING
 #######################
 def load_root_file(file_path, branches=None):
     """Load ROOT file into pandas DataFrame."""
@@ -59,12 +58,10 @@ def merge_hits_with_padmap(df_hits, df_padmap):
 
 
 #######################
-# Clustering
+# CLUSTERING
 #######################
 def cluster_events(df, time_threshold):
-    """
-    Cluster hits into events by time gap.
-    """
+    """Cluster hits into events by time gap."""
     df = df.sort_values("time").reset_index(drop=True)
     dt = df["time"].diff().fillna(0)
     df["event_id"] = (dt > time_threshold).cumsum()
@@ -72,9 +69,7 @@ def cluster_events(df, time_threshold):
 
 
 def cluster_spatial(df, radius, min_samples=1):
-    """
-    Spatial DBSCAN clustering per event with ADC-weighted centroids.
-    """
+    """Spatial DBSCAN clustering per event with ADC-weighted centroids."""
     df = df.copy()
     cluster_ids, cluster_x, cluster_y = [], [], []
 
@@ -91,7 +86,8 @@ def cluster_spatial(df, radius, min_samples=1):
 
         centroids = {}
         for c in np.unique(labels):
-            if c == -1: continue
+            if c == -1:
+                continue
             mask = (event_df_local["local_cluster"] == c)
             w = adcs[mask].sum()
             centroids[c] = (np.sum(coords[mask,0]*adcs[mask])/w,
@@ -113,7 +109,7 @@ def cluster_spatial(df, radius, min_samples=1):
 
 
 #######################
-# Plotting
+# PLOTTING FUNCTIONS
 #######################
 def plot_adc_distribution(df_hits, max_adc=1200, bins=200):
     plt.figure(figsize=(10,6))
@@ -179,7 +175,7 @@ def plot_hit_scatter(df_xy):
 
 
 #######################
-# Trigger Analysis
+# TRIGGER TIME DIFFERENCES
 #######################
 def plot_trigger_time_differences(df_hits, vmm_ids):
     rc_backup = mpl.rcParams.copy()
@@ -198,20 +194,16 @@ def plot_trigger_time_differences(df_hits, vmm_ids):
         for ch in df_vmm['ch'].unique():
             df_ch = df_vmm[df_vmm['ch'] == ch]
             trigger_times = df_ch['time'].values / 1000.0  # ns -> us
-
             if len(trigger_times) < 2:
-                continue  # cannot compute time differences with <2 hits
-
+                continue
             time_diff = np.diff(trigger_times)
             if len(time_diff) == 0:
-                continue  # extra safety
+                continue
 
-            # Compute stats safely
             entries = len(time_diff)
             mean = np.nanmean(time_diff)
             rms = np.sqrt(np.nanmean((time_diff - mean)**2))
 
-            # Plot histogram
             fig, ax = plt.subplots()
             bins = np.linspace(-0.1, 1000, 50)
             ax.hist(time_diff, bins=bins, histtype="step", color="black", linewidth=1.5)
@@ -231,29 +223,60 @@ def plot_trigger_time_differences(df_hits, vmm_ids):
 
 
 #######################
-# Main workflow
+# MAIN FUNCTION
 #######################
 def main():
+   #######################
+    # VMM MAPPINGS
+    #######################
+    vmm_hybrid_mapping = {
+        'trigger': [0,1],
+        'p2_large_1': [12,13,14,15],
+        'p2_small_1': [10,11],
+        'p2_small_3': [8,9],
+    }
+
+    vmm_connector_mapping = {10:0, 11:1}
+    vmm_connector_orientations = {10:'normal', 11:'normal'}
+    vmm_connector_channel_mapping = {
+        'normal': {x:x for x in range(64)},
+        'inverted': {x:x+1 if x%2==0 else x-1 for x in range(64)}
+    }
+
+   #######################
+   # CONFIG OPTIONS
+   #######################
+
+
     run_number = 'run_67'
+    # detector = 'p2_small_1'
+    detector = 'p2_small_3'
+    # detector = 'p2_large_1'
+
+    # PLOT FLAGS
+    plot_adc = True
+    plot_vmm = True
+    plot_ch_vs_adc = True
+    plot_2d_hist_all_vmm = True
+    plot_hit_scatterplot = True
+    plot_detector_heatmaps = True
+    plot_trigger_times = True
+    #######################
+    # LOAD DATA
+    #######################
     data_dir = f"/home/akallits/Documents/Saclay-PostDoc/SPS_beam_test/data/VMM-alinx_data/{run_number}"
     enp_files = sorted([os.path.join(data_dir, f) for f in os.listdir(data_dir)
                         if f.startswith("enp") and f.endswith(".root")])
     df_hits = load_root_file(enp_files[0])
     df_padmap = load_padmap("p2_small_detector_map.csv")
 
-    # VMM Mappings
-    vmm_hybrid_mapping = {'trigger':[0,1],'p2_large_1':[12,13,14,15],'p2_small_1':[10,11],'p2_small_3':[8,9]}
-    vmm_connector_mapping = {10:0,11:1}
-    vmm_connector_orientations = {10:'normal',11:'normal'}
-    vmm_connector_channel_mapping = {'normal':{x:x for x in range(64)},'inverted':{x:x+1 if x%2==0 else x-1 for x in range(64)}}
+    df_padmap = map_vmm_channels(
+        df_padmap,
+        connector_to_vmm={v:k for k,v in vmm_connector_mapping.items()},
+        connector_orientations=vmm_connector_orientations,
+        channel_mappings=vmm_connector_channel_mapping
+    )
 
-    df_padmap = map_vmm_channels(df_padmap,
-                                 connector_to_vmm={v:k for k,v in vmm_connector_mapping.items()},
-                                 connector_orientations=vmm_connector_orientations,
-                                 channel_mappings=vmm_connector_channel_mapping)
-
-    # Detector selection
-    detector = 'p2_small_1'
     vmm_ids = vmm_hybrid_mapping[detector]
     df_det_hits = df_hits[df_hits["vmm"].isin(vmm_ids)]
     df_xy = merge_hits_with_padmap(df_det_hits, df_padmap)
@@ -262,24 +285,39 @@ def main():
     hit_counts = df_xy.groupby(["X_mm","Y_mm"]).size().reset_index(name="hit_count")
     df_xy = df_xy.merge(hit_counts, on=["X_mm","Y_mm"], how="left")
 
-    # Plotting
-    plot_adc_distribution(df_hits)
-    plot_vmm_distribution(df_hits)
-    plot_channel_vs_adc(df_hits)
-    plot_2d_hist_per_vmm(df_hits, vmm_ids)
-    plot_hit_scatter(df_xy)
+    #######################
+    # PLOTTING
+    #######################
+    if plot_adc:
+        plot_adc_distribution(df_hits)
 
-    # Detector heatmaps
-    detector_model = SquareDetector()
-    detector_model.read_mapping("p2_small_detector_map.csv")
-    detector_model.plot_hit_heatmap(df_xy, cmap="jet", global_coords=False, log_scale=True)
-    detector_model.plot_hit_heatmap(df_xy, cmap="jet", global_coords=False, area_norm=True, log_scale=True)
-    detector_model.plot_hit_heatmap(df_xy, cmap="jet", global_coords=False, adc_weighted=True, log_scale=True)
-    detector_model.plot_detector()
+    if plot_vmm:
+        plot_vmm_distribution(df_hits)
 
-    # Trigger analysis
-    trigger_vmm_ids = vmm_hybrid_mapping['trigger']
-    plot_trigger_time_differences(df_hits, trigger_vmm_ids)
+    if plot_ch_vs_adc:
+        plot_channel_vs_adc(df_hits)
+
+    if plot_2d_hist_all_vmm:
+        plot_2d_hist_per_vmm(df_hits, vmm_ids)
+
+    if plot_hit_scatterplot:
+        plot_hit_scatter(df_xy)
+
+    if plot_detector_heatmaps:
+        detector_model = SquareDetector()
+        detector_model.read_mapping("p2_small_detector_map.csv")
+        detector_model.plot_hit_heatmap(df_xy, cmap="jet", global_coords=False, log_scale=True)
+        detector_model.plot_hit_heatmap(df_xy, cmap="jet", global_coords=False, area_norm=True, log_scale=True)
+        detector_model.plot_hit_heatmap(df_xy, cmap="jet", global_coords=False, adc_weighted=True, log_scale=True)
+        detector_model.plot_detector()
+
+    if plot_trigger_times:
+        trigger_vmm_ids = vmm_hybrid_mapping['trigger']
+        plot_trigger_time_differences(df_hits, trigger_vmm_ids)
+
+    if plot_trigger_times:
+        trigger_vmm_ids = vmm_hybrid_mapping['p2_large_1']
+        plot_trigger_time_differences(df_hits, trigger_vmm_ids)
 
 
 if __name__ == "__main__":
