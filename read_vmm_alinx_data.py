@@ -17,6 +17,7 @@ import matplotlib as mpl
 from matplotlib.colors import LogNorm
 from sklearn.cluster import DBSCAN
 from SquarePadDetector import SquareDetector
+from vmm_mapping import vmm_mapping
 
 #######################
 # DATA LOADING
@@ -33,16 +34,32 @@ def load_padmap(csv_path):
     return pd.read_csv(csv_path)
 
 
-def map_vmm_channels(df_padmap, connector_to_vmm, connector_orientations, channel_mappings):
-    """Add corrected VMM channel numbers to padmap."""
+def map_vmm_channels(df_padmap, detector_info, channel_mappings=None):
+
+    df_padmap = df_padmap.copy()
+
+    connector_ids = detector_info["connector_ids"]
+    vmm_ids = detector_info["vmm_ids"]
+    orientations = detector_info["orientation"]
+
+    connector_to_vmm = {c: v for c, v in zip(connector_ids, vmm_ids)}
     df_padmap["vmm"] = df_padmap["connector"].map(connector_to_vmm)
 
+    df_padmap = df_padmap.dropna(subset=["vmm"])
+    df_padmap["vmm"] = df_padmap["vmm"].astype(int)
+
     def correct_channel(row):
-        orientation = connector_orientations[row["vmm"]]
-        mapping = channel_mappings[orientation]
-        return mapping[row["channel"]]
+        vmm = row["vmm"]
+        ch = int(row["channel"])
+        orientation = orientations[vmm_ids.index(vmm)]
+
+        if orientation == "normal":
+            return ch
+        elif orientation == "inverted":
+            return 63 - ch
 
     df_padmap["channel_cor"] = df_padmap.apply(correct_channel, axis=1)
+
     return df_padmap
 
 
@@ -226,32 +243,11 @@ def plot_trigger_time_differences(df_hits, vmm_ids):
 # MAIN FUNCTION
 #######################
 def main():
-   #######################
-    # VMM MAPPINGS
     #######################
-    vmm_hybrid_mapping = {
-        'trigger': [0,1],
-        'p2_large_1': [12,13,14,15],
-        'p2_small_1': [10,11],
-        'p2_small_3': [8,9],
-    }
-
-    vmm_connector_mapping = {10:0, 11:1}
-    vmm_connector_orientations = {10:'normal', 11:'normal'}
-    vmm_connector_channel_mapping = {
-        'normal': {x:x for x in range(64)},
-        'inverted': {x:x+1 if x%2==0 else x-1 for x in range(64)}
-    }
-
-   #######################
-   # CONFIG OPTIONS
-   #######################
-
-
+    # CONFIG OPTIONS
+    #######################
     run_number = 'run_67'
-    # detector = 'p2_small_1'
-    detector = 'p2_small_3'
-    # detector = 'p2_large_1'
+    detector = 'p2_small_3'  # change as needed
 
     # PLOT FLAGS
     plot_adc = True
@@ -261,29 +257,89 @@ def main():
     plot_hit_scatterplot = True
     plot_detector_heatmaps = True
     plot_trigger_times = True
+
     #######################
     # LOAD DATA
     #######################
     data_dir = f"/home/akallits/Documents/Saclay-PostDoc/SPS_beam_test/data/VMM-alinx_data/{run_number}"
     enp_files = sorted([os.path.join(data_dir, f) for f in os.listdir(data_dir)
                         if f.startswith("enp") and f.endswith(".root")])
-    df_hits = load_root_file(enp_files[0])
+    df_hits = load_root_file(enp_files[1])  # Load second file for testing
     df_padmap = load_padmap("p2_small_detector_map.csv")
+    # print(os.path.exists("p2_small_detector_map.csv"))
+    # input()
+    #
+    # print(df_padmap.head())
+    # print(len(df_padmap))
+    # input()
+    # ----------------------
+    # Load VMM info from vmm_mapping.py
+    # ----------------------
+    detector_info = vmm_mapping[detector]
+    vmm_ids = detector_info['vmm_ids']
+    connector_ids = detector_info['connector_ids']
+    orientations = detector_info['orientation']
 
-    df_padmap = map_vmm_channels(
-        df_padmap,
-        connector_to_vmm={v:k for k,v in vmm_connector_mapping.items()},
-        connector_orientations=vmm_connector_orientations,
-        channel_mappings=vmm_connector_channel_mapping
-    )
+    # Build connector -> VMM dict
+    connector_to_vmm = {conn: vmm for conn, vmm in zip(connector_ids, vmm_ids)}
+    # Build VMM -> orientation dict
+    vmm_orientations = {vmm: ori for vmm, ori in zip(vmm_ids, orientations)}
 
-    vmm_ids = vmm_hybrid_mapping[detector]
+    # Define channel mapping logic (normal/inverted)
+    vmm_channel_mapping = {
+        'normal': {x: x for x in range(64)},
+        'inverted': {x: x+1 if x % 2 == 0 else x-1 for x in range(64)}
+    }
+
+    # Apply mapping
+    # df_padmap = map_vmm_channels(
+    #     df_padmap,
+    #     connector_to_vmm=connector_to_vmm,
+    #     connector_orientations=vmm_orientations,
+    #     channel_mappings=vmm_channel_mapping
+    # )
+    #
+    # print("PADMAP COLUMNS:", df_padmap.columns)
+    # for col in df_padmap.columns:
+    #     print(col, type(df_padmap[col].iloc[0]))
+    # input("STOP")
+    #
+    # print("connector_ids:", connector_ids)
+    # print("vmm_ids:", vmm_ids)
+    # print("orientations:", orientations)
+    #
+    # print("connector_to_vmm =", connector_to_vmm)
+    #
+    # print("\nUnique connector values in padmap:", df_padmap["connector"].unique())
+    # print("Mapped VMMs in padmap (before dropna):")
+    # df_tmp = df_padmap.copy()
+    # df_tmp["vmm"] = df_tmp["connector"].map(connector_to_vmm)
+    # print(df_tmp["vmm"].unique())
+    # input()
+    df_padmap = map_vmm_channels(df_padmap, vmm_mapping[detector], vmm_channel_mapping)
+
+    # print(df_padmap[['connector', 'channel', 'vmm', 'channel_cor', 'X_mm', 'Y_mm']].head(20))
+    # input("Press any key to continue...")
+    # print("Unique VMMs in hits:", df_hits['vmm'].unique())
+    # print("Unique channels in hits:", df_hits['ch'].unique())
+    # input()
+    # Filter hits for this detector and merge with padmap
     df_det_hits = df_hits[df_hits["vmm"].isin(vmm_ids)]
+    #debug
+    # print(f"Number of hits for detector {detector}: {len(df_det_hits)}")
+    # print(df_det_hits.head(20))
+    # input()
+
+    # df_xy = merge_hits_with_padmap(df_det_hits, df_padmap)
     df_xy = merge_hits_with_padmap(df_det_hits, df_padmap)
 
+    # print(f"Number of hits after merging with padmap: {len(df_xy)}")
+    # print(df_xy.head(20))# Cluster hits into events based on time gaps
+    # input()
+
     # Count hits per pad
-    hit_counts = df_xy.groupby(["X_mm","Y_mm"]).size().reset_index(name="hit_count")
-    df_xy = df_xy.merge(hit_counts, on=["X_mm","Y_mm"], how="left")
+    hit_counts = df_xy.groupby(["X_mm", "Y_mm"]).size().reset_index(name="hit_count")
+    df_xy = df_xy.merge(hit_counts, on=["X_mm", "Y_mm"], how="left")
 
     #######################
     # PLOTTING
@@ -312,19 +368,11 @@ def main():
         detector_model.plot_detector()
 
     if plot_trigger_times:
-        trigger_vmm_ids = vmm_hybrid_mapping['trigger']
-        plot_trigger_time_differences(df_hits, trigger_vmm_ids)
-
-    if plot_trigger_times:
-        trigger_vmm_ids = vmm_hybrid_mapping['p2_large_1']
+        trigger_vmm_ids = vmm_mapping['trigger']['vmm_ids']
         plot_trigger_time_differences(df_hits, trigger_vmm_ids)
 
 
 if __name__ == "__main__":
     main()
-
-#mapping for Detector P2 on SPS beam test Nov 2025
-#0,7,6,5,4 hybrids
-#1,2,13,14,11,12,10,11,9,8 vmms
-#trigger, large p2 card1, large p2 card2, small p2-1, small p2-3
+    print("bonzo")
 
