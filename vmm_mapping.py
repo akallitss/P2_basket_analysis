@@ -32,7 +32,7 @@ vmm_mapping = {
     'p2_small_3': {
         'name': 'P2 Small Detector 3',
         'vmm_ids': [8, 9],
-        'connector_ids': [8, 9],
+        'connector_ids': [0, 1],
         'orientation': ['normal', 'normal', 'normal', 'normal'],
     },
 }
