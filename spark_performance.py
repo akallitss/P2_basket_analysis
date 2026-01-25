@@ -154,6 +154,7 @@ def rate_distribution_diagnostic(hit_times, bin_width=0.01, plot=True):
     bins = np.arange(time_rel.min(), time_rel.max() + bin_width, bin_width)
     hist, bin_edges = np.histogram(time_rel, bins=bins)
 
+    # --- plotting ---
     if plot:
         plt.figure()
         plt.hist(hist, bins=100, histtype="step", linewidth=1.6)
