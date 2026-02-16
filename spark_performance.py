@@ -77,7 +77,7 @@ def find_sparks(hit_times, plot=False, bin_width = 0.01):
         print("Number of bins:", len(hist))
 
         print("Maximum hit rate per bin:", max_rate)
-        print("Some histogram values:", hist[:20])
+        # print("Some histogram values:", hist[:20])
 
         print("Median hit rate per bin:", median)
         print("RMS of hit rate per bin:", rms)
@@ -138,23 +138,37 @@ def find_sparks(hit_times, plot=False, bin_width = 0.01):
 
     return spark_durations, live_time
 
-def rate_distribution_diagnostic(hit_times, bin_width=0.01, plot=True):
+def rate_distribution_diagnostic(hit_times, bin_width=0.01, plot=True, plot_rate=True):
     """
-    Diagnostic: distribution of time-bin occupancies (entries per bin)
-    BEFORE any spark definition.
+    Diagnostic (pre-spark):
+      - occupancy per bin (entries/bin)
+      - instantaneous hit rate per bin (Hz) = entries/bin_width
+      - global hit rate = N_hits / live_time
+    Uses the same 20 s cut as find_sparks().
     """
 
-    # --- same time preparation as spark code ---
     hit_times = hit_times / 1e9  # ns → s
     t0 = hit_times[0]
     time_rel = hit_times - t0
     time_rel = time_rel[time_rel > 20]  # ignore first 20 s
 
-    # --- binning ---
+    if len(time_rel) < 2:
+        # Avoid crashes on tiny arrays
+        return np.array([]), 0.0, 0, np.array([])
+
     bins = np.arange(time_rel.min(), time_rel.max() + bin_width, bin_width)
     hist, bin_edges = np.histogram(time_rel, bins=bins)
 
-    # --- plotting ---
+    live_time = time_rel.max() - time_rel.min()
+    n_hits = len(time_rel)
+
+    rate_per_bin = hist / bin_width  # Hz, instantaneous rate in each time bin
+    #convert rate_per_bin in kHz
+    rate_per_bin = rate_per_bin/1e3 #kHz
+
+    global_hit_rate = n_hits / live_time if live_time > 0 else np.nan
+    global_hit_rate_kHz = global_hit_rate/1e3
+
     if plot:
         plt.figure()
         plt.hist(hist, bins=100, histtype="step", linewidth=1.6)
@@ -165,105 +179,162 @@ def rate_distribution_diagnostic(hit_times, bin_width=0.01, plot=True):
         plt.tight_layout()
         plt.show()
 
-        print("Rate distribution diagnostics:")
-        print(f"  Median = {np.median(hist):.2f}")
-        print(f"  RMS    = {np.std(hist):.2f}")
-        print(f"  Min    = {hist.min()}")
-        print(f"  Max    = {hist.max()}")
+        print("Rate distribution diagnostics (after 20 s cut):")
+        print(f"  N hits        = {n_hits}")
+        print(f"  Live time     = {live_time:.3f} s")
+        print(f"  Global hit rate = {global_hit_rate:.3e} Hz")
+        print(f"  Global hit rate in kHz = {global_hit_rate_kHz:.3e} kHz")
+        print(f"  Median(occ)   = {np.median(hist):.2f}")
+        print(f"  RMS(occ)      = {np.std(hist):.2f}")
+        print(f"  Min/Max(occ)  = {hist.min()} / {hist.max()}")
 
-    return hist
+    if plot and plot_rate:
+        # New: instantaneous hit-rate distribution in Hz
+        plt.figure()
+        plt.hist(rate_per_bin, bins=100, histtype="step", linewidth=1.6)
+        plt.xlabel("Instantaneous hit rate per bin [kHz]")
+        plt.ylabel("Number of bins")
+        plt.yscale("log")
+        plt.title("Distribution of instantaneous hit rate")
+        plt.tight_layout()
+        plt.show()
+
+    return hist, live_time, n_hits, rate_per_bin
 
 
 
 
 def main():
-    data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_no_protection_jan26"
+
+    # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_no_protection_jan26"
     # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_no_protection_dec25"
     # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_AC_dec25"
+    # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test15" #without protection
+    # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test16" #only AC
+    # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test17" #without protection
     # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_AC_jan26"
     # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_DC_dec25"
+    #data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test11" #AC-DC
     # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_R_dec25"
+    data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test14" #AC-R
+
 
     set_root_style()
 
+
+    # --- Hit-rate accumulators ---
+    total_hits = 0
+    total_hit_live_time = 0.0
+    all_rate_per_bin = []
+
+    # --- Spark accumulators ---
     total_sparks = 0
     total_live_time = 0.0
     all_spark_durations = []
 
-    for file_name in os.listdir(data_dir):
-        if file_name.startswith("enp") and file_name.endswith(".root"):
-            file_path = os.path.join(data_dir, file_name)
-            print("Processing file:", file_path)
+    for file_name in sorted(os.listdir(data_dir)):
+        if not (file_name.startswith("enp") and file_name.endswith(".root")):
+            continue
 
-            df = load_root_file(file_path, branches=["time"])
-            if df.empty:
-                continue
+        file_path = os.path.join(data_dir, file_name)
+        print("Processing file:", file_path)
 
+        df = load_root_file(file_path, branches=["time"])
+        if df.empty:
+            continue
 
-            spark_durations, live_time = find_sparks(
-                np.array(df["time"]),
-                plot=True,
-                bin_width=0.01
-            )
+        hit_times = np.array(df["time"])
 
-            # ---- PRE-SPARK DIAGNOSTIC ----
-            hist = rate_distribution_diagnostic(
-                np.array(df["time"]),
-                bin_width=0.01,
-                plot=True
-            )
+        # ---- PRE-SPARK DIAGNOSTIC (per file) ----
+        hist, hit_live_time, n_hits, rate_per_bin = rate_distribution_diagnostic(
+            hit_times,
+            bin_width=0.01,
+            plot=True,
+            plot_rate=True
+        )
 
-            total_sparks += len(spark_durations)
-            total_live_time += live_time
-            all_spark_durations.extend(spark_durations)
+        total_hits += n_hits
+        total_hit_live_time += hit_live_time
+        if len(rate_per_bin) > 0:
+            all_rate_per_bin.extend(rate_per_bin)
 
-    sparking_rate = total_sparks / total_live_time  # Hz
-    # Convert to kHz
-    sparking_rate_kHz = sparking_rate * 1e3
-    rate_err = np.sqrt(total_sparks) / total_live_time
-    #convert to kHz
-    rate_err_kHz = rate_err * 1e3
+        # ---- SPARK FINDING (per file) ----
+        spark_durations, live_time = find_sparks(
+            hit_times,
+            plot=True,
+            bin_width=0.01
+        )
 
-    fig, ax = plt.subplots()
-    ax.hist(all_spark_durations, bins=20, color="blue", alpha=0.7)
-    mean = np.mean(all_spark_durations)
-    rms = np.std(all_spark_durations)
-    ax.axvline(mean, color="red", linestyle="--")
-    ax.annotate(
-        f"Sparks: {len(all_spark_durations)}\n"
-        f"Mean: {mean:.2f} s\n"
-        f"RMS: {rms:.2f} s\n",
-        # f"Rate: ({sparking_rate_kHz:.2e} ± {rate_err_kHz:.1e}) kHz",
-        xy=(0.75, 0.95),
-        xycoords="axes fraction",
-        fontsize=14,
-        va="top",
-        bbox=dict(boxstyle="round,pad=0.3", fc="yellow", alpha=0.5),
-    )
-    ax.set_xlabel("Spark Duration [s]")
-    ax.set_ylabel("Counts")
-    ax.set_title("Distribution of Spark Durations")
-    # Make an arrow pointing to the largest bin and label it "Double Sparks!!"
-    counts, bin_edges = np.histogram(all_spark_durations, bins=20)
-    max_bin_center = 0.5 * (bin_edges[-2] + bin_edges[-1])
-    # ax.annotate("Double Sparks!!",
-    #             xy=(max_bin_center, counts[-1]),
-    #             xytext=(bin_edges[-1] * 0.75, counts[-1] + np.max(counts) * 0.4),
-    #             arrowprops=dict(facecolor='black', arrowstyle="->", color="red"),
-    #             fontsize=12, fontweight="bold", color="red"
-    #             )
-    sparking_rate = total_sparks / total_live_time
+        # accumulate spark totals
+        total_sparks += len(spark_durations)
+        total_live_time += live_time
+        all_spark_durations.extend(spark_durations)
 
-    print(f"\nTotal sparks: {total_sparks}")
-    print(f"Total live time: {total_live_time:.1f} s")
-    print(f"Sparking rate: {sparking_rate:.3e} Hz")
+        # (optional) per-file spark rate print (correct place is inside loop)
+        if live_time > 0:
+            file_spark_rate = len(spark_durations) / live_time
+            print(f"{file_name}: spark rate = {file_spark_rate:.3e} Hz")
 
-    rate = len(spark_durations) / live_time
-    print(f"{file_name}: {rate:.3e} Hz")
+    # ---- GLOBAL HIT RATE OVER ALL FILES (print once) ----
+    if total_hit_live_time > 0:
+        global_hit_rate_total = total_hits / total_hit_live_time
+        global_hit_rate_total_kHz = global_hit_rate_total / 1e3
+        global_hit_rate_err = np.sqrt(total_hits) / total_hit_live_time
+        global_hit_rate_err_kHz = global_hit_rate_err / 1e3
+        print("\n=== Hit-rate summary (after 20 s cut) ===")
+        print(f"Total hits: {total_hits}")
+        print(f"Total hit live time: {total_hit_live_time:.1f} s")
+        print(f"Global hit rate: ({global_hit_rate_total:.3e} ± {global_hit_rate_err:.1e}) Hz")
+        print(f"Global hit rate in kHz: ({global_hit_rate_total_kHz} ± {global_hit_rate_err:.1e}) kHz ")
+    else:
+        print("\nNo valid hit live time to compute global hit rate.")
 
-    plt.tight_layout()
+    # ---- INSTANTANEOUS HIT RATE DISTRIBUTION OVER ALL FILES (plot once) ----
+    if len(all_rate_per_bin) > 0:
+        plt.figure()
+        plt.hist(all_rate_per_bin, bins=120, histtype="step", linewidth=1.6)
+        plt.xlabel("Instantaneous hit rate per bin [Hz]")
+        plt.ylabel("Number of bins")
+        plt.yscale("log")
+        plt.title("Instantaneous hit rate distribution (all files)")
+        plt.tight_layout()
+        plt.show()
 
-    plt.show()
+    # ---- SPARK RATE SUMMARY (global) ----
+    if total_live_time > 0:
+        sparking_rate = total_sparks / total_live_time
+        rate_err = np.sqrt(total_sparks) / total_live_time
+        print("\n=== Spark summary ===")
+        print(f"Total sparks: {total_sparks}")
+        print(f"Total live time: {total_live_time:.1f} s")
+        print(f"Sparking rate: ({sparking_rate:.3e} ± {rate_err:.1e}) Hz")
+    else:
+        print("\nNo valid live time to compute spark rate.")
+
+    # ---- Spark duration distribution ----
+    if len(all_spark_durations) > 0:
+        fig, ax = plt.subplots()
+        ax.hist(all_spark_durations, bins=20, color="blue", alpha=0.7)
+        mean = np.mean(all_spark_durations)
+        rms = np.std(all_spark_durations)
+        ax.axvline(mean, color="red", linestyle="--")
+        ax.annotate(
+            f"Sparks: {len(all_spark_durations)}\n"
+            f"Mean: {mean:.2f} s\n"
+            f"RMS: {rms:.2f} s\n",
+            xy=(0.75, 0.95),
+            xycoords="axes fraction",
+            fontsize=14,
+            va="top",
+            bbox=dict(boxstyle="round,pad=0.3", fc="yellow", alpha=0.5),
+        )
+        ax.set_xlabel("Spark Duration [s]")
+        ax.set_ylabel("Counts")
+        ax.set_title("Distribution of Spark Durations")
+        plt.tight_layout()
+        plt.show()
+    else:
+        print("\nNo sparks found → spark duration histogram skipped.")
 
 
 if __name__ == "__main__":
