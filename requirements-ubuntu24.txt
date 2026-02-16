@@ -1,0 +1,55 @@
+# --- Core scientific / analysis ---
+numpy
+psutil
+
+# --- C++ / ROOT-style interoperability ---
+cppyy
+
+# --- Interactive Python / Jupyter ---
+ipython
+ipykernel
+jupyter-client
+jupyter-core
+matplotlib-inline
+
+# --- Development & debugging ---
+debugpy
+traitlets
+stack-data
+asttokens
+executing
+pure-eval
+
+# --- General utilities ---
+packaging
+platformdirs
+typing-extensions
+six
+future
+
+# --- Networking / HTTP (minimal) ---
+requests
+urllib3
+idna
+certifi
+
+# --- Cryptography / SSH (if needed) ---
+paramiko
+PyNaCl
+cryptography
+
+# --- Dates / parsing ---
+python-dateutil
+pytz
+
+# --- Serialization / config ---
+PyYAML
+simplejson
+
+# --- Databases (if used) ---
+SQLAlchemy
+
+# --- Messaging / async ---
+pyzmq
+tornado
+nest-asyncio
