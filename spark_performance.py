@@ -24,6 +24,8 @@ import matplotlib.pyplot as plt
 class Config:
     # Core analysis settings
     data_dir: str
+    max_files: Optional[int] = None   # e.g. 3
+    file_stride: int = 1              # e.g. 5 = take every 5th file
     bin_width: float = 0.01            # seconds
     t_cut: float = 20.0                # seconds (ignore first t_cut)
     fit_window_sigmas: float = 2.5     # window = mode ± fit_window_sigmas * sqrt(mode)
@@ -32,9 +34,9 @@ class Config:
     mode: str = "analysis"             # "debug" or "analysis"
 
     # Plot control
-    plot_per_file: bool = False        # per-file plots (rate + hits:time)
-    debug_fit: bool = False            # show gaussian-fit debug plot (window, points)
-    plot_global: bool = True           # global plots (all-files rate distro + spark duration hist)
+    plot_per_file: bool = True        # per-file plots (rate + hits:time)
+    debug_fit: bool = True             # show gaussian-fit debug plot (window, points)
+    plot_global: bool = False           # global plots (all-files rate distro + spark duration hist)
 
     # Spark definition behavior
     spark_threshold_type: str = "poisson"  # "poisson" or "rms"
@@ -465,13 +467,15 @@ def main():
 
         bin_width=0.01,
         t_cut=20.0,
-        fit_window_sigmas=2.5,
+        fit_window_sigmas=3,
         mode="analysis",              # "debug" or "analysis"
-        plot_per_file=True,        # per-file plots only if mode="debug"
-        debug_fit=False,           # gaussian debug window plot only if mode="debug"
+        # plot_per_file=False,        # per-file plots only if mode="debug"
+        # debug_fit=False,           # gaussian debug window plot only if mode="debug"
         plot_global=True,          # global plots at the end
         spark_threshold_type="poisson",
-        recovery_condition="median"
+        recovery_condition="median",
+        max_files=200,
+        # file_stride=20,
     )
 
     set_root_style()
@@ -485,14 +489,47 @@ def main():
     total_spark_live_time = 0.0
     all_spark_durations = []
 
-    for file_name in sorted(os.listdir(cfg.data_dir)):
-        if not (file_name.startswith("enp") and file_name.endswith(".root")):
-            continue
+    t_cursor_s = 0.0
+    spark_rate_times_s = []
+    spark_rate_kHz = []
+    spark_rate_err_kHz = []
 
+    files = sorted(
+        f for f in os.listdir(cfg.data_dir)
+        if f.startswith("enp") and f.endswith(".root")
+    )
+
+    # apply stride
+    files = files[::cfg.file_stride]
+
+    # apply max_files
+    if cfg.max_files is not None:
+        files = files[:cfg.max_files]
+
+    for file_name in files:
         file_path = os.path.join(cfg.data_dir, file_name)
         print("Processing file:", file_path)
 
         out = run_on_file(file_path, cfg)
+        # if out["n_sparks"] > 0:
+        #     print(f"FOUND sparks in {file_name}: n_sparks={out['n_sparks']}, "
+        #           f"live_time={out['spark_live_time']:.2f}s, "
+        #           f"durations_sample={out['spark_durations'][:3]}")
+
+        # --- spark-rate monitoring point per file ---
+        if out["spark_live_time"] > 0:
+            nsp = out["n_sparks"]
+            T = out["spark_live_time"]
+
+            rate_khz = (nsp / T) / 1e3
+            err_khz = (np.sqrt(nsp) / T) / 1e3 if nsp > 0 else 0.0
+
+            t_mid = t_cursor_s + 0.5 * T
+            spark_rate_times_s.append(t_mid)
+            spark_rate_kHz.append(rate_khz)
+            spark_rate_err_kHz.append(err_khz)
+
+            t_cursor_s += T
 
         total_hits += out["n_hits"]
         total_hit_live_time += out["hit_live_time"]
@@ -527,6 +564,22 @@ def main():
         plt.ylabel("Number of bins")
         plt.yscale("log")
         plt.title("Instantaneous hit rate distribution (all files)")
+        plt.tight_layout()
+        plt.show()
+
+    if cfg.plot_global and len(spark_rate_times_s) > 0:
+        plt.figure()
+        plt.errorbar(
+            spark_rate_times_s,
+            spark_rate_kHz,
+            yerr=spark_rate_err_kHz,
+            fmt="o",
+            capsize=2,
+            linewidth=1.2,
+        )
+        plt.xlabel("Run time (cumulative after t_cut) [s]")
+        plt.ylabel("Spark rate per file [kHz]")
+        plt.title("Spark-rate evolution vs run time")
         plt.tight_layout()
         plt.show()
 
