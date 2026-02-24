@@ -8,18 +8,48 @@ Created as spark_performance.py
 @author: akallits
 """
 
-
 import os
+from dataclasses import dataclass
+from typing import Tuple, Dict, Any, Optional
+
 import uproot
 import numpy as np
-# import pandas as pd
 import matplotlib.pyplot as plt
 
+
+# ----------------------------
+# Configuration
+# ----------------------------
+@dataclass
+class Config:
+    # Core analysis settings
+    data_dir: str
+    bin_width: float = 0.01            # seconds
+    t_cut: float = 20.0                # seconds (ignore first t_cut)
+    fit_window_sigmas: float = 2.5     # window = mode ± fit_window_sigmas * sqrt(mode)
+
+    # Mode control
+    mode: str = "analysis"             # "debug" or "analysis"
+
+    # Plot control
+    plot_per_file: bool = False        # per-file plots (rate + hits:time)
+    debug_fit: bool = False            # show gaussian-fit debug plot (window, points)
+    plot_global: bool = True           # global plots (all-files rate distro + spark duration hist)
+
+    # Spark definition behavior
+    spark_threshold_type: str = "poisson"  # "poisson" or "rms"
+    recovery_condition: str = "median"     # "median" or "threshold" (threshold = same as spark threshold)
+
+
+# ----------------------------
+# I/O + style
+# ----------------------------
 def load_root_file(file_path, branches=None):
-    """Load selected branches from ROOT file into pandas DataFrame."""
+    """Load selected branches from ROOT file into pandas DataFrame-like structure."""
     with uproot.open(file_path) as file:
         tree = file["hits"]
         return tree.arrays(branches, library="pd")
+
 
 def set_root_style():
     plt.rcParams.update({
@@ -43,280 +73,481 @@ def set_root_style():
     })
 
 
-def find_sparks(hit_times, plot=False, bin_width = 0.01):
+# ----------------------------
+# Shared preprocessing
+# ----------------------------
+def prepare_time_axis(hit_times_ns: np.ndarray, t_cut: float) -> np.ndarray:
     """
-    Find sparks from binning hit times into hit frequencies. Look for drops.
-    :param hit_times:
-    :param plot:
-    :return:
+    Convert ns -> s and apply the initial time cut.
+    Returns time_rel (seconds) after cut, relative to first timestamp.
     """
+    hit_times_ns = np.asarray(hit_times_ns, dtype=float)
+    if hit_times_ns.size < 2:
+        return np.array([], dtype=float)
 
-    hit_times = hit_times / 1e9  # Convert from ns to s
-    t0 = hit_times[0]
-    time_rel = hit_times - t0
-    time_rel = time_rel[time_rel > 20]  # Ignore first 20 seconds
-    # time_rel = time_rel[time_rel > .1]  # Ignore first 1 second
-    t0 = time_rel[0]
+    hit_times_s = hit_times_ns / 1e9
+    t0 = hit_times_s[0]
+    time_rel = hit_times_s - t0
+    time_rel = time_rel[time_rel > t_cut]
+    return time_rel.astype(float)
 
-    # Define bin width (window)
 
-    bins = np.arange(t0, time_rel.max() + bin_width, bin_width)
-    hist, bin_edges = np.histogram(time_rel, bins=bins)
-    bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
+# ----------------------------
+# Gaussian main-peak fit (occupancy-value distribution)
+# ----------------------------
+def fit_main_peak_gaussian(occupancies, window_sigmas=2.5, min_points=6, debug=False):
+    """
+    Fit a Gaussian to the MAIN peak of the occupancy-value distribution.
 
-    # Count hits per bin
-    hist, bin_edges = np.histogram(time_rel, bins=bins)
-    max_rate = hist.max()
-    median = np.median(hist)
-    rms = np.std(hist)
-    # threshold = median - 2.1 * rms  # median - 1*sigma
-    threshold = median - 3 * rms  # median - 3*sigma
-    spark_mask = hist < threshold
+    occupancies: array of counts-per-timebin (hist of time)
+    window: [mode ± window_sigmas * sqrt(mode)] in occupancy units
 
-    if plot:
-        print("Number of bins:", len(hist))
+    Returns:
+      - if debug=False: (mu_fit, sigma_fit, A_fit, fit_ok)
+      - if debug=True : (mu_fit, sigma_fit, A_fit, fit_ok, dbg_dict)
+    """
+    occ = np.asarray(occupancies, dtype=int)
+    occ = occ[np.isfinite(occ)]
+    occ = occ[occ >= 0]
+    if occ.size < 20:
+        out = (np.nan, np.nan, np.nan, False)
+        return (*out, {}) if debug else out
 
-        print("Maximum hit rate per bin:", max_rate)
-        # print("Some histogram values:", hist[:20])
+    max_occ = int(occ.max())
+    y_full = np.bincount(occ, minlength=max_occ + 1)
+    x_full = np.arange(len(y_full))
 
-        print("Median hit rate per bin:", median)
-        print("RMS of hit rate per bin:", rms)
+    nonzero = y_full > 0
+    x = x_full[nonzero]
+    y = y_full[nonzero]
+    if y.size < min_points:
+        out = (np.nan, np.nan, np.nan, False)
+        dbg = {"x_full": x_full, "y_full": y_full}
+        return (*out, dbg) if debug else out
 
-        # threshold = 0.9 * max_rate  # 95% of max rate
-        # threshold = 1  # median - 5*sigma
-        print("Threshold for spark detection:", threshold)
-        print(spark_mask)
+    mode = int(x[np.argmax(y)])
+    sigma_guess = float(np.sqrt(max(mode, 1)))  # Poisson-scale guess
 
-    # Cluster consecutive bins below threshold and pick out the first bin of each cluster, then find the end of each
-    # cluster as the first above threshold after a below threshold
-    spark_starts = []
-    spark_ends = []
-    in_spark = False
-    for i in range(len(spark_mask)):
-        if spark_mask[i] and not in_spark:
-            # Start of a new spark
-            spark_starts.append(bin_edges[i])
-            in_spark = True
-        elif hist[i] >= median and in_spark:
-            # End of the current spark
-            spark_ends.append(bin_edges[i])
-            in_spark = False
+    x_lo = max(0, int(np.floor(mode - window_sigmas * sigma_guess)))
+    x_hi = int(np.ceil(mode + window_sigmas * sigma_guess))
 
-    # Handle case where spark goes till the end
-    if in_spark:
-        spark_starts.pop(-1)
-    spark_durations = np.array([end - start for start, end in zip(spark_starts, spark_ends)])
+    sel = (x >= x_lo) & (x <= x_hi)
+    xw = x[sel].astype(float)
+    yw = y[sel].astype(float)
 
-    live_time = time_rel.max() - time_rel.min()
+    dbg = {
+        "x_full": x_full, "y_full": y_full,
+        "mode": mode, "sigma_guess": sigma_guess,
+        "x_lo": x_lo, "x_hi": x_hi,
+        "xw": xw, "yw": yw
+    }
 
-    ######## Plotting
-    if plot:
+    if yw.size < min_points:
+        out = (np.nan, np.nan, np.nan, False)
+        return (*out, dbg) if debug else out
+
+    try:
+        from scipy.optimize import curve_fit
+
+        def gaus(xx, A, mu, sig):
+            return A * np.exp(-0.5 * ((xx - mu) / sig) ** 2)
+
+        p0 = [float(yw.max()), float(mode), max(1.0, sigma_guess)]
+        bounds = ([0.0, mode - 5 * sigma_guess, 0.2],
+                  [np.inf, mode + 5 * sigma_guess, np.inf])
+
+        popt, _ = curve_fit(gaus, xw, yw, p0=p0, bounds=bounds, maxfev=20000)
+        A_fit, mu_fit, sig_fit = popt
+
+        fit_ok = bool(np.isfinite(mu_fit) and np.isfinite(sig_fit) and sig_fit > 0)
+        out = (float(mu_fit), float(sig_fit), float(A_fit), fit_ok)
+        return (*out, dbg) if debug else out
+
+    except Exception:
+        occ_w = occ[(occ >= x_lo) & (occ <= x_hi)]
+        if occ_w.size < 20:
+            out = (np.nan, np.nan, np.nan, False)
+            return (*out, dbg) if debug else out
+
+        mu_fit = float(np.mean(occ_w))
+        sig_fit = float(np.std(occ_w))
+        A_fit = float(yw.max())
+        fit_ok = bool(np.isfinite(mu_fit) and np.isfinite(sig_fit) and sig_fit > 0)
+        out = (mu_fit, sig_fit, A_fit, fit_ok)
+        return (*out, dbg) if debug else out
+
+
+def plot_gaussian_fit_debug(mu_fit, sigma_fit, A_fit, fit_ok, dbg, window_sigmas=2.5):
+    """Debug visualization: show occupancy-value histogram and highlight fit window and used points."""
+    x_full = dbg["x_full"]
+    y_full = dbg["y_full"]
+    mode = dbg["mode"]
+    sigma_guess = dbg["sigma_guess"]
+    x_lo = dbg["x_lo"]
+    x_hi = dbg["x_hi"]
+    xw = dbg["xw"]
+    yw = dbg["yw"]
+
+    plt.figure()
+    nz = y_full > 0
+    plt.step(x_full[nz], y_full[nz], where="mid", linewidth=1.5, label="Occupancy-value histogram (nonzero)")
+
+    plt.axvline(mode, linestyle="--", linewidth=1.2, label=f"Mode = {mode}")
+    plt.axvline(x_lo, linestyle="--", linewidth=1.2, label=f"x_lo = {x_lo}")
+    plt.axvline(x_hi, linestyle="--", linewidth=1.2, label=f"x_hi = {x_hi}")
+    plt.axvspan(x_lo, x_hi, alpha=0.15,
+                label=f"Fit window (±{window_sigmas}·σ_guess), σ_guess={sigma_guess:.2f}")
+
+    plt.plot(xw, yw, marker="o", linestyle="none", markersize=4, label="Points used for fit")
+
+    if fit_ok:
+        xx = np.linspace(x_lo, x_hi, 400)
+        yy = A_fit * np.exp(-0.5 * ((xx - mu_fit) / sigma_fit) ** 2)
+        plt.plot(xx, yy, linewidth=1.5, label=f"Gaussian fit (μ={mu_fit:.2f}, σ={sigma_fit:.2f})")
+
+    plt.xlabel("Occupancy (entries/bin)")
+    plt.ylabel("Number of bins")
+    plt.yscale("log")
+    plt.title("Main-peak Gaussian fit debug")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+# ----------------------------
+# Threshold helpers
+# ----------------------------
+def compute_thresholds_from_occupancy(occ: np.ndarray, fit_window_sigmas: float):
+    """
+    Compute RMS threshold, Poisson threshold, and Gaussian-fit threshold (if fit_ok).
+    Returns dict with values in occupancy units (entries/bin).
+    """
+    occ = np.asarray(occ, dtype=float)
+    median = float(np.median(occ))
+    rms = float(np.std(occ))
+    thr_rms = median - 3.0 * rms
+
+    sigma_poisson = float(np.sqrt(max(median, 1.0)))
+    thr_pois = median - 3.0 * sigma_poisson
+
+    mu_fit, sigma_fit, A_fit, fit_ok, dbg = fit_main_peak_gaussian(
+        occ.astype(int), window_sigmas=fit_window_sigmas, debug=True
+    )
+    thr_fit = (mu_fit - 3.0 * sigma_fit) if fit_ok else np.nan
+
+    return {
+        "median": median,
+        "rms": rms,
+        "thr_rms": thr_rms,
+        "thr_pois": thr_pois,
+        "mu_fit": mu_fit,
+        "sigma_fit": sigma_fit,
+        "A_fit": A_fit,
+        "fit_ok": fit_ok,
+        "thr_fit": thr_fit,
+        "dbg": dbg,
+    }
+
+
+def occ_to_khz(thr_occ: float, bin_width: float) -> float:
+    """Convert a threshold in entries/bin to kHz."""
+    return (thr_occ / bin_width) / 1e3
+
+
+# ----------------------------
+# Rate diagnostics
+# ----------------------------
+def rate_distribution_diagnostic(hit_times_ns: np.ndarray, cfg: Config):
+    """
+    Pre-spark diagnostic:
+      - instantaneous hit rate per bin in kHz (distribution)
+      - overlay thresholds in kHz: RMS, Poisson, Gaussian-fit
+      - optional gaussian-fit debug plot
+
+    Returns:
+      live_time, n_hits, rate_per_bin_kHz
+    """
+    time_rel = prepare_time_axis(hit_times_ns, cfg.t_cut)
+    if time_rel.size < 2:
+        return 0.0, 0, np.array([])
+
+    bins = np.arange(time_rel.min(), time_rel.max() + cfg.bin_width, cfg.bin_width)
+    occ, _ = np.histogram(time_rel, bins=bins)
+
+    live_time = float(time_rel.max() - time_rel.min())
+    n_hits = int(time_rel.size)
+
+    thr = compute_thresholds_from_occupancy(occ, cfg.fit_window_sigmas)
+
+    # Optional debug fit window plot
+    if cfg.mode == "debug" and cfg.debug_fit:
+        plot_gaussian_fit_debug(
+            thr["mu_fit"], thr["sigma_fit"], thr["A_fit"], thr["fit_ok"], thr["dbg"],
+            window_sigmas=cfg.fit_window_sigmas
+        )
+
+    rate_per_bin_kHz = (occ / cfg.bin_width) / 1e3
+
+    if cfg.mode == "debug" and cfg.plot_per_file and rate_per_bin_kHz.size > 0:
         plt.figure()
-        # plt.hist(
-        #     time_rel,
-        #     bins=bins,
-        #     # range=(4405, 4450),
-        #     histtype="step",
-        #     linewidth=1.6,
-        #     color="black",
-        # )
-        plt.step(bin_centers, hist, where="mid", color="black", linewidth=1.5, label="Hits per bin")
-        plt.axhline(y=threshold, color="red", linestyle="--", linewidth=1.5, label=f"{int(threshold)}% threshold")
-        plt.axhline(y=median, color="salmon", linestyle="--", linewidth=1.5, label="Median")
-        plt.legend()
+        plt.hist(rate_per_bin_kHz, bins=100, histtype="step", linewidth=1.6)
 
-        for start, end in zip(spark_starts, spark_ends):
-            plt.axvspan(start, end, color="red", alpha=0.3)
-        plt.xlabel("Time [s]")
-        plt.ylabel("Entries")
-        plt.title("hits:time")
-        # plt.yscale("log")  # very common in CERN timing plots
-        plt.tight_layout()
-        plt.show()
-        print("Detected sparks:", len(spark_durations))
-        print("Spark durations (s):", spark_durations)
+        plt.axvline(occ_to_khz(thr["thr_rms"], cfg.bin_width), color="red", linestyle="--", linewidth=1.5,
+                    label=f"Thr = {occ_to_khz(thr['thr_rms'], cfg.bin_width):.2f} kHz (RMS)")
+        plt.axvline(occ_to_khz(thr["thr_pois"], cfg.bin_width), color="blue", linestyle="--", linewidth=1.5,
+                    label=f"Thr = {occ_to_khz(thr['thr_pois'], cfg.bin_width):.2f} kHz (Poisson)")
+        if thr["fit_ok"]:
+            plt.axvline(occ_to_khz(thr["thr_fit"], cfg.bin_width), color="green", linestyle="--", linewidth=1.5,
+                        label=f"Thr = {occ_to_khz(thr['thr_fit'], cfg.bin_width):.2f} kHz (fit, σfit={thr['sigma_fit']:.2f})")
 
-    return spark_durations, live_time
-
-def rate_distribution_diagnostic(hit_times, bin_width=0.01, plot=True, plot_rate=True):
-    """
-    Diagnostic (pre-spark):
-      - occupancy per bin (entries/bin)
-      - instantaneous hit rate per bin (Hz) = entries/bin_width
-      - global hit rate = N_hits / live_time
-    Uses the same 20 s cut as find_sparks().
-    """
-
-    hit_times = hit_times / 1e9  # ns → s
-    t0 = hit_times[0]
-    time_rel = hit_times - t0
-    time_rel = time_rel[time_rel > 20]  # ignore first 20 s
-
-    if len(time_rel) < 2:
-        # Avoid crashes on tiny arrays
-        return np.array([]), 0.0, 0, np.array([])
-
-    bins = np.arange(time_rel.min(), time_rel.max() + bin_width, bin_width)
-    hist, bin_edges = np.histogram(time_rel, bins=bins)
-
-    live_time = time_rel.max() - time_rel.min()
-    n_hits = len(time_rel)
-
-    rate_per_bin = hist / bin_width  # Hz, instantaneous rate in each time bin
-    #convert rate_per_bin in kHz
-    rate_per_bin = rate_per_bin/1e3 #kHz
-
-    global_hit_rate = n_hits / live_time if live_time > 0 else np.nan
-    global_hit_rate_kHz = global_hit_rate/1e3
-
-    if plot:
-        plt.figure()
-        plt.hist(hist, bins=100, histtype="step", linewidth=1.6)
-        plt.xlabel("Entries per time bin")
-        plt.ylabel("Number of bins")
-        plt.yscale("log")
-        plt.title("Distribution of time-bin occupancies")
-        plt.tight_layout()
-        plt.show()
-
-        print("Rate distribution diagnostics (after 20 s cut):")
-        print(f"  N hits        = {n_hits}")
-        print(f"  Live time     = {live_time:.3f} s")
-        print(f"  Global hit rate = {global_hit_rate:.3e} Hz")
-        print(f"  Global hit rate in kHz = {global_hit_rate_kHz:.3e} kHz")
-        print(f"  Median(occ)   = {np.median(hist):.2f}")
-        print(f"  RMS(occ)      = {np.std(hist):.2f}")
-        print(f"  Min/Max(occ)  = {hist.min()} / {hist.max()}")
-
-    if plot and plot_rate:
-        # New: instantaneous hit-rate distribution in Hz
-        plt.figure()
-        plt.hist(rate_per_bin, bins=100, histtype="step", linewidth=1.6)
         plt.xlabel("Instantaneous hit rate per bin [kHz]")
         plt.ylabel("Number of bins")
         plt.yscale("log")
         plt.title("Distribution of instantaneous hit rate")
+        plt.legend()
         plt.tight_layout()
         plt.show()
 
-    return hist, live_time, n_hits, rate_per_bin
+        global_hit_rate_Hz = (n_hits / live_time) if live_time > 0 else np.nan
+        print("Rate diagnostics (after 20 s cut):")
+        print(f"  N hits           = {n_hits}")
+        print(f"  Live time        = {live_time:.3f} s")
+        print(f"  Global hit rate  = {global_hit_rate_Hz:.3e} Hz")
+        print(f"  Median(occ)      = {thr['median']:.2f}")
+        print(f"  RMS(occ)         = {thr['rms']:.2f}")
+        print(f"  Thr_RMS          = {thr['thr_rms']:.2f} entries/bin")
+        print(f"  Thr_Poisson      = {thr['thr_pois']:.2f} entries/bin")
+        if thr["fit_ok"]:
+            print(f"  Fit: mu={thr['mu_fit']:.2f}, sigma={thr['sigma_fit']:.2f}")
+            print(f"  Thr_Fit          = {thr['thr_fit']:.2f} entries/bin")
+        else:
+            print("  Fit: FAILED")
+
+    return live_time, n_hits, rate_per_bin_kHz
 
 
+# ----------------------------
+# Spark finder
+# ----------------------------
+def find_sparks(hit_times_ns: np.ndarray, cfg: Config):
+    """
+    Find sparks by binning hit times into occupancies and identifying low-rate periods.
+    Spark threshold uses cfg.spark_threshold_type.
+
+    Returns:
+      spark_durations [s], live_time [s], n_sparks
+    """
+    time_rel = prepare_time_axis(hit_times_ns, cfg.t_cut)
+    if time_rel.size < 2:
+        return np.array([]), 0.0, 0
+
+    bins = np.arange(time_rel.min(), time_rel.max() + cfg.bin_width, cfg.bin_width)
+    occ, bin_edges = np.histogram(time_rel, bins=bins)
+    bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
+
+    thr = compute_thresholds_from_occupancy(occ, cfg.fit_window_sigmas)
+
+    # Choose spark threshold
+    if cfg.spark_threshold_type.lower() == "poisson":
+        spark_thr = thr["thr_pois"]
+        spark_thr_label = f"Thr = {spark_thr:.1f} (median - 3·sqrt(median))"
+    else:
+        spark_thr = thr["thr_rms"]
+        spark_thr_label = f"Thr = {spark_thr:.1f} (median - 3·RMS)"
+
+    spark_mask = occ < spark_thr
+
+    # Recovery condition
+    if cfg.recovery_condition.lower() == "threshold":
+        recovered = lambda v: v >= spark_thr
+        recovery_label = "Recovery: above threshold"
+    else:
+        recovered = lambda v: v >= thr["median"]
+        recovery_label = "Recovery: back to median"
+
+    # Cluster consecutive below-threshold bins
+    spark_starts, spark_ends = [], []
+    in_spark = False
+    for i in range(len(spark_mask)):
+        if spark_mask[i] and not in_spark:
+            spark_starts.append(bin_edges[i])
+            in_spark = True
+        elif recovered(occ[i]) and in_spark:
+            spark_ends.append(bin_edges[i])
+            in_spark = False
+
+    # if a spark continues to the end, drop the incomplete one
+    if in_spark and spark_starts:
+        spark_starts.pop(-1)
+
+    spark_durations = np.array([end - start for start, end in zip(spark_starts, spark_ends)], dtype=float)
+    live_time = float(time_rel.max() - time_rel.min())
+
+    # Per-file plot only in debug
+    if cfg.mode == "debug" and cfg.plot_per_file:
+        plt.figure()
+        plt.step(bin_centers, occ, where="mid", color="black", linewidth=1.5, label="Hits per bin")
+
+        # show all thresholds for reference
+        plt.axhline(thr["thr_rms"], color="red", linestyle="--", linewidth=1.5,
+                    label=f"Thr_RMS = {thr['thr_rms']:.1f}")
+        plt.axhline(thr["thr_pois"], color="blue", linestyle="--", linewidth=1.5,
+                    label=f"Thr_Poisson = {thr['thr_pois']:.1f}")
+        if thr["fit_ok"]:
+            plt.axhline(thr["thr_fit"], color="green", linestyle="--", linewidth=1.5,
+                        label=f"Thr_Fit = {thr['thr_fit']:.1f} (σfit={thr['sigma_fit']:.2f})")
+
+        # highlight the *active* spark threshold
+        plt.axhline(spark_thr, color="black", linestyle=":", linewidth=1.2, label=f"USED: {spark_thr_label}")
+
+        plt.axhline(thr["median"], color="salmon", linestyle="--", linewidth=1.5, label="Median")
+
+        for start, end in zip(spark_starts, spark_ends):
+            plt.axvspan(start, end, color="red", alpha=0.3)
+
+        plt.xlabel("Time [s]")
+        plt.ylabel("Entries / bin")
+        plt.title(f"hits:time  ({recovery_label})")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+        print(f"Detected sparks: {spark_durations.size}")
+        if spark_durations.size:
+            print("Spark durations (s):", spark_durations)
+
+    return spark_durations, live_time, int(spark_durations.size)
 
 
+# ----------------------------
+# Per-file runner
+# ----------------------------
+def run_on_file(file_path: str, cfg: Config):
+    df = load_root_file(file_path, branches=["time"])
+    if df.empty:
+        return {
+            "n_hits": 0, "hit_live_time": 0.0, "rate_per_bin_kHz": np.array([]),
+            "n_sparks": 0, "spark_live_time": 0.0, "spark_durations": np.array([])
+        }
+
+    hit_times = np.array(df["time"])
+
+    # In analysis mode, we still compute diagnostics (needed for totals),
+    # but plotting is suppressed.
+    hit_live_time, n_hits, rate_per_bin_kHz = rate_distribution_diagnostic(hit_times, cfg)
+    spark_durations, spark_live_time, n_sparks = find_sparks(hit_times, cfg)
+
+    return {
+        "n_hits": n_hits,
+        "hit_live_time": hit_live_time,
+        "rate_per_bin_kHz": rate_per_bin_kHz,
+        "n_sparks": n_sparks,
+        "spark_live_time": spark_live_time,
+        "spark_durations": spark_durations
+    }
+
+
+# ----------------------------
+# Main
+# ----------------------------
 def main():
+    cfg = Config(
+        data_dir="/drf/projets/clas12/P2/spark_tests/sparks_test14", #AC-R
+        # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_no_protection_jan26",
+        # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_no_protection_dec25",
+        # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_AC_dec25",
+        # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test15", #without protection
+        # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_AC_jan26",
+        # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test16", #only AC
+        # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_DC_dec25",
+        # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test11", #AC-DC
+        # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_R_dec25",
 
-    # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_no_protection_jan26"
-    # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_no_protection_dec25"
-    # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_AC_dec25"
-    # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test15" #without protection
-    # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test16" #only AC
-    # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test17" #without protection
-    # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_AC_jan26"
-    # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_DC_dec25"
-    #data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test11" #AC-DC
-    # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_R_dec25"
-    data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test14" #AC-R
-
+        bin_width=0.01,
+        t_cut=20.0,
+        fit_window_sigmas=2.5,
+        mode="analysis",              # "debug" or "analysis"
+        plot_per_file=True,        # per-file plots only if mode="debug"
+        debug_fit=False,           # gaussian debug window plot only if mode="debug"
+        plot_global=True,          # global plots at the end
+        spark_threshold_type="poisson",
+        recovery_condition="median"
+    )
 
     set_root_style()
 
-
-    # --- Hit-rate accumulators ---
+    # Accumulators
     total_hits = 0
     total_hit_live_time = 0.0
-    all_rate_per_bin = []
+    all_rate_per_bin_kHz = []
 
-    # --- Spark accumulators ---
     total_sparks = 0
-    total_live_time = 0.0
+    total_spark_live_time = 0.0
     all_spark_durations = []
 
-    for file_name in sorted(os.listdir(data_dir)):
+    for file_name in sorted(os.listdir(cfg.data_dir)):
         if not (file_name.startswith("enp") and file_name.endswith(".root")):
             continue
 
-        file_path = os.path.join(data_dir, file_name)
+        file_path = os.path.join(cfg.data_dir, file_name)
         print("Processing file:", file_path)
 
-        df = load_root_file(file_path, branches=["time"])
-        if df.empty:
-            continue
+        out = run_on_file(file_path, cfg)
 
-        hit_times = np.array(df["time"])
+        total_hits += out["n_hits"]
+        total_hit_live_time += out["hit_live_time"]
+        if out["rate_per_bin_kHz"].size > 0:
+            all_rate_per_bin_kHz.extend(out["rate_per_bin_kHz"])
 
-        # ---- PRE-SPARK DIAGNOSTIC (per file) ----
-        hist, hit_live_time, n_hits, rate_per_bin = rate_distribution_diagnostic(
-            hit_times,
-            bin_width=0.01,
-            plot=True,
-            plot_rate=True
-        )
+        total_sparks += out["n_sparks"]
+        total_spark_live_time += out["spark_live_time"]
+        if out["spark_durations"].size > 0:
+            all_spark_durations.extend(out["spark_durations"])
 
-        total_hits += n_hits
-        total_hit_live_time += hit_live_time
-        if len(rate_per_bin) > 0:
-            all_rate_per_bin.extend(rate_per_bin)
+        if out["spark_live_time"] > 0:
+            print(f"{file_name}: spark rate = {(out['n_sparks'] / out['spark_live_time'])/1e3:.3e} kHz")
 
-        # ---- SPARK FINDING (per file) ----
-        spark_durations, live_time = find_sparks(
-            hit_times,
-            plot=True,
-            bin_width=0.01
-        )
-
-        # accumulate spark totals
-        total_sparks += len(spark_durations)
-        total_live_time += live_time
-        all_spark_durations.extend(spark_durations)
-
-        # (optional) per-file spark rate print (correct place is inside loop)
-        if live_time > 0:
-            file_spark_rate = len(spark_durations) / live_time
-            print(f"{file_name}: spark rate = {file_spark_rate:.3e} Hz")
-
-    # ---- GLOBAL HIT RATE OVER ALL FILES (print once) ----
+    # Global hit-rate summary
     if total_hit_live_time > 0:
-        global_hit_rate_total = total_hits / total_hit_live_time
-        global_hit_rate_total_kHz = global_hit_rate_total / 1e3
-        global_hit_rate_err = np.sqrt(total_hits) / total_hit_live_time
-        global_hit_rate_err_kHz = global_hit_rate_err / 1e3
+        global_hit_rate_Hz = total_hits / total_hit_live_time
+        global_hit_rate_err_Hz = np.sqrt(total_hits) / total_hit_live_time
         print("\n=== Hit-rate summary (after 20 s cut) ===")
         print(f"Total hits: {total_hits}")
         print(f"Total hit live time: {total_hit_live_time:.1f} s")
-        print(f"Global hit rate: ({global_hit_rate_total:.3e} ± {global_hit_rate_err:.1e}) Hz")
-        print(f"Global hit rate in kHz: ({global_hit_rate_total_kHz} ± {global_hit_rate_err:.1e}) kHz ")
+        print(f"Global hit rate: ({global_hit_rate_Hz:.3e} ± {global_hit_rate_err_Hz:.1e}) Hz")
+        print(f"Global hit rate: ({global_hit_rate_Hz/1e3:.3e} ± {global_hit_rate_err_Hz/1e3:.1e}) kHz")
     else:
         print("\nNo valid hit live time to compute global hit rate.")
 
-    # ---- INSTANTANEOUS HIT RATE DISTRIBUTION OVER ALL FILES (plot once) ----
-    if len(all_rate_per_bin) > 0:
+    # Global instantaneous rate distribution
+    if cfg.plot_global and len(all_rate_per_bin_kHz) > 0:
         plt.figure()
-        plt.hist(all_rate_per_bin, bins=120, histtype="step", linewidth=1.6)
-        plt.xlabel("Instantaneous hit rate per bin [Hz]")
+        plt.hist(all_rate_per_bin_kHz, bins=120, histtype="step", linewidth=1.6)
+        plt.xlabel("Instantaneous hit rate per bin [kHz]")
         plt.ylabel("Number of bins")
         plt.yscale("log")
         plt.title("Instantaneous hit rate distribution (all files)")
         plt.tight_layout()
         plt.show()
 
-    # ---- SPARK RATE SUMMARY (global) ----
-    if total_live_time > 0:
-        sparking_rate = total_sparks / total_live_time
-        rate_err = np.sqrt(total_sparks) / total_live_time
+    # Spark summary
+    if total_spark_live_time > 0:
+        sparking_rate = total_sparks / total_spark_live_time
+        rate_err = np.sqrt(total_sparks) / total_spark_live_time
         print("\n=== Spark summary ===")
         print(f"Total sparks: {total_sparks}")
-        print(f"Total live time: {total_live_time:.1f} s")
+        print(f"Total live time: {total_spark_live_time:.1f} s")
         print(f"Sparking rate: ({sparking_rate:.3e} ± {rate_err:.1e}) Hz")
     else:
         print("\nNo valid live time to compute spark rate.")
 
-    # ---- Spark duration distribution ----
-    if len(all_spark_durations) > 0:
+    # Spark duration distribution
+    if cfg.plot_global and len(all_spark_durations) > 0:
+        all_spark_durations = np.asarray(all_spark_durations, dtype=float)
         fig, ax = plt.subplots()
         ax.hist(all_spark_durations, bins=20, color="blue", alpha=0.7)
-        mean = np.mean(all_spark_durations)
-        rms = np.std(all_spark_durations)
+        mean = float(np.mean(all_spark_durations))
+        rms = float(np.std(all_spark_durations))
         ax.axvline(mean, color="red", linestyle="--")
         ax.annotate(
             f"Sparks: {len(all_spark_durations)}\n"
@@ -333,7 +564,7 @@ def main():
         ax.set_title("Distribution of Spark Durations")
         plt.tight_layout()
         plt.show()
-    else:
+    elif cfg.plot_global:
         print("\nNo sparks found → spark duration histogram skipped.")
 
 
