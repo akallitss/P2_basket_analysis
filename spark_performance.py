@@ -454,13 +454,13 @@ def run_on_file(file_path: str, cfg: Config):
 # ----------------------------
 def main():
     cfg = Config(
-        data_dir="/drf/projets/clas12/P2/spark_tests/sparks_test14", #AC-R
+        # data_dir="/drf/projets/clas12/P2/spark_tests/sparks_test14", #AC-R
         # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_no_protection_jan26",
         # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_no_protection_dec25",
         # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_AC_dec25",
         # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test15", #without protection
         # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_AC_jan26",
-        # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test16", #only AC
+        data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test16", #only AC
         # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_DC_dec25",
         # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test11", #AC-DC
         # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_R_dec25",
@@ -468,13 +468,14 @@ def main():
         bin_width=0.01,
         t_cut=20.0,
         fit_window_sigmas=3,
-        mode="analysis",              # "debug" or "analysis"
-        # plot_per_file=False,        # per-file plots only if mode="debug"
-        # debug_fit=False,           # gaussian debug window plot only if mode="debug"
-        plot_global=True,          # global plots at the end
+        mode="debug",              # "debug" or "analysis"
+        # mode="analysis",              # "debug" or "analysis"
+        plot_per_file=True,        # per-file plots only if mode="debug"
+        debug_fit=True,           # gaussian debug window plot only if mode="debug"
+        # plot_global=True,          # global plots at the end
         spark_threshold_type="poisson",
         recovery_condition="median",
-        max_files=200,
+        max_files=1500,
         # file_stride=20,
     )
 
