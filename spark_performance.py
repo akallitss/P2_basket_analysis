@@ -10,9 +10,13 @@ Created as spark_performance.py
 
 import os
 from dataclasses import dataclass
-from typing import Tuple, Dict, Any, Optional
+from typing import Optional
+from scipy.signal import find_peaks
+from scipy.ndimage import uniform_filter1d
+
 
 import uproot
+# import ROOT
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -127,7 +131,24 @@ def fit_main_peak_gaussian(occupancies, window_sigmas=2.5, min_points=6, debug=F
         dbg = {"x_full": x_full, "y_full": y_full}
         return (*out, dbg) if debug else out
 
-    mode = int(x[np.argmax(y)])
+    # mode = int(x[np.argmax(y)])
+
+    min_occ = 5  # still exclude noise floor
+    candidate_mask = x > min_occ
+    xc, yc = x[candidate_mask], y[candidate_mask]
+
+    peaks, props = find_peaks(yc, height=yc.max() * 0.02, distance=50)
+
+    if len(peaks) >= 2:
+        # Sort by height, drop the tallest (spill peak), take the next tallest
+        sorted_by_height = peaks[np.argsort(props["peak_heights"])[::-1]]
+        signal_peak = sorted_by_height[1]  # second tallest = inter-spill baseline
+        mode = int(xc[signal_peak])
+    elif len(peaks) == 1:
+        mode = int(xc[peaks[0]])  # only one peak found, use it
+    else:
+        mode = int(xc[np.argmax(yc)])  # fallback
+
     sigma_guess = float(np.sqrt(max(mode, 1)))  # Poisson-scale guess
 
     x_lo = max(0, int(np.floor(mode - window_sigmas * sigma_guess)))
@@ -294,8 +315,8 @@ def rate_distribution_diagnostic(hit_times_ns: np.ndarray, cfg: Config):
         plt.figure()
         plt.hist(rate_per_bin_kHz, bins=100, histtype="step", linewidth=1.6)
 
-        plt.axvline(occ_to_khz(thr["thr_rms"], cfg.bin_width), color="red", linestyle="--", linewidth=1.5,
-                    label=f"Thr = {occ_to_khz(thr['thr_rms'], cfg.bin_width):.2f} kHz (RMS)")
+        # plt.axvline(occ_to_khz(thr["thr_rms"], cfg.bin_width), color="red", linestyle="--", linewidth=1.5,
+        #             label=f"Thr = {occ_to_khz(thr['thr_rms'], cfg.bin_width):.2f} kHz (RMS)")
         plt.axvline(occ_to_khz(thr["thr_pois"], cfg.bin_width), color="blue", linestyle="--", linewidth=1.5,
                     label=f"Thr = {occ_to_khz(thr['thr_pois'], cfg.bin_width):.2f} kHz (Poisson)")
         if thr["fit_ok"]:
@@ -391,8 +412,8 @@ def find_sparks(hit_times_ns: np.ndarray, cfg: Config):
         plt.step(bin_centers, occ, where="mid", color="black", linewidth=1.5, label="Hits per bin")
 
         # show all thresholds for reference
-        plt.axhline(thr["thr_rms"], color="red", linestyle="--", linewidth=1.5,
-                    label=f"Thr_RMS = {thr['thr_rms']:.1f}")
+        # plt.axhline(thr["thr_rms"], color="red", linestyle="--", linewidth=1.5,
+        #             label=f"Thr_RMS = {thr['thr_rms']:.1f}")
         plt.axhline(thr["thr_pois"], color="blue", linestyle="--", linewidth=1.5,
                     label=f"Thr_Poisson = {thr['thr_pois']:.1f}")
         if thr["fit_ok"]:
@@ -460,10 +481,11 @@ def main():
         # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_AC_dec25",
         # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test15", #without protection
         # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_AC_jan26",
-        data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test16", #only AC
+        # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test16", #only AC
         # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_DC_dec25",
         # data_dir = "/drf/projets/clas12/P2/spark_tests/sparks_test11", #AC-DC
         # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_R_dec25",
+        data_dir = "/drf/projets/clas12/cern_202511_p2_alinx_recovered/run_101",
 
         bin_width=0.01,
         t_cut=20.0,
@@ -602,7 +624,7 @@ def main():
         ax.hist(all_spark_durations, bins=20, color="blue", alpha=0.7)
         mean = float(np.mean(all_spark_durations))
         rms = float(np.std(all_spark_durations))
-        ax.axvline(mean, color="red", linestyle="--")
+        # ax.axvline(mean, color="red", linestyle="--")
         ax.annotate(
             f"Sparks: {len(all_spark_durations)}\n"
             f"Mean: {mean:.2f} s\n"
