@@ -29,8 +29,6 @@ def load_root_file(file_path, branches=None):
     return tree.arrays(library="pd")
 
 
-
-
 def load_padmap(csv_path):
     """Load pad map CSV into DataFrame."""
     return pd.read_csv(csv_path)
@@ -263,11 +261,13 @@ def main():
     #######################
     # LOAD DATA
     #######################
-    data_dir = f"/home/akallits/Documents/Saclay-PostDoc/SPS_beam_test/data/VMM-alinx_data/{run_number}"
+    # data_dir = f"/home/akallits/Documents/Saclay-PostDoc/SPS_beam_test/data/VMM-alinx_data/{run_number}"
+    data_dir = f"/drf/projets/clas12/cern_202511_p2_alinx/{run_number}"
+    mapping_dir = "/drf/projets/clas12/P2/akallits/"
     enp_files = sorted([os.path.join(data_dir, f) for f in os.listdir(data_dir)
                         if f.startswith("enp") and f.endswith(".root")])
     df_hits = load_root_file(enp_files[1])  # Load second file for testing
-    df_padmap = load_padmap("p2_small_detector_map.csv")
+    df_padmap = load_padmap(f"{mapping_dir}/p2_small_detector_map.csv")
     # print(os.path.exists("p2_small_detector_map.csv"))
     # input()
     #
@@ -363,7 +363,7 @@ def main():
 
     if plot_detector_heatmaps:
         detector_model = SquareDetector()
-        detector_model.read_mapping("p2_small_detector_map.csv")
+        detector_model.read_mapping(f"{mapping_dir}/p2_small_detector_map.csv")
         detector_model.plot_hit_heatmap(df_xy, cmap="jet", global_coords=False, log_scale=True)
         detector_model.plot_hit_heatmap(df_xy, cmap="jet", global_coords=False, area_norm=True, log_scale=True)
         detector_model.plot_hit_heatmap(df_xy, cmap="jet", global_coords=False, adc_weighted=True, log_scale=True)
