@@ -701,6 +701,23 @@ def main():
 
         print(f"  MPV = {mpv:.1f} ADC")
 
+        for run_no in [78, 79]:
+            run_dir = get_run_dir(data_dir, run_no)
+            root_files = list_root_files(run_dir, n=2)
+            file_path = os.path.join(run_dir, root_files[1])
+
+            df_hits = load_hits_root(
+                file_path, branches=["adc", "vmm", "ch", "over_threshold"]
+            )
+
+            df_noise = compute_noise_baseline(df_hits)
+
+            print(f"\nRun {run_no} — noise baseline table:")
+            if df_noise.empty:
+                print("  WARNING: no over_threshold=0 hits found — sng=0 run")
+            else:
+                print(df_noise.to_string(index=False))
+
 
     # ---- Plot result ----
     if PLOTS["adc_hist_per_run"]:
