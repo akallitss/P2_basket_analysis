@@ -13,6 +13,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from vmm_mapping import vmm_mapping
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
+
 
 
 # -----------------------------
@@ -237,6 +239,70 @@ def compare_full_vs_cut(df_hits, vmm_id, run_no, adc_cut=100, use_over_threshold
     plt.show()
 
 
+def compute_noise_baseline(df_hits, n_sigma=5):
+    """
+    Compute per-VMM noise pedestal parameters from over_threshold=0 hits.
+    Returns a DataFrame with median, robust_sigma, and the n-sigma cut per VMM.
+    """
+    records = []
+
+    for vmm_id in sorted(df_hits["vmm"].unique()):
+        noise = df_hits[
+            (df_hits["vmm"] == vmm_id) &
+            (df_hits["over_threshold"] == 0)
+        ]["adc"].values
+
+        if len(noise) < 100:
+            continue
+
+        median = np.median(noise)
+        mad = np.median(np.abs(noise - median))
+        robust_sigma = 1.4826 * mad
+        cut = median + n_sigma * robust_sigma
+        tail_frac = (noise > cut).mean() * 100
+
+        records.append({
+            "vmm_id": vmm_id,
+            "n_noise": len(noise),
+            "median_adc": median,
+            "robust_sigma": robust_sigma,
+            "noise_cut": cut,
+            "tail_frac_pct": tail_frac
+        })
+
+    return pd.DataFrame(records)
+
+def get_clean_signal(df_hits, vmm_id, exclude_trigger_vmms=(0, 1)):
+    """
+    Extract clean signal hits for a detector VMM:
+    - over_threshold == 1
+    - adc < 1023 (remove saturated hits)
+    - excludes trigger VMMs
+    """
+    if vmm_id in exclude_trigger_vmms:
+        return None
+
+    signal = df_hits[
+        (df_hits["vmm"] == vmm_id) &
+        (df_hits["over_threshold"] == 1) &
+        (df_hits["adc"] < 1023)
+    ]["adc"].values
+
+    return signal
+
+
+def estimate_mpv(adc_values, adc_min, adc_max=800, bins=150, smooth_sigma=2):
+    """
+    Estimate MPV from clean Landau-like ADC distribution.
+    adc_min should come from per-VMM noise cut, not hardcoded.
+    """
+    counts, edges = np.histogram(adc_values, bins=bins,
+                                  range=(adc_min, adc_max))
+    bin_centers = 0.5 * (edges[:-1] + edges[1:])
+    smoothed = gaussian_filter1d(counts.astype(float), sigma=smooth_sigma)
+    mpv = bin_centers[np.argmax(smoothed)]
+
+    return mpv, counts, smoothed, bin_centers
 
 def plot_removed_fraction(df_results, vmm_ids):
     plt.figure()
@@ -386,13 +452,15 @@ def plot_robust_vs_peaking(df_results, vmm_ids):
 def main():
 
     # ---- Load run metadata ----
-    df_run_scan = load_run_table("vmm_config_scan .csv")
+    cnfg_dir = ("/drf/projets/clas12/P2/akallits/")
+    df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan.csv")
 
     # ---- Select runs ----
     # run_num_sg_st_sng = filter_runs(df_run_scan, sg=3.0, sng=1.0)
     run_num_sg_st_sng = filter_runs(df_run_scan, sg=4.5, sng=1.0)
 
-    data_dir = "/media/akallits/EXTERNAL_USB/2312292/Extras/Physics/Post-Doc-Saclay/SPS_beam_test/data/VMM-alinx_data/5kHz-muons-config-scan"
+    data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+    # data_dir = "/media/akallits/EXTERNAL_USB/2312292/Extras/Physics/Post-Doc-Saclay/SPS_beam_test/data/VMM-alinx_data/5kHz-muons-config-scan"
     # data_dir = "/media/akallits/EXTERNAL_USB/2312292/Extras/Physics/Post-Doc-Saclay/SPS_beam_test/data/VMM-alinx_data/15kHz-muons-config-scan"
 
     # ---- Get unique VMM IDs ----
@@ -409,6 +477,230 @@ def main():
 
     df_results.dropna(inplace=True)
     df_results.to_csv("vmm_adc_analysis.csv", index=False)
+
+    # Step 1 - pick two controlled runs
+    run_sng0 = 78  # sg=4.5, snt=200, sng=0
+    run_sng1 = 79  # sg=4.5, snt=200, sng=1
+
+    vmm_id = vmm_ids[5]  # just one VMM for now
+
+    for run_no in [run_sng0, run_sng1]:
+        run_dir = get_run_dir(data_dir, run_no)
+        root_files = list_root_files(run_dir, n=2)
+        file_path = os.path.join(run_dir, root_files[1])
+
+        df_hits = load_hits_root(
+            file_path,
+            branches=["adc", "vmm", "ch", "over_threshold"]
+        )
+
+        df_vmm = df_hits[df_hits["vmm"] == vmm_id]
+        n_total = len(df_vmm)
+        n_above = (df_vmm["over_threshold"] == 1).sum()
+        n_below = (df_vmm["over_threshold"] == 0).sum()
+
+        print(f"\nRun {run_no} | VMM {vmm_id}")
+        print(f"  Total hits      : {n_total}")
+        print(f"  over_threshold=1: {n_above} ({100 * n_above / n_total:.1f}%)")
+        print(f"  over_threshold=0: {n_below} ({100 * n_below / n_total:.1f}%)")
+
+    run_dir = get_run_dir(data_dir, 79)
+    root_files = list_root_files(run_dir, n=2)
+    file_path = os.path.join(run_dir, root_files[1])
+
+    df_hits = load_hits_root(
+        file_path,
+        branches=["adc", "vmm", "ch", "over_threshold"]
+    )
+
+    df_vmm = df_hits[df_hits["vmm"] == 11]
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+
+    # Left plot — full range
+    for flag, label, color in [(1, "over_threshold=1", "steelblue"),
+                               (0, "over_threshold=0", "orange")]:
+        adc = df_vmm[df_vmm["over_threshold"] == flag]["adc"]
+        axes[0].hist(adc, bins=100, alpha=0.6, label=f"{label} (n={len(adc)})", color=color)
+
+    axes[0].set_xlabel("ADC")
+    axes[0].set_ylabel("Hits")
+    axes[0].set_title("Run 79 VMM 11 — full ADC range")
+    axes[0].legend()
+
+    # Right plot — zoom into low ADC to see noise region
+    for flag, label, color in [(1, "over_threshold=1", "steelblue"),
+                               (0, "over_threshold=0", "orange")]:
+        adc = df_vmm[df_vmm["over_threshold"] == flag]["adc"]
+        axes[1].hist(adc, bins=100, alpha=0.6, label=label, color=color)
+
+    axes[1].set_xlim(0, 200)
+    axes[1].set_xlabel("ADC")
+    axes[1].set_ylabel("Hits")
+    axes[1].set_title("Run 79 VMM 11 — zoom low ADC")
+    axes[1].legend()
+
+    plt.tight_layout()
+    plt.show()
+
+    df_vmm = df_hits[df_hits["vmm"] == 11]
+    noise_hits = df_vmm[df_vmm["over_threshold"] == 0]["adc"].values
+
+    # Basic stats on the noise population
+    median = np.median(noise_hits)
+    mad = np.median(np.abs(noise_hits - median))
+    robust_sigma = 1.4826 * mad
+
+    print(f"Noise pedestal:")
+    print(f"  Median        : {median:.1f} ADC")
+    print(f"  Robust sigma  : {robust_sigma:.1f} ADC")
+    print(f"  5-sigma cut   : {median + 5 * robust_sigma:.1f} ADC")
+    print(f"  Fraction of over_threshold=0 beyond 5-sigma: "
+          f"{(noise_hits > median + 5 * robust_sigma).mean() * 100:.2f}%")
+
+
+    input("Press ENTER to continue...")
+
+    print("\n")
+    print(f"\nRun 79 — Noise pedestal per VMM:")
+
+    df_noise_baseline = compute_noise_baseline(df_hits, n_sigma=5)
+    print(df_noise_baseline.to_string(index=False))
+
+    input("Press ENTER to continue...")
+    df_vmm = df_hits[df_hits["vmm"] == 11]
+    signal = df_vmm[df_vmm["over_threshold"] == 1]["adc"].values
+
+    print(f"Signal population — VMM 11, Run 79")
+    print(f"  N hits         : {len(signal)}")
+    print(f"  Mean ADC       : {signal.mean():.1f}")
+    print(f"  Median ADC     : {np.median(signal):.1f}")
+    print(f"  Std ADC        : {signal.std():.1f}")
+    print(f"  Min / Max      : {signal.min()} / {signal.max()}")
+    print(f"  Fraction at max (saturated): "
+          f"{(signal == signal.max()).mean() * 100:.2f}%")
+
+    input("Press ENTER to continue...")
+
+    signal = df_vmm[df_vmm["over_threshold"] == 1]["adc"].values
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+
+    # Left — full range
+    axes[0].hist(signal, bins=100, color="steelblue", alpha=0.7)
+    axes[0].axvline(signal.mean(), color="red", linestyle="--", label=f"Mean={signal.mean():.0f}")
+    axes[0].axvline(np.median(signal), color="orange", linestyle="--", label=f"Median={np.median(signal):.0f}")
+    axes[0].set_xlabel("ADC")
+    axes[0].set_ylabel("Hits")
+    axes[0].set_title("VMM 11 Run 79 — signal full range")
+    axes[0].legend()
+
+    # Right — zoom into the rising edge and peak region
+    axes[1].hist(signal, bins=100, color="steelblue", alpha=0.7)
+    axes[1].set_xlim(100, 600)
+    axes[1].axvline(signal.mean(), color="red", linestyle="--", label=f"Mean={signal.mean():.0f}")
+    axes[1].axvline(np.median(signal), color="orange", linestyle="--", label=f"Median={np.median(signal):.0f}")
+    axes[1].set_xlabel("ADC")
+    axes[1].set_ylabel("Hits")
+    axes[1].set_title("VMM 11 Run 79 — signal zoom")
+    axes[1].legend()
+
+    plt.tight_layout()
+    plt.show()
+
+    fig, axes = plt.subplots(2, 4, figsize=(16, 8))
+    axes = axes.flatten()
+
+    plot_idx = 0  # separate counter for axes slots
+
+    for vmm_id in sorted(df_hits["vmm"].unique()):
+        signal = df_hits[
+            (df_hits["vmm"] == vmm_id) &
+            (df_hits["over_threshold"] == 1)
+            ]["adc"].values
+
+        if len(signal) < 100:
+            continue
+
+        if plot_idx >= len(axes):  # safety guard
+            break
+
+        axes[plot_idx].hist(signal, bins=100, color="steelblue", alpha=0.7)
+        axes[plot_idx].set_xlim(100, 700)
+        axes[plot_idx].set_xlabel("ADC")
+        axes[plot_idx].set_ylabel("Hits")
+        axes[plot_idx].set_title(f"VMM {vmm_id} (n={len(signal)})")
+
+        plot_idx += 1
+
+    plt.suptitle("Run 79 — Signal distribution per VMM", y=1.02)
+    plt.tight_layout()
+    plt.show()
+
+    print(f"\nRun 79 — Saturation check per VMM:")
+    print(f"{'VMM':>5} {'N_signal':>10} {'N_saturated':>12} {'Sat%':>8} {'ADC_max':>10}")
+
+    for vmm_id in sorted(df_hits["vmm"].unique()):
+        signal = df_hits[
+            (df_hits["vmm"] == vmm_id) &
+            (df_hits["over_threshold"] == 1)
+            ]["adc"].values
+
+        if len(signal) < 100:
+            continue
+
+        adc_max = signal.max()
+        n_sat = (signal == adc_max).sum()
+        sat_frac = 100 * n_sat / len(signal)
+
+        print(f"{vmm_id:>5} {len(signal):>10} {n_sat:>12} {sat_frac:>8.2f}% {adc_max:>10}")
+
+        for vmm_id in [11, 13]:
+            signal_clean = get_clean_signal(df_hits, vmm_id)
+            signal_raw = df_hits[
+                (df_hits["vmm"] == vmm_id) &
+                (df_hits["over_threshold"] == 1)
+                ]["adc"].values
+
+            print(f"\nVMM {vmm_id}")
+            print(f"  Raw   — N={len(signal_raw):>8},  Mean={signal_raw.mean():.1f},  "
+                  f"Median={np.median(signal_raw):.1f}")
+            print(f"  Clean — N={len(signal_clean):>8},  Mean={signal_clean.mean():.1f},  "
+                  f"Median={np.median(signal_clean):.1f}")
+
+    for vmm_id in [11, 13]:
+        signal_clean = get_clean_signal(df_hits, vmm_id)
+
+        # Get this VMM's noise cut from the baseline table
+        noise_cut = df_noise_baseline.loc[
+            df_noise_baseline["vmm_id"] == vmm_id, "noise_cut"
+        ].iloc[0]
+
+        print(f"\nVMM {vmm_id} — using noise_cut={noise_cut:.1f} as adc_min")
+
+        mpv, counts, smoothed, bin_centers = estimate_mpv(
+            signal_clean, adc_min=noise_cut
+        )
+
+        scale = counts.max() / smoothed.max()
+        fig, ax = plt.subplots()
+        ax.bar(bin_centers, counts, width=bin_centers[1] - bin_centers[0],
+               color="steelblue", alpha=0.5, label="Clean signal")
+        ax.plot(bin_centers, smoothed * scale, color="black",
+                linewidth=2, label="Smoothed")
+        ax.axvline(noise_cut, color="orange", linestyle="--",
+                   label=f"Noise cut={noise_cut:.0f}")
+        ax.axvline(mpv, color="red", linestyle="--",
+                   label=f"MPV={mpv:.0f}")
+        ax.set_xlabel("ADC")
+        ax.set_ylabel("Hits")
+        ax.set_title(f"VMM {vmm_id} Run 79 — MPV from noise cut")
+        ax.legend()
+        plt.tight_layout()
+        plt.show()
+
+        print(f"  MPV = {mpv:.1f} ADC")
+
 
     # ---- Plot result ----
     if PLOTS["adc_hist_per_run"]:
@@ -447,4 +739,4 @@ if __name__ == "__main__":
     main()
 
 
-    print("bonzo")
+print("bonzo")
