@@ -30,8 +30,10 @@ class Config:
     data_dir: str
     max_files: Optional[int] = None   # e.g. 3
     file_stride: int = 1              # e.g. 5 = take every 5th file
-    bin_width: float = 0.01            # seconds
-    t_cut: float = 20.0                # seconds (ignore first t_cut)
+    bin_width: float = 0.01            # seconds for lab tests
+    # bin_width: float = 0.001            # seconds for SPS Beam Tests
+    # t_cut: float = 20.0                # seconds (ignore first t_cut) for lab tests
+    t_cut: float = 0.0                # seconds (ignore first t_cut) for SPS Beam Tests
     fit_window_sigmas: float = 2.5     # window = mode ± fit_window_sigmas * sqrt(mode)
 
     # Mode control
@@ -131,23 +133,24 @@ def fit_main_peak_gaussian(occupancies, window_sigmas=2.5, min_points=6, debug=F
         dbg = {"x_full": x_full, "y_full": y_full}
         return (*out, dbg) if debug else out
 
-    # mode = int(x[np.argmax(y)])
+    mode = int(x[np.argmax(y)])
 
-    min_occ = 5  # still exclude noise floor
-    candidate_mask = x > min_occ
-    xc, yc = x[candidate_mask], y[candidate_mask]
-
-    peaks, props = find_peaks(yc, height=yc.max() * 0.02, distance=50)
-
-    if len(peaks) >= 2:
-        # Sort by height, drop the tallest (spill peak), take the next tallest
-        sorted_by_height = peaks[np.argsort(props["peak_heights"])[::-1]]
-        signal_peak = sorted_by_height[1]  # second tallest = inter-spill baseline
-        mode = int(xc[signal_peak])
-    elif len(peaks) == 1:
-        mode = int(xc[peaks[0]])  # only one peak found, use it
-    else:
-        mode = int(xc[np.argmax(yc)])  # fallback
+    #test for the SPS Beam Test Data
+    # min_occ = 5  # still exclude noise floor
+    # candidate_mask = x > min_occ
+    # xc, yc = x[candidate_mask], y[candidate_mask]
+    #
+    # peaks, props = find_peaks(yc, height=yc.max() * 0.02, distance=50)
+    #
+    # if len(peaks) >= 2:
+    #     # Sort by height, drop the tallest (spill peak), take the next tallest
+    #     sorted_by_height = peaks[np.argsort(props["peak_heights"])[::-1]]
+    #     signal_peak = sorted_by_height[1]  # second tallest = inter-spill baseline
+    #     mode = int(xc[signal_peak])
+    # elif len(peaks) == 1:
+    #     mode = int(xc[peaks[0]])  # only one peak found, use it
+    # else:
+    #     mode = int(xc[np.argmax(yc)])  # fallback
 
     sigma_guess = float(np.sqrt(max(mode, 1)))  # Poisson-scale guess
 
@@ -311,10 +314,19 @@ def rate_distribution_diagnostic(hit_times_ns: np.ndarray, cfg: Config):
 
     rate_per_bin_kHz = (occ / cfg.bin_width) / 1e3
 
+    # Define bin width in kHz for the rate histogram
+    rate_bin_width_kHz = 100e-6  # adjust to taste in seconds
+
+    rate_edges = np.arange(
+        rate_per_bin_kHz.min(),
+        rate_per_bin_kHz.max() + rate_bin_width_kHz,
+        rate_bin_width_kHz
+    )
+
     if cfg.mode == "debug" and cfg.plot_per_file and rate_per_bin_kHz.size > 0:
         plt.figure()
-        plt.hist(rate_per_bin_kHz, bins=100, histtype="step", linewidth=1.6)
-
+        # plt.hist(rate_per_bin_kHz, bins=100, histtype="step", linewidth=1.6)
+        plt.hist(rate_per_bin_kHz, bins=rate_edges, histtype="step", linewidth=1.6)
         # plt.axvline(occ_to_khz(thr["thr_rms"], cfg.bin_width), color="red", linestyle="--", linewidth=1.5,
         #             label=f"Thr = {occ_to_khz(thr['thr_rms'], cfg.bin_width):.2f} kHz (RMS)")
         plt.axvline(occ_to_khz(thr["thr_pois"], cfg.bin_width), color="blue", linestyle="--", linewidth=1.5,
@@ -487,8 +499,10 @@ def main():
         # data_dir = "/mnt/data/P2_Basket_Analysis/spark_tests_data/sparks_AC_R_dec25",
         data_dir = "/drf/projets/clas12/cern_202511_p2_alinx_recovered/run_101",
 
-        bin_width=0.01,
-        t_cut=20.0,
+        bin_width=0.01, #s
+        # bin_width=0.01,
+        # t_cut=20.0,
+        t_cut=0.0,
         fit_window_sigmas=3,
         mode="debug",              # "debug" or "analysis"
         # mode="analysis",              # "debug" or "analysis"
