@@ -51,7 +51,7 @@ PLOTS = {
     "snr_heatmap":    True,
     "qa_noise_sigma_distribution": False,
     "qa_robust_vs_std_comparison": False,
-    "qa_mpv_vs_median_comparison": True,
+    "qa_mpv_vs_median_comparison": False,
 
 
 }
@@ -1677,6 +1677,181 @@ def qa_mpv_vs_median_comparison(df_run_scan, data_dir, pairs,
               f"{row['ratio_med_mpv']:>8.2f}")
 
     return df
+
+
+def compute_snr_per_channel(data_dir, pairs, detector_vmms,
+                             exclude_trigger_vmms=(0, 1),
+                             min_signal_hits=50,
+                             min_noise_hits=50,
+                             min_sigma=2.0,
+                             max_sigma=20.0,
+                             mpv_min=100,
+                             mpv_max=300,
+                             bins=80,
+                             smooth_sigma=2):
+    """
+    Compute channel-level SNR for each configuration pair.
+
+    Same strategy as compute_snr():
+    - Noise sigma  : from sng=1 run, per channel, adc>20, MAD-based
+    - Signal MPV   : from sng=0 run, per channel, adc<1023
+    - SNR          : MPV / noise_sigma per channel
+
+    Quality cuts applied per channel:
+    - min_noise_hits : minimum noise hits for stable MAD estimate
+    - min_sigma      : removes stuck channels (MAD floor artifact)
+    - max_sigma      : removes floating/noisy channels
+    - mpv_min/max    : removes MPV finder artifacts in sparse histograms
+    - min_signal_hits: minimum signal hits for reliable MPV
+
+    Parameters
+    ----------
+    bins : int
+        Histogram bins for MPV estimation — lower than VMM level
+        to match reduced per-channel statistics.
+    smooth_sigma : float
+        Gaussian smoothing width for MPV peak finder.
+    """
+    results = []
+
+    for pair in pairs:
+        sg       = pair["sg"]
+        snt      = pair["snt"]
+        run_sng0 = pair["sng0"]
+        run_sng1 = pair["sng1"]
+
+        print(f"\nProcessing sg={sg} snt={snt} "
+              f"| noise=run {run_sng1} | signal=run {run_sng0}")
+
+        # --- Load sng=1 run → noise ---
+        run_dir    = get_run_dir(data_dir, run_sng1)
+        root_files = list_root_files(run_dir, n=2)
+        if not root_files:
+            print(f"  WARNING: no files for run {run_sng1}, skipping")
+            continue
+
+        df_hits_noise = load_hits_root(
+            os.path.join(run_dir, root_files[1]),
+            branches=["adc", "vmm", "ch", "over_threshold"]
+        )
+
+        # --- Load sng=0 run → signal ---
+        run_dir    = get_run_dir(data_dir, run_sng0)
+        root_files = list_root_files(run_dir, n=2)
+        if not root_files:
+            print(f"  WARNING: no files for run {run_sng0}, skipping")
+            continue
+
+        df_hits_signal = load_hits_root(
+            os.path.join(run_dir, root_files[1]),
+            branches=["adc", "vmm", "ch", "over_threshold"]
+        )
+
+        # VMM-level noise baseline → provides noise_cut per VMM
+        # used as adc_min for MPV search (consistent with VMM level)
+        df_noise_baseline = compute_noise_baseline(df_hits_noise)
+
+        # Counters for diagnostics
+        n_ok = n_low_n = n_stuck = n_noisy = n_mpv = n_sig = 0
+
+        for vmm_id in detector_vmms:
+            if vmm_id in exclude_trigger_vmms:
+                continue
+
+            noise_row = df_noise_baseline[
+                df_noise_baseline["vmm_id"] == vmm_id
+            ]
+            if noise_row.empty:
+                continue
+
+            vmm_noise_cut      = noise_row["noise_cut"].iloc[0]
+            vmm_noise_quality  = noise_row["quality"].iloc[0]
+
+            df_vmm_noise = df_hits_noise[
+                (df_hits_noise["vmm"] == vmm_id) &
+                (df_hits_noise["over_threshold"] == 0) &
+                (df_hits_noise["adc"] > 20)
+            ]
+
+            df_vmm_signal = df_hits_signal[
+                (df_hits_signal["vmm"] == vmm_id) &
+                (df_hits_signal["over_threshold"] == 1) &
+                (df_hits_signal["adc"] < 1023)
+            ]
+
+            for ch_id in sorted(df_vmm_signal["ch"].unique()):
+
+                # --- Channel noise ---
+                noise_ch = df_vmm_noise[
+                    df_vmm_noise["ch"] == ch_id
+                ]["adc"].values
+
+                # Cut 1 — minimum noise hits
+                if len(noise_ch) < min_noise_hits:
+                    n_low_n += 1
+                    continue
+
+                median_n    = np.median(noise_ch)
+                mad_n       = np.median(np.abs(noise_ch - median_n))
+                noise_sigma = 1.4826 * mad_n
+
+                # Cut 2 — stuck channels
+                if noise_sigma <= min_sigma:
+                    n_stuck += 1
+                    continue
+
+                # Cut 3 — noisy/floating channels
+                if noise_sigma >= max_sigma:
+                    n_noisy += 1
+                    continue
+
+                # --- Channel signal ---
+                signal_ch = df_vmm_signal[
+                    df_vmm_signal["ch"] == ch_id
+                ]["adc"].values
+
+                # Cut 4 — minimum signal hits
+                if len(signal_ch) < min_signal_hits:
+                    n_sig += 1
+                    continue
+
+                # Use reduced bins for channel-level statistics
+                mpv, _, _, _ = estimate_mpv(
+                    signal_ch,
+                    adc_min=vmm_noise_cut,
+                    bins=bins,
+                    smooth_sigma=smooth_sigma
+                )
+
+                # Cut 5 — MPV physically reasonable
+                if not (mpv_min <= mpv <= mpv_max):
+                    n_mpv += 1
+                    continue
+
+                snr = mpv / noise_sigma
+                n_ok += 1
+
+                results.append({
+                    "sg"               : sg,
+                    "snt"              : snt,
+                    "run_sng0"         : run_sng0,
+                    "run_sng1"         : run_sng1,
+                    "vmm_id"           : vmm_id,
+                    "ch"               : ch_id,
+                    "noise_sigma_ch"   : noise_sigma,
+                    "vmm_noise_cut"    : vmm_noise_cut,
+                    "vmm_noise_quality": vmm_noise_quality,
+                    "mpv_ch"           : mpv,
+                    "snr_ch"           : snr,
+                    "n_signal"         : len(signal_ch),
+                    "n_noise"          : len(noise_ch),
+                })
+
+        print(f"  → {n_ok} channels ok | "
+              f"low_n={n_low_n} stuck={n_stuck} "
+              f"noisy={n_noisy} bad_mpv={n_mpv} low_sig={n_sig}")
+
+    return pd.DataFrame(results)
 # -----------------------------
 # MAIN LOGIC
 # -----------------------------
@@ -1714,7 +1889,25 @@ def main():
         detector_vmms=detector_vmms
     )
 
-    df_snr.to_csv("vmm_snr_results.csv", index=False)
+
+    df_snr_ch = compute_snr_per_channel(
+        data_dir=data_dir,
+        pairs=run_groups["pairs"],
+        detector_vmms=detector_vmms
+    )
+
+    df_snr_ch.to_csv("vmm_snr_per_channel.csv", index=False)
+
+    print(f"\nChannel-level SNR: {len(df_snr_ch)} entries")
+    print(f"SNR range : {df_snr_ch['snr_ch'].min():.1f} "
+          f"— {df_snr_ch['snr_ch'].max():.1f}")
+    print(f"Mean SNR  : {df_snr_ch['snr_ch'].mean():.1f}")
+    print(f"Median SNR: {df_snr_ch['snr_ch'].median():.1f}")
+    print(f"\nPercentiles:")
+    for p in [1, 5, 25, 50, 75, 95, 99]:
+        print(f"  {p:>3}th : "
+              f"{np.percentile(df_snr_ch['snr_ch'], p):.1f}")
+
     #
     # print("\n=== SNR Summary (noise quality=ok only) ===")
     # df_snr_clean = df_snr[df_snr["noise_quality"] == "ok"]
