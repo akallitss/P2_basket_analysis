@@ -35,17 +35,24 @@ PLOTS = {
     "mean_vs_peaking": True,
     "debug_samples": False,
     "plot_std_vs_peaking": True,
-    "compare_full_vs_cut": True,
+    "compare_full_vs_cut": False,
     "removed_fraction": False,
     "robust_stats": False,
 # --- new QA investigations ---
-    "qa_over_threshold_split": True,
-    "qa_noise_pedestal_stability": True,
-    "qa_mpv_estimation": True,
-    "qa_channel_noise": True,
-    "qa_adc16_artifact": True,
-    "qa_signal_distributions": True,
-    "qa_noise_quality_check": True,
+    "qa_over_threshold_split": False,
+    "qa_noise_pedestal_stability": False,
+    "qa_mpv_estimation": False,
+    "qa_channel_noise": False,
+    "qa_adc16_artifact": False,
+    "qa_signal_distributions": False,
+    "qa_noise_quality_check": False,
+    "snr_vs_peaking": True,
+    "snr_vs_gain":    True,
+    "snr_heatmap":    True,
+    "qa_noise_sigma_distribution": False,
+    "qa_robust_vs_std_comparison": False,
+    "qa_mpv_vs_median_comparison": True,
+
 
 }
 
@@ -396,6 +403,118 @@ def get_run_groups(df_run_scan):
         "sng1_runs": sng1_runs,
         "pairs"    : pairs
     }
+
+
+def compute_snr(data_dir, pairs, detector_vmms,
+                exclude_trigger_vmms=(0, 1)):
+    """
+    Compute VMM-level SNR for each configuration pair.
+
+    Strategy:
+    - Noise sigma  : from sng=1 run (over_threshold=0, adc>20, MAD-based)
+    - Signal MPV   : from sng=0 run (over_threshold=1, adc<1023)
+    - SNR          : MPV / noise_sigma per VMM
+
+    Parameters
+    ----------
+    data_dir : str
+        Base directory containing run_* folders.
+    pairs : list of dict
+        Output of get_run_groups()["pairs"].
+        Each dict has keys: sg, snt, sng0, sng1.
+    detector_vmms : list of int
+        VMM IDs to process (excludes trigger VMMs).
+    exclude_trigger_vmms : tuple
+        VMM IDs to skip entirely.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per (sg, snt, vmm_id) with SNR and diagnostics.
+    """
+    results = []
+
+    for pair in pairs:
+        sg       = pair["sg"]
+        snt      = pair["snt"]
+        run_sng0 = pair["sng0"]
+        run_sng1 = pair["sng1"]
+
+        print(f"\nProcessing sg={sg} snt={snt} "
+              f"| noise=run {run_sng1} | signal=run {run_sng0}")
+
+        # --- Load sng=1 run → noise baseline ---
+        run_dir    = get_run_dir(data_dir, run_sng1)
+        root_files = list_root_files(run_dir, n=2)
+        if not root_files:
+            print(f"  WARNING: no files found for run {run_sng1}, skipping")
+            continue
+
+        df_hits_noise = load_hits_root(
+            os.path.join(run_dir, root_files[1]),
+            branches=["adc", "vmm", "over_threshold"]
+        )
+        df_noise_baseline = compute_noise_baseline(df_hits_noise)
+
+        # --- Load sng=0 run → signal ---
+        run_dir    = get_run_dir(data_dir, run_sng0)
+        root_files = list_root_files(run_dir, n=2)
+        if not root_files:
+            print(f"  WARNING: no files found for run {run_sng0}, skipping")
+            continue
+
+        df_hits_signal = load_hits_root(
+            os.path.join(run_dir, root_files[1]),
+            branches=["adc", "vmm", "over_threshold"]
+        )
+
+        # --- Per VMM ---
+        for vmm_id in detector_vmms:
+
+            # Noise
+            noise_row = df_noise_baseline[
+                df_noise_baseline["vmm_id"] == vmm_id
+            ]
+            if noise_row.empty:
+                print(f"  VMM {vmm_id}: no noise baseline, skipping")
+                continue
+
+            noise_sigma   = noise_row["robust_sigma"].iloc[0]
+            noise_cut     = noise_row["noise_cut"].iloc[0]
+            noise_quality = noise_row["quality"].iloc[0]
+
+            # Signal
+            signal_clean = get_clean_signal(
+                df_hits_signal, vmm_id, exclude_trigger_vmms
+            )
+            if signal_clean is None or len(signal_clean) < 100:
+                print(f"  VMM {vmm_id}: insufficient signal hits, skipping")
+                continue
+
+            mpv, _, _, _ = estimate_mpv(
+                signal_clean, adc_min=noise_cut
+            )
+
+            snr = mpv / noise_sigma if noise_sigma > 0 else np.nan
+
+            print(f"  VMM {vmm_id}: noise_sigma={noise_sigma:.1f}  "
+                  f"MPV={mpv:.1f}  SNR={snr:.1f}  [{noise_quality}]")
+
+            results.append({
+                "sg"           : sg,
+                "snt"          : snt,
+                "run_sng0"     : run_sng0,
+                "run_sng1"     : run_sng1,
+                "vmm_id"       : vmm_id,
+                "noise_sigma"  : noise_sigma,
+                "noise_cut"    : noise_cut,
+                "noise_quality": noise_quality,
+                "mpv"          : mpv,
+                "snr"          : snr,
+            })
+
+    return pd.DataFrame(results)
+
 
 def qa_over_threshold_split(df_hits, run_no, vmm_ids):
     """
@@ -884,7 +1003,680 @@ def plot_robust_vs_peaking(df_results, vmm_ids):
     plt.legend()
     plt.show()
 
+def plot_snr_vs_peaking(df_snr):
+    """
+    SNR vs peaking time, one panel per sg.
+    Skips sg values with only one peaking time available.
+    """
+    df = df_snr[df_snr["noise_quality"] == "ok"].copy()
+    sg_values = sorted(df["sg"].unique())
 
+    sg_to_plot = [
+        sg for sg in sg_values
+        if df[df["sg"] == sg]["snt"].nunique() > 1
+    ]
+    sg_skip = [sg for sg in sg_values if sg not in sg_to_plot]
+    if sg_skip:
+        print(f"plot_snr_vs_peaking: skipping sg={sg_skip} "
+              f"— only one peaking time available")
+
+    if not sg_to_plot:
+        print("plot_snr_vs_peaking: nothing to plot")
+        return
+
+    fig, axes = plt.subplots(1, len(sg_to_plot),
+                              figsize=(5*len(sg_to_plot), 5),
+                              sharey=True)
+    if len(sg_to_plot) == 1:
+        axes = [axes]
+
+    for ax, sg_val in zip(axes, sg_to_plot):
+        df_sg = df[df["sg"] == sg_val]
+        for vmm_id in sorted(df_sg["vmm_id"].unique()):
+            df_vmm = df_sg[df_sg["vmm_id"] == vmm_id].sort_values("snt")
+            if len(df_vmm) < 2:
+                continue
+            ax.plot(df_vmm["snt"], df_vmm["snr"],
+                    "o-", label=f"VMM {vmm_id}")
+
+        ax.set_title(f"sg={sg_val}")
+        ax.set_xlabel("Peaking time (snt)")
+        ax.set_ylabel("SNR (MPV / noise σ)")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+    plt.suptitle("SNR vs Peaking Time\n"
+                 "(quality=ok only)", y=1.02)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_snr_vs_gain(df_snr):
+    """
+    SNR vs gain, one panel per snt.
+    Skips snt values with only one gain setting available.
+    """
+    df = df_snr[df_snr["noise_quality"] == "ok"].copy()
+    snt_values = sorted(df["snt"].unique())
+
+    snt_to_plot = [
+        snt for snt in snt_values
+        if df[df["snt"] == snt]["sg"].nunique() > 1
+    ]
+    snt_skip = [snt for snt in snt_values if snt not in snt_to_plot]
+    if snt_skip:
+        print(f"plot_snr_vs_gain: skipping snt={snt_skip} "
+              f"— only one gain setting available")
+
+    if not snt_to_plot:
+        print("plot_snr_vs_gain: nothing to plot")
+        return
+
+    fig, axes = plt.subplots(1, len(snt_to_plot),
+                              figsize=(5*len(snt_to_plot), 5),
+                              sharey=True)
+    if len(snt_to_plot) == 1:
+        axes = [axes]
+
+    for ax, snt_val in zip(axes, snt_to_plot):
+        df_snt = df[df["snt"] == snt_val]
+        for vmm_id in sorted(df_snt["vmm_id"].unique()):
+            df_vmm = df_snt[df_snt["vmm_id"] == vmm_id].sort_values("sg")
+            if len(df_vmm) < 2:
+                continue
+            ax.plot(df_vmm["sg"], df_vmm["snr"],
+                    "o-", label=f"VMM {vmm_id}")
+
+        ax.set_title(f"snt={snt_val:.0f}")
+        ax.set_xlabel("Gain (sg)")
+        ax.set_ylabel("SNR (MPV / noise σ)")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+    plt.suptitle("SNR vs Gain\n"
+                 "(quality=ok only)", y=1.02)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_snr_vs_peaking(df_snr):
+    df = df_snr.copy()
+    sg_values = sorted(df["sg"].unique())
+
+    sg_to_plot = [
+        sg for sg in sg_values
+        if df[df["sg"] == sg]["snt"].nunique() > 1
+    ]
+    sg_skip = [sg for sg in sg_values if sg not in sg_to_plot]
+    if sg_skip:
+        print(f"plot_snr_vs_peaking: skipping sg={sg_skip} "
+              f"— only one peaking time available")
+
+    fig, axes = plt.subplots(1, len(sg_to_plot),
+                              figsize=(6*len(sg_to_plot), 5),
+                              sharey=True)
+    if len(sg_to_plot) == 1:
+        axes = [axes]
+
+    # Quality marker map
+    quality_style = {
+        "ok"  : {"linestyle": "-",  "marker": "o", "alpha": 1.0},
+        "warn": {"linestyle": "--", "marker": "s", "alpha": 0.7},
+        "bad" : {"linestyle": ":",  "marker": "x", "alpha": 0.5},
+    }
+
+    for ax, sg_val in zip(axes, sg_to_plot):
+        df_sg = df[df["sg"] == sg_val]
+        for vmm_id in sorted(df_sg["vmm_id"].unique()):
+            df_vmm = df_sg[
+                df_sg["vmm_id"] == vmm_id
+            ].sort_values("snt")
+            if len(df_vmm) < 2:
+                continue
+
+            # Plot segments between consecutive points
+            # coloring by worst quality in that segment
+            line = ax.plot(df_vmm["snt"], df_vmm["snr"],
+                           linestyle="-", marker="o",
+                           label=f"VMM {vmm_id}")[0]
+            color = line.get_color()
+
+            # Overlay warn/bad points with different markers
+            for _, row in df_vmm.iterrows():
+                style = quality_style[row["noise_quality"]]
+                ax.plot(row["snt"], row["snr"],
+                        marker=style["marker"],
+                        color=color,
+                        alpha=style["alpha"],
+                        markersize=8,
+                        linestyle="")
+
+        ax.set_title(f"sg={sg_val}")
+        ax.set_xlabel("Peaking time (snt)")
+        ax.set_ylabel("SNR (MPV / noise σ)")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+    # Add quality legend
+    from matplotlib.lines import Line2D
+    quality_legend = [
+        Line2D([0], [0], marker="o", color="gray",
+               label="ok",   linestyle="-"),
+        Line2D([0], [0], marker="s", color="gray",
+               label="warn", linestyle="--", alpha=0.7),
+        Line2D([0], [0], marker="x", color="gray",
+               label="bad",  linestyle=":",  alpha=0.5),
+    ]
+    axes[-1].legend(handles=quality_legend,
+                    title="Noise quality",
+                    fontsize=8, loc="lower right")
+
+    plt.suptitle("SNR vs Peaking Time (all data)", y=1.02)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_snr_vs_gain(df_snr):
+    df = df_snr.copy()
+    snt_values = sorted(df["snt"].unique())
+
+    snt_to_plot = [
+        snt for snt in snt_values
+        if df[df["snt"] == snt]["sg"].nunique() > 1
+    ]
+    snt_skip = [snt for snt in snt_values if snt not in snt_to_plot]
+    if snt_skip:
+        print(f"plot_snr_vs_gain: skipping snt={snt_skip} "
+              f"— only one gain setting available")
+
+    fig, axes = plt.subplots(1, len(snt_to_plot),
+                              figsize=(6*len(snt_to_plot), 5),
+                              sharey=True)
+    if len(snt_to_plot) == 1:
+        axes = [axes]
+
+    quality_style = {
+        "ok"  : {"linestyle": "-",  "marker": "o", "alpha": 1.0},
+        "warn": {"linestyle": "--", "marker": "s", "alpha": 0.7},
+        "bad" : {"linestyle": ":",  "marker": "x", "alpha": 0.5},
+    }
+
+    for ax, snt_val in zip(axes, snt_to_plot):
+        df_snt = df[df["snt"] == snt_val]
+        for vmm_id in sorted(df_snt["vmm_id"].unique()):
+            df_vmm = df_snt[
+                df_snt["vmm_id"] == vmm_id
+            ].sort_values("sg")
+            if len(df_vmm) < 2:
+                continue
+
+            line = ax.plot(df_vmm["sg"], df_vmm["snr"],
+                           linestyle="-", marker="o",
+                           label=f"VMM {vmm_id}")[0]
+            color = line.get_color()
+
+            for _, row in df_vmm.iterrows():
+                style = quality_style[row["noise_quality"]]
+                ax.plot(row["sg"], row["snr"],
+                        marker=style["marker"],
+                        color=color,
+                        alpha=style["alpha"],
+                        markersize=8,
+                        linestyle="")
+
+        ax.set_title(f"snt={snt_val:.0f}")
+        ax.set_xlabel("Gain (sg)")
+        ax.set_ylabel("SNR (MPV / noise σ)")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+    from matplotlib.lines import Line2D
+    quality_legend = [
+        Line2D([0], [0], marker="o", color="gray",
+               label="ok",   linestyle="-"),
+        Line2D([0], [0], marker="s", color="gray",
+               label="warn", linestyle="--", alpha=0.7),
+        Line2D([0], [0], marker="x", color="gray",
+               label="bad",  linestyle=":",  alpha=0.5),
+    ]
+    axes[-1].legend(handles=quality_legend,
+                    title="Noise quality",
+                    fontsize=8, loc="lower right")
+
+    plt.suptitle("SNR vs Gain (all data)", y=1.02)
+    plt.tight_layout()
+    plt.show()
+
+def plot_snr_heatmap(df_snr):
+    df = df_snr.copy()
+
+    def config_label(row):
+        return f"sg={row['sg']:.1f}\nsnt={row['snt']:.0f}"
+
+    df["config"] = df.apply(config_label, axis=1)
+
+    configs = (
+        df[["sg", "snt", "config"]]
+        .drop_duplicates()
+        .sort_values(["sg", "snt"])["config"]
+        .tolist()
+    )
+    vmm_ids = sorted(df["vmm_id"].unique())
+
+    snr_matrix     = np.full((len(vmm_ids), len(configs)), np.nan)
+    quality_matrix = np.full((len(vmm_ids), len(configs)), "",
+                              dtype=object)
+
+    for i, vmm_id in enumerate(vmm_ids):
+        for j, cfg in enumerate(configs):
+            row = df[
+                (df["vmm_id"] == vmm_id) &
+                (df["config"]  == cfg)
+            ]
+            if not row.empty:
+                snr_matrix[i, j]     = row["snr"].iloc[0]
+                quality_matrix[i, j] = row["noise_quality"].iloc[0]
+
+    cell_w = 2.2
+    cell_h = 1.0
+    fig_w  = max(16, len(configs) * cell_w + 8)
+    fig_h  = max(6,  len(vmm_ids) * cell_h + 3)
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+
+    # More room on right for detector labels + colorbar
+    fig.subplots_adjust(left=0.07, right=0.62, top=0.88, bottom=0.15)
+
+    cmap = plt.cm.RdYlGn.copy()
+    cmap.set_bad(color="lightgrey")
+
+    masked = np.ma.masked_invalid(snr_matrix)
+    im = ax.imshow(masked, aspect="auto", cmap=cmap,
+                   vmin=np.nanmin(snr_matrix),
+                   vmax=np.nanmax(snr_matrix))
+
+    # Annotate cells
+    for i in range(len(vmm_ids)):
+        for j in range(len(configs)):
+            val     = snr_matrix[i, j]
+            quality = quality_matrix[i, j]
+            if np.isnan(val):
+                ax.text(j, i, "—", ha="center", va="center",
+                        fontsize=9, color="gray")
+            else:
+                suffix = "" if quality == "ok" else f"\n({quality})"
+                ax.text(j, i, f"{val:.1f}{suffix}",
+                        ha="center", va="center",
+                        fontsize=8, fontweight="bold")
+
+    ax.set_xticks(range(len(configs)))
+    ax.set_xticklabels(configs, fontsize=9)
+    ax.set_yticks(range(len(vmm_ids)))
+    ax.set_yticklabels([f"VMM {v}" for v in vmm_ids], fontsize=9)
+    ax.set_title("SNR heatmap — VMM vs configuration\n"
+                 "(warn/bad cells show quality label)",
+                 fontsize=11, pad=12)
+
+    # Detector labels — placed as text annotations
+    # instead of twinx to avoid overlap with colorbar
+    vmm_to_detector = {
+        vid: cfg.get("name", key)
+        for key, cfg in vmm_mapping.items()
+        for vid in cfg["vmm_ids"]
+    }
+
+    # Use figure coordinates to place detector labels
+    # between the plot right edge and colorbar
+    for i, vmm_id in enumerate(vmm_ids):
+        label = vmm_to_detector.get(vmm_id, "")
+        # Convert axes coords to figure coords
+        x_fig = 0.635   # just right of plot area
+        y_fig = ax.get_position().y0 + \
+                ax.get_position().height * (1 - (i + 0.5) / len(vmm_ids))
+        fig.text(x_fig, y_fig, label,
+                 ha="left", va="center", fontsize=7,
+                 clip_on=False)
+
+    # Colorbar placed explicitly — further right of detector labels
+    cbar_ax = fig.add_axes([0.88, 0.15, 0.02, 0.73])
+    fig.colorbar(im, cax=cbar_ax, label="SNR")
+
+    plt.show()
+
+def qa_noise_sigma_distribution(df_run_scan, data_dir, sng1_runs,
+                                  sigma_warn=10.0, sigma_bad=13.0):
+    """
+    Plot distribution of robust_sigma across all VMMs and sng=1 runs.
+    Shows where the warn/bad thresholds sit relative to the data.
+    """
+    all_sigmas = []
+
+    for run_no in sng1_runs:
+        run_dir = get_run_dir(data_dir, run_no)
+        root_files = list_root_files(run_dir, n=2)
+        if not root_files:
+            continue
+        df_hits = load_hits_root(
+            os.path.join(run_dir, root_files[1]),
+            branches=["adc", "vmm", "over_threshold"]
+        )
+        df_noise = compute_noise_baseline(df_hits)
+        snt = df_run_scan.loc[
+            df_run_scan["run_no"] == run_no, "snt"
+        ].iloc[0]
+        sg = df_run_scan.loc[
+            df_run_scan["run_no"] == run_no, "sg"
+        ].iloc[0]
+
+        for _, row in df_noise.iterrows():
+            all_sigmas.append({
+                "run_no" : run_no,
+                "sg"     : sg,
+                "snt"    : snt,
+                "vmm_id" : row["vmm_id"],
+                "sigma"  : row["robust_sigma"],
+                "quality": row["quality"]
+            })
+
+    df_sigmas = pd.DataFrame(all_sigmas)
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for quality, color in [("ok", "green"),
+                            ("warn", "orange"),
+                            ("bad", "red")]:
+        subset = df_sigmas[df_sigmas["quality"] == quality]["sigma"]
+        if not subset.empty:
+            ax.hist(subset, bins=30, alpha=0.7,
+                    label=quality, color=color)
+
+    ax.axvline(sigma_warn, color="orange", linestyle="--",
+               label=f"warn threshold={sigma_warn}")
+    ax.axvline(sigma_bad, color="red", linestyle="--",
+               label=f"bad threshold={sigma_bad}")
+    ax.set_xlabel("Robust sigma (ADC)")
+    ax.set_ylabel("Count")
+    ax.set_title("Distribution of noise sigma across all VMMs and runs")
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+    # Print borderline cases
+    print("\nBorderline cases (sigma within 1 ADC of warn threshold):")
+    borderline = df_sigmas[
+        (df_sigmas["sigma"] >= sigma_warn - 1.0) &
+        (df_sigmas["sigma"] <= sigma_warn + 1.0)
+    ]
+    if borderline.empty:
+        print("  None")
+    else:
+        print(borderline[["run_no", "sg", "snt",
+                           "vmm_id", "sigma",
+                           "quality"]].to_string(index=False))
+
+    return df_sigmas
+
+
+def qa_robust_vs_std_comparison(df_run_scan, data_dir, sng1_runs):
+    """
+    Compare robust_sigma (MAD-based) vs standard deviation
+    for all VMMs across all sng=1 runs.
+    Validates choice of robust estimator for SNR computation.
+    """
+    comparison = []
+
+    for run_no in sng1_runs:
+        run_dir = get_run_dir(data_dir, run_no)
+        root_files = list_root_files(run_dir, n=2)
+        if not root_files:
+            continue
+        df_hits = load_hits_root(
+            os.path.join(run_dir, root_files[1]),
+            branches=["adc", "vmm", "over_threshold"]
+        )
+        snt = df_run_scan.loc[
+            df_run_scan["run_no"] == run_no, "snt"
+        ].iloc[0]
+        sg = df_run_scan.loc[
+            df_run_scan["run_no"] == run_no, "sg"
+        ].iloc[0]
+
+        for vmm_id in sorted(df_hits["vmm"].unique()):
+            noise = df_hits[
+                (df_hits["vmm"] == vmm_id) &
+                (df_hits["over_threshold"] == 0) &
+                (df_hits["adc"] > 20)
+            ]["adc"].values
+
+            if len(noise) < 100:
+                continue
+
+            median       = np.median(noise)
+            mad          = np.median(np.abs(noise - median))
+            robust_sigma = 1.4826 * mad
+            std_sigma    = noise.std()
+
+            comparison.append({
+                "run_no"      : run_no,
+                "sg"          : sg,
+                "snt"         : snt,
+                "vmm_id"      : vmm_id,
+                "robust_sigma": robust_sigma,
+                "std_sigma"   : std_sigma,
+                "ratio"       : std_sigma / robust_sigma
+                                if robust_sigma > 0 else np.nan
+            })
+
+    df_comp = pd.DataFrame(comparison)
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    sc0 = axes[0].scatter(df_comp["robust_sigma"],
+                           df_comp["std_sigma"],
+                           c=df_comp["snt"], cmap="viridis",
+                           alpha=0.7)
+    axes[0].plot([0, df_comp["robust_sigma"].max()],
+                 [0, df_comp["robust_sigma"].max()],
+                 "r--", label="1:1 line")
+    axes[0].set_xlabel("Robust sigma (MAD)")
+    axes[0].set_ylabel("Std sigma")
+    axes[0].set_title("Robust σ vs Std σ per VMM per run")
+    axes[0].legend()
+    plt.colorbar(sc0, ax=axes[0], label="snt")
+
+    sc1 = axes[1].scatter(df_comp["robust_sigma"],
+                           df_comp["ratio"],
+                           c=df_comp["snt"], cmap="viridis",
+                           alpha=0.7)
+    axes[1].axhline(1.0, color="red", linestyle="--",
+                    label="ratio=1")
+    axes[1].set_xlabel("Robust sigma (MAD)")
+    axes[1].set_ylabel("Std / Robust ratio")
+    axes[1].set_title("How much larger is Std vs Robust σ?")
+    axes[1].legend()
+    plt.colorbar(sc1, ax=axes[1], label="snt")
+
+    plt.tight_layout()
+    plt.show()
+
+    print("\nSummary of std/robust ratio:")
+    print(f"  Mean  : {df_comp['ratio'].mean():.3f}")
+    print(f"  Median: {df_comp['ratio'].median():.3f}")
+    print(f"  Min   : {df_comp['ratio'].min():.3f}")
+    print(f"  Max   : {df_comp['ratio'].max():.3f}")
+
+    inflated = df_comp[df_comp["ratio"] > 1.5]
+    print(f"\nCases where std > 1.5 * robust_sigma "
+          f"({len(inflated)} of {len(df_comp)}):")
+    if inflated.empty:
+        print("  None")
+    else:
+        print(inflated[["run_no", "sg", "snt", "vmm_id",
+                         "robust_sigma", "std_sigma",
+                         "ratio"]].to_string(index=False))
+
+    return df_comp
+
+def qa_mpv_vs_median_comparison(df_run_scan, data_dir, pairs,
+                                  detector_vmms,
+                                  exclude_trigger_vmms=(0, 1)):
+    """
+    Compare MPV-based vs median-based SNR across all config pairs.
+    Validates that MPV is the correct signal estimator for Landau
+    distributions — median drifts into the tail and gives
+    configuration-dependent bias.
+
+    Shows:
+    - Scatter: SNR_mpv vs SNR_median colored by snt
+    - Ratio SNR_median/SNR_mpv vs peaking time per VMM
+    - Table of MPV, median, mean and both SNR estimates
+    """
+    records = []
+
+    for pair in pairs:
+        sg       = pair["sg"]
+        snt      = pair["snt"]
+        run_sng0 = pair["sng0"]
+        run_sng1 = pair["sng1"]
+
+        # Load signal run
+        run_dir    = get_run_dir(data_dir, run_sng0)
+        root_files = list_root_files(run_dir, n=2)
+        if not root_files:
+            continue
+        df_hits_signal = load_hits_root(
+            os.path.join(run_dir, root_files[1]),
+            branches=["adc", "vmm", "over_threshold"]
+        )
+
+        # Load noise baseline from sng=1 run
+        run_dir_n    = get_run_dir(data_dir, run_sng1)
+        root_files_n = list_root_files(run_dir_n, n=2)
+        if not root_files_n:
+            continue
+        df_hits_noise = load_hits_root(
+            os.path.join(run_dir_n, root_files_n[1]),
+            branches=["adc", "vmm", "over_threshold"]
+        )
+        df_noise = compute_noise_baseline(df_hits_noise)
+
+        for vmm_id in detector_vmms:
+            noise_row = df_noise[df_noise["vmm_id"] == vmm_id]
+            if noise_row.empty:
+                continue
+
+            noise_sigma   = noise_row["robust_sigma"].iloc[0]
+            noise_cut     = noise_row["noise_cut"].iloc[0]
+            noise_quality = noise_row["quality"].iloc[0]
+
+            signal = get_clean_signal(
+                df_hits_signal, vmm_id, exclude_trigger_vmms
+            )
+            if signal is None or len(signal) < 100:
+                continue
+
+            mpv, _, _, _ = estimate_mpv(signal, adc_min=noise_cut)
+            median_sig   = np.median(signal)
+            mean_sig     = signal.mean()
+
+            snr_mpv    = mpv        / noise_sigma
+            snr_median = median_sig / noise_sigma
+            snr_mean   = mean_sig   / noise_sigma
+
+            records.append({
+                "sg"           : sg,
+                "snt"          : snt,
+                "vmm_id"       : vmm_id,
+                "noise_sigma"  : noise_sigma,
+                "noise_quality": noise_quality,
+                "mpv"          : mpv,
+                "median_signal": median_sig,
+                "mean_signal"  : mean_sig,
+                "snr_mpv"      : snr_mpv,
+                "snr_median"   : snr_median,
+                "snr_mean"     : snr_mean,
+                "ratio_med_mpv": snr_median / snr_mpv
+            })
+
+    df = pd.DataFrame(records)
+
+    # --- Plot 1 — SNR_mpv vs SNR_median scatter ---
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+    snt_values = sorted(df["snt"].unique())
+    cmap       = plt.cm.viridis
+    norm       = plt.Normalize(df["snt"].min(), df["snt"].max())
+
+    for snt_val in snt_values:
+        df_snt = df[df["snt"] == snt_val]
+        color  = cmap(norm(snt_val))
+        axes[0].scatter(df_snt["snr_mpv"], df_snt["snr_median"],
+                        color=color, alpha=0.7,
+                        label=f"snt={snt_val:.0f}")
+
+    max_snr = max(df["snr_mpv"].max(), df["snr_median"].max()) * 1.1
+    axes[0].plot([0, max_snr], [0, max_snr],
+                 "r--", label="1:1 line")
+    axes[0].set_xlabel("SNR (MPV-based)")
+    axes[0].set_ylabel("SNR (Median-based)")
+    axes[0].set_title("MPV vs Median SNR\n"
+                      "points above 1:1 = median overestimates")
+    axes[0].legend(fontsize=8)
+    axes[0].grid(True, alpha=0.3)
+
+    # --- Plot 2 — ratio SNR_median/SNR_mpv vs peaking time ---
+    for vmm_id in sorted(df["vmm_id"].unique()):
+        df_vmm = df[df["vmm_id"] == vmm_id].sort_values("snt")
+        if df_vmm.empty:
+            continue
+        axes[1].plot(df_vmm["snt"], df_vmm["ratio_med_mpv"],
+                     "o-", label=f"VMM {vmm_id}", alpha=0.8)
+
+    axes[1].axhline(1.0, color="red", linestyle="--",
+                    label="ratio=1 (no bias)")
+    axes[1].set_xlabel("Peaking time (snt)")
+    axes[1].set_ylabel("SNR_median / SNR_mpv")
+    axes[1].set_title("Median/MPV ratio vs peaking time\n"
+                      "increasing ratio = growing bias")
+    axes[1].legend(fontsize=7)
+    axes[1].grid(True, alpha=0.3)
+
+    # --- Plot 3 — ratio vs sg ---
+    for vmm_id in sorted(df["vmm_id"].unique()):
+        df_vmm = df[df["vmm_id"] == vmm_id].sort_values("sg")
+        if df_vmm.empty:
+            continue
+        axes[2].plot(df_vmm["sg"], df_vmm["ratio_med_mpv"],
+                     "o-", label=f"VMM {vmm_id}", alpha=0.8)
+
+    axes[2].axhline(1.0, color="red", linestyle="--",
+                    label="ratio=1 (no bias)")
+    axes[2].set_xlabel("Gain (sg)")
+    axes[2].set_ylabel("SNR_median / SNR_mpv")
+    axes[2].set_title("Median/MPV ratio vs gain\n"
+                      "gain dependence of bias")
+    axes[2].legend(fontsize=7)
+    axes[2].grid(True, alpha=0.3)
+
+    plt.suptitle("MPV vs Median as signal estimator\n"
+                 "MPV is stable — median drifts into Landau tail",
+                 y=1.02)
+    plt.tight_layout()
+    plt.show()
+
+    # --- Summary table ---
+    print("\nSNR estimator comparison summary:")
+    print(f"{'sg':>5} {'snt':>6} {'VMM':>5} {'MPV':>8} "
+          f"{'Median':>8} {'Mean':>8} "
+          f"{'SNR_mpv':>10} {'SNR_med':>10} {'ratio':>8}")
+    for _, row in df.sort_values(["sg", "snt", "vmm_id"]).iterrows():
+        print(f"{row['sg']:>5.1f} {row['snt']:>6.0f} "
+              f"{row['vmm_id']:>5.0f} "
+              f"{row['mpv']:>8.1f} {row['median_signal']:>8.1f} "
+              f"{row['mean_signal']:>8.1f} "
+              f"{row['snr_mpv']:>10.1f} {row['snr_median']:>10.1f} "
+              f"{row['ratio_med_mpv']:>8.2f}")
+
+    return df
 # -----------------------------
 # MAIN LOGIC
 # -----------------------------
@@ -893,10 +1685,6 @@ def main():
     # ---- Load run metadata ----
     cnfg_dir = ("/drf/projets/clas12/P2/akallits/")
     df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan.csv")
-
-    # ---- Select runs ----
-    # run_num_sg_st_sng = filter_runs(df_run_scan, sg=3.0, sng=1.0)
-    run_num_sg_st_sng = filter_runs(df_run_scan, sg=4.5, sng=1.0)
 
     data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
     # data_dir = "/media/akallits/EXTERNAL_USB/2312292/Extras/Physics/Post-Doc-Saclay/SPS_beam_test/data/VMM-alinx_data/5kHz-muons-config-scan"
@@ -920,16 +1708,68 @@ def main():
 
     run_groups = get_run_groups(df_run_scan)
 
-    print("Run pairs found:")
-    print(f"{'sg':>6} {'snt':>6} {'sng0':>8} {'sng1':>8}")
-    for p in run_groups["pairs"]:
-        print(f"{p['sg']:>6} {p['snt']:>6} "
-              f"{p['sng0']:>8} {p['sng1']:>8}")
+    df_snr = compute_snr(
+        data_dir=data_dir,
+        pairs=run_groups["pairs"],
+        detector_vmms=detector_vmms
+    )
 
-    print(f"\nAll sng=0 runs: {run_groups['sng0_runs']}")
-    print(f"All sng=1 runs: {run_groups['sng1_runs']}")
+    df_snr.to_csv("vmm_snr_results.csv", index=False)
+    #
+    # print("\n=== SNR Summary (noise quality=ok only) ===")
+    # df_snr_clean = df_snr[df_snr["noise_quality"] == "ok"]
+    # print(df_snr_clean[["sg", "snt", "vmm_id",
+    #                     "noise_sigma", "mpv",
+    #                     "snr"]].to_string(index=False))
+    #
+    # input("PRESS ENTER TO CONTINUE...")
+    #
+    # # Check MPV stability for VMM 10 across snt
+    # print("VMM 10 MPV check:")
+    # print(df_snr[df_snr["vmm_id"] == 10][
+    #           ["sg", "snt", "mpv", "noise_sigma", "snr", "noise_quality"]
+    #       ].to_string(index=False))
+    #
+    # # Same for VMM 9 since it's an outlier
+    # print("\nVMM 9 MPV check:")
+    # print(df_snr[df_snr["vmm_id"] == 9][
+    #           ["sg", "snt", "mpv", "noise_sigma", "snr", "noise_quality"]
+    #       ].to_string(index=False))
+    #
+    # input("PRESS ENTER TO CONTINUE...")
+    #
+    # # Check 1 — are signal runs being reused across pairs?
+    # print("Signal run usage per pair:")
+    # for p in run_groups["pairs"]:
+    #     print(f"  sg={p['sg']} snt={p['snt']} → "
+    #           f"signal=run {p['sng0']}  noise=run {p['sng1']}")
+    #
+    # # Check 2 — VMM 9 noise baseline in run 71 vs other sng=1 runs
+    # print("\nVMM 9 noise_sigma across all sng=1 runs:")
+    # for run_no in run_groups["sng1_runs"]:
+    #     run_dir = get_run_dir(data_dir, run_no)
+    #     root_files = list_root_files(run_dir, n=2)
+    #     if not root_files:
+    #         continue
+    #     df_hits = load_hits_root(
+    #         os.path.join(run_dir, root_files[1]),
+    #         branches=["adc", "vmm", "over_threshold"]
+    #     )
+    #     df_noise = compute_noise_baseline(df_hits)
+    #     row = df_noise[df_noise["vmm_id"] == 9]
+    #     if row.empty:
+    #         print(f"  run {run_no}: no data")
+    #         continue
+    #     snt = df_run_scan.loc[df_run_scan["run_no"] == run_no, "snt"].iloc[0]
+    #     sg = df_run_scan.loc[df_run_scan["run_no"] == run_no, "sg"].iloc[0]
+    #     print(f"  run {run_no} (sg={sg} snt={snt}): "
+    #           f"n_noise={row['n_noise'].iloc[0]}  "
+    #           f"sigma={row['robust_sigma'].iloc[0]:.2f}  "
+    #           f"quality={row['quality'].iloc[0]}")
+    #
+    # input("PRESS ENTER TO CONTINUE...")
 
-    input("Press ENTER to continue...")
+
     # ---- Get unique VMM IDs ----
     vmm_ids = sorted({vid for cfg in vmm_mapping.values() for vid in cfg["vmm_ids"]})
 
@@ -947,7 +1787,15 @@ def main():
     df_results.dropna(inplace=True)
     df_results.to_csv("vmm_adc_analysis.csv", index=False)
 
-    # ---- QA investigations ----
+# ---- QA investigations ----
+    if PLOTS["qa_mpv_vs_median_comparison"]:
+        qa_mpv_vs_median_comparison(
+            df_run_scan=df_run_scan,
+            data_dir=data_dir,
+            pairs=run_groups["pairs"],
+            detector_vmms=detector_vmms
+        )
+
     if PLOTS["qa_over_threshold_split"]:
         run_dir = get_run_dir(data_dir, 79)
         root_files = list_root_files(run_dir, n=2)
@@ -955,8 +1803,8 @@ def main():
             os.path.join(run_dir, root_files[1]),
             branches=["adc", "vmm", "ch", "over_threshold"]
         )
-        qa_over_threshold_split(df_hits, run_no=79,
-                                vmm_ids=detector_vmms)
+        qa_over_threshold_split(df_hits, run_no=79, vmm_ids=detector_vmms)
+
     if any([PLOTS["qa_channel_noise"],
             PLOTS["qa_adc16_artifact"],
             PLOTS["qa_mpv_estimation"]]):
@@ -965,14 +1813,10 @@ def main():
         run_dir = get_run_dir(data_dir, run_no_qa)
         root_files = list_root_files(run_dir, n=2)
         file_path = os.path.join(run_dir, root_files[1])
-        df_hits_qa = load_hits_root(
-            file_path,
-            branches=["adc", "vmm", "ch", "over_threshold"]
-        )
+        df_hits_qa = load_hits_root(file_path, branches=["adc", "vmm", "ch", "over_threshold"])
         df_noise_qa = compute_noise_baseline(df_hits_qa)
         if PLOTS["qa_mpv_estimation"]:
-            qa_mpv_estimation(df_hits_qa, df_noise_qa,
-                              detector_vmms, run_no=run_no_qa)
+            qa_mpv_estimation(df_hits_qa, df_noise_qa, detector_vmms, run_no=run_no_qa)
         if PLOTS["qa_channel_noise"]:
             qa_channel_noise(df_hits_qa, detector_vmms, run_no=run_no_qa)
 
@@ -982,8 +1826,7 @@ def main():
 
 
     if PLOTS["qa_noise_pedestal_stability"]:
-        qa_noise_pedestal_stability(df_run_scan, data_dir,
-                                    run_num_sg_st_sng, vmm_groups)
+        qa_noise_pedestal_stability(df_run_scan, data_dir, run_num_sg_st_sng, vmm_groups)
 
     if PLOTS["qa_signal_distributions"]:
         run_dir = get_run_dir(data_dir, 79)
@@ -1026,12 +1869,33 @@ def main():
                 )
                 compare_full_vs_cut(df_hits, vmm_id, run_no, adc_cut=100)
 
-
     if PLOTS["removed_fraction"]:
         plot_removed_fraction(df_results, vmm_ids)
 
     if PLOTS["robust_stats"]:
         plot_robust_vs_peaking(df_results, vmm_ids)
+
+    if PLOTS["snr_vs_peaking"]:
+        plot_snr_vs_peaking(df_snr)
+
+    if PLOTS["snr_vs_gain"]:
+        plot_snr_vs_gain(df_snr)
+
+    if PLOTS["snr_heatmap"]:
+        plot_snr_heatmap(df_snr)
+
+
+    if PLOTS["qa_noise_sigma_distribution"]:
+        qa_noise_sigma_distribution(
+            df_run_scan, data_dir,
+            run_groups["sng1_runs"]
+        )
+
+    if PLOTS["qa_robust_vs_std_comparison"]:
+        qa_robust_vs_std_comparison(
+            df_run_scan, data_dir,
+            run_groups["sng1_runs"]
+        )
 
 
 if __name__ == "__main__":
