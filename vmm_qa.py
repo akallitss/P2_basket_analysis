@@ -11,6 +11,7 @@ Created as vmm_qa.py
 """
 vmm_qa.py
 
+
 Quality assurance and validation functions for VMM config scan analysis.
 
 All qa_ functions are designed to be toggled via the PLOTS dict in
