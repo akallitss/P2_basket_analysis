@@ -15,8 +15,6 @@ from vmm_mapping import vmm_mapping
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 
-
-
 # -----------------------------
 # DEBUGGING CONTROL
 # -----------------------------
@@ -32,13 +30,12 @@ def debug(msg):
 PLOTS = {
     "adc_hist_per_run": False,
     "adc_hist_separate_vmm": False,
-    "mean_vs_peaking": True,
+    "mean_vs_peaking": False,
     "debug_samples": False,
-    "plot_std_vs_peaking": True,
+    "plot_std_vs_peaking": False,
     "compare_full_vs_cut": False,
     "removed_fraction": False,
     "robust_stats": False,
-# --- new QA investigations ---
     "qa_over_threshold_split": False,
     "qa_noise_pedestal_stability": False,
     "qa_mpv_estimation": False,
@@ -46,13 +43,15 @@ PLOTS = {
     "qa_adc16_artifact": False,
     "qa_signal_distributions": False,
     "qa_noise_quality_check": False,
-    "snr_vs_peaking": True,
-    "snr_vs_gain":    True,
-    "snr_heatmap":    True,
     "qa_noise_sigma_distribution": False,
     "qa_robust_vs_std_comparison": False,
     "qa_mpv_vs_median_comparison": False,
-
+    "snr_vs_peaking": False,
+    "snr_vs_gain":    False,
+    "snr_heatmap":    False,
+    "snr_channel_heatmap"     : False,
+    "snr_channel_uniformity"  : False,
+    "snr_channel_heatmap_per_vmm": False,
 
 }
 
@@ -440,8 +439,8 @@ def compute_snr(data_dir, pairs, detector_vmms,
         run_sng0 = pair["sng0"]
         run_sng1 = pair["sng1"]
 
-        print(f"\nProcessing sg={sg} snt={snt} "
-              f"| noise=run {run_sng1} | signal=run {run_sng0}")
+        # print(f"\nProcessing sg={sg} snt={snt} "
+        #       f"| noise=run {run_sng1} | signal=run {run_sng0}")
 
         # --- Load sng=1 run → noise baseline ---
         run_dir    = get_run_dir(data_dir, run_sng1)
@@ -497,8 +496,8 @@ def compute_snr(data_dir, pairs, detector_vmms,
 
             snr = mpv / noise_sigma if noise_sigma > 0 else np.nan
 
-            print(f"  VMM {vmm_id}: noise_sigma={noise_sigma:.1f}  "
-                  f"MPV={mpv:.1f}  SNR={snr:.1f}  [{noise_quality}]")
+            # print(f"  VMM {vmm_id}: noise_sigma={noise_sigma:.1f}  "
+            #       f"MPV={mpv:.1f}  SNR={snr:.1f}  [{noise_quality}]")
 
             results.append({
                 "sg"           : sg,
@@ -604,10 +603,9 @@ def qa_noise_pedestal_stability(df_run_scan, data_dir,
             axes[idx].legend(fontsize=9)
 
         plt.suptitle(
-            f"Noise pedestal stability — {label} — sg=4.5, sng=1",
-            y=1.01
+            f"Noise pedestal stability — {label} — sg=4.5, sng=1"
         )
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
         plt.show()
 
 
@@ -650,8 +648,8 @@ def qa_signal_distributions(df_hits, detector_vmms, run_no):
         axes[plot_idx].set_title(f"VMM {vmm_id} (n={len(signal)})")
         plot_idx += 1
 
-    plt.suptitle(f"Run {run_no} — Signal distribution per VMM", y=1.02)
-    plt.tight_layout()
+    plt.suptitle(f"Run {run_no} — Signal distribution per VMM")
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
 
 
@@ -1046,8 +1044,8 @@ def plot_snr_vs_peaking(df_snr):
         ax.grid(True, alpha=0.3)
 
     plt.suptitle("SNR vs Peaking Time\n"
-                 "(quality=ok only)", y=1.02)
-    plt.tight_layout()
+                 "(quality=ok only)")
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
 
 
@@ -1094,8 +1092,8 @@ def plot_snr_vs_gain(df_snr):
         ax.grid(True, alpha=0.3)
 
     plt.suptitle("SNR vs Gain\n"
-                 "(quality=ok only)", y=1.02)
-    plt.tight_layout()
+                 "(quality=ok only)")
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
 
 
@@ -1171,8 +1169,8 @@ def plot_snr_vs_peaking(df_snr):
                     title="Noise quality",
                     fontsize=8, loc="lower right")
 
-    plt.suptitle("SNR vs Peaking Time (all data)", y=1.02)
-    plt.tight_layout()
+    plt.suptitle("SNR vs Peaking Time (all data)")
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
 
 
@@ -1243,8 +1241,8 @@ def plot_snr_vs_gain(df_snr):
                     title="Noise quality",
                     fontsize=8, loc="lower right")
 
-    plt.suptitle("SNR vs Gain (all data)", y=1.02)
-    plt.tight_layout()
+    plt.suptitle("SNR vs Gain (all data)")
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
 
 def plot_snr_heatmap(df_snr):
@@ -1658,9 +1656,8 @@ def qa_mpv_vs_median_comparison(df_run_scan, data_dir, pairs,
     axes[2].grid(True, alpha=0.3)
 
     plt.suptitle("MPV vs Median as signal estimator\n"
-                 "MPV is stable — median drifts into Landau tail",
-                 y=1.02)
-    plt.tight_layout()
+                 "MPV is stable — median drifts into Landau tail")
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
 
     # --- Summary table ---
@@ -1720,8 +1717,8 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
         run_sng0 = pair["sng0"]
         run_sng1 = pair["sng1"]
 
-        print(f"\nProcessing sg={sg} snt={snt} "
-              f"| noise=run {run_sng1} | signal=run {run_sng0}")
+        # print(f"\nProcessing sg={sg} snt={snt} "
+        #       f"| noise=run {run_sng1} | signal=run {run_sng0}")
 
         # --- Load sng=1 run → noise ---
         run_dir    = get_run_dir(data_dir, run_sng1)
@@ -1852,6 +1849,557 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
               f"noisy={n_noisy} bad_mpv={n_mpv} low_sig={n_sig}")
 
     return pd.DataFrame(results)
+
+
+def compute_channel_noise_sigma(noise_adc, use_dither=True,
+                                dither_scale=0.5):
+    """
+    Compute robust noise sigma for a channel.
+
+    Applies optional dithering to break integer ADC quantisation
+    before computing MAD — prevents sigma snapping to discrete
+    multiples of 1.4826.
+
+    Parameters
+    ----------
+    use_dither : bool
+        Add uniform random noise U(-0.5, 0.5) to break quantisation.
+        Standard technique for integer-valued data.
+    dither_scale : float
+        Width of dither noise. 0.5 = half an ADC count (standard).
+    """
+    adc = noise_adc.astype(float)
+
+    if use_dither:
+        # Add U(-dither_scale, dither_scale) — breaks integer clustering
+        # This is standard practice for integer-valued histograms
+        rng = np.random.default_rng(seed=42)  # fixed seed = reproducible
+        adc = adc + rng.uniform(-dither_scale, dither_scale, size=len(adc))
+
+    median = np.median(adc)
+    mad = np.median(np.abs(adc - median))
+    robust_sigma = 1.4826 * mad
+
+    return robust_sigma, median
+
+def plot_snr_channel_heatmap(df_snr_ch, vmm_groups,
+                              config=None):
+    """
+    Per-channel SNR heatmap for a specific configuration.
+    Rows = channels, columns = VMMs grouped by detector.
+    Color = SNR, grey = channel excluded by quality cuts.
+
+    Parameters
+    ----------
+    config : dict or None
+        If provided, filter to specific {'sg': x, 'snt': y}.
+        If None, use the configuration with best median SNR.
+    """
+    df = df_snr_ch.copy()
+
+    # Select configuration
+    if config is None:
+        # Find config with best median SNR across all channels
+        best = (df.groupby(["sg", "snt"])["snr_ch"]
+                  .median()
+                  .idxmax())
+        config = {"sg": best[0], "snt": best[1]}
+        print(f"Auto-selected best config: sg={config['sg']} "
+              f"snt={config['snt']}")
+
+    df_cfg = df[
+        (df["sg"]  == config["sg"]) &
+        (df["snt"] == config["snt"])
+    ]
+
+    # Build matrix: rows=channels (0-63), cols=VMMs
+    all_channels = range(64)
+    vmm_ids      = sorted(df_cfg["vmm_id"].unique())
+
+    matrix = np.full((64, len(vmm_ids)), np.nan)
+    for j, vmm_id in enumerate(vmm_ids):
+        df_vmm = df_cfg[df_cfg["vmm_id"] == vmm_id]
+        for _, row in df_vmm.iterrows():
+            ch = int(row["ch"])
+            matrix[ch, j] = row["snr_ch"]
+
+    fig, ax = plt.subplots(
+        figsize=(len(vmm_ids) * 1.5 + 2, 14)
+    )
+    fig.subplots_adjust(left=0.08, right=0.82,
+                        top=0.93, bottom=0.08)
+
+    cmap = plt.cm.RdYlGn.copy()
+    cmap.set_bad(color="lightgrey")
+
+    masked = np.ma.masked_invalid(matrix)
+    im = ax.imshow(masked, aspect="auto", cmap=cmap,
+                   vmin=5, vmax=50)
+
+    ax.set_xticks(range(len(vmm_ids)))
+    ax.set_xticklabels([f"VMM {v}" for v in vmm_ids],
+                        fontsize=9)
+    ax.set_ylabel("Channel")
+    ax.set_title(
+        f"Per-channel SNR — sg={config['sg']} snt={config['snt']}\n"
+        f"(grey = excluded by quality cuts)",
+        fontsize=11
+    )
+
+    # Detector group labels on top
+    vmm_to_detector = {
+        vid: cfg.get("name", key)
+        for key, cfg in vmm_mapping.items()
+        for vid in cfg["vmm_ids"]
+    }
+    ax2 = ax.twiny()
+    ax2.set_xlim(ax.get_xlim())
+    ax2.set_xticks(range(len(vmm_ids)))
+    ax2.set_xticklabels(
+        [vmm_to_detector.get(v, "") for v in vmm_ids],
+        fontsize=7, rotation=15, ha="left"
+    )
+
+    cbar_ax = fig.add_axes([0.84, 0.08, 0.02, 0.85])
+    fig.colorbar(im, cax=cbar_ax, label="SNR")
+
+    plt.show()
+
+
+def plot_snr_channel_uniformity(df_snr_ch, detector_vmms):
+    """
+    For each VMM, show SNR distribution across channels
+    per configuration — box plots side by side.
+    Reveals which VMMs have most uniform channel performance.
+    """
+    configs = (
+        df_snr_ch[["sg", "snt"]]
+        .drop_duplicates()
+        .sort_values(["sg", "snt"])
+        .apply(lambda r: f"sg={r['sg']:.1f}/snt={r['snt']:.0f}",
+               axis=1)
+        .tolist()
+    )
+
+    df = df_snr_ch.copy()
+    df["config"] = df.apply(
+        lambda r: f"sg={r['sg']:.1f}/snt={r['snt']:.0f}", axis=1
+    )
+
+    n_vmms = len(detector_vmms)
+    fig, axes = plt.subplots(
+        2, n_vmms // 2,
+        figsize=(n_vmms * 2.5, 10),
+        sharey=True
+    )
+    axes = axes.flatten()
+
+    for idx, vmm_id in enumerate(sorted(detector_vmms)):
+        ax = axes[idx]
+        df_vmm = df[df["vmm_id"] == vmm_id]
+
+        data_per_config = [
+            df_vmm[df_vmm["config"] == cfg]["snr_ch"].values
+            for cfg in configs
+        ]
+        # Remove empty configs
+        labels   = [c for c, d in zip(configs, data_per_config)
+                    if len(d) > 0]
+        data     = [d for d in data_per_config if len(d) > 0]
+
+        bp = ax.boxplot(data, tick_labels=labels,  # renamed from 'labels'
+                        patch_artist=True,
+                        medianprops={"color": "black", "linewidth": 2},
+                        flierprops={"marker": ".", "markersize": 4, "alpha": 0.5})
+
+        # Color boxes by config
+        colors = plt.cm.tab10(np.linspace(0, 1, len(data)))
+        for patch, color in zip(bp["boxes"], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.7)
+
+        ax.set_title(f"VMM {vmm_id}", fontsize=10)
+        ax.set_xticklabels(labels, rotation=45,
+                            ha="right", fontsize=7)
+        ax.set_ylabel("SNR per channel" if idx % (n_vmms//2) == 0
+                      else "")
+        ax.grid(True, alpha=0.3, axis="y")
+
+    plt.suptitle(
+        "Channel SNR uniformity per VMM per configuration\n"
+        "(box = IQR, line = median, dots = outliers)"
+    )
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.show()
+
+# def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms):
+#     """
+#     One heatmap per VMM showing SNR per channel per configuration.
+#     Rows = channels (0-63), columns = configurations (sg/snt).
+#     Grey = excluded by quality cuts.
+#     Consistent color scale across all VMMs for direct comparison.
+#     """
+#     df = df_snr_ch.copy()
+#
+#     # Build config labels sorted by sg then snt
+#     configs = (
+#         df[["sg", "snt"]]
+#         .drop_duplicates()
+#         .sort_values(["sg", "snt"])
+#     )
+#     config_labels = [
+#         f"sg={row['sg']:.1f}\nsnt={row['snt']:.0f}"
+#         for _, row in configs.iterrows()
+#     ]
+#     config_keys = [
+#         (row["sg"], row["snt"])
+#         for _, row in configs.iterrows()
+#     ]
+#
+#     # Consistent color scale across all VMMs
+#     vmin = 5
+#     vmax = 50
+#
+#     cmap = plt.cm.RdYlGn.copy()
+#     cmap.set_bad(color="lightgrey")
+#
+#     vmm_to_detector = {
+#         vid: cfg.get("name", key)
+#         for key, cfg in vmm_mapping.items()
+#         for vid in cfg["vmm_ids"]
+#     }
+#
+#     for vmm_id in sorted(detector_vmms):
+#         df_vmm = df[df["vmm_id"] == vmm_id]
+#
+#         if df_vmm.empty:
+#             continue
+#
+#         # Build matrix: rows=channels (0-63), cols=configs
+#         n_configs = len(config_keys)
+#         matrix    = np.full((64, n_configs), np.nan)
+#
+#         for j, (sg, snt) in enumerate(config_keys):
+#             df_cfg = df_vmm[
+#                 (df_vmm["sg"]  == sg) &
+#                 (df_vmm["snt"] == snt)
+#             ]
+#             for _, row in df_cfg.iterrows():
+#                 matrix[int(row["ch"]), j] = row["snr_ch"]
+#
+#         # Count valid channels per config
+#         n_valid = (~np.isnan(matrix)).sum(axis=0)
+#
+#         fig, ax = plt.subplots(
+#             figsize=(n_configs * 1.8 + 3, 12)
+#         )
+#         fig.subplots_adjust(
+#             left=0.08, right=0.80,
+#             top=0.92, bottom=0.12
+#         )
+#
+#         masked = np.ma.masked_invalid(matrix)
+#         im = ax.imshow(masked, aspect="auto", cmap=cmap,
+#                        vmin=vmin, vmax=vmax)
+#
+#         # Config labels on x axis
+#         ax.set_xticks(range(n_configs))
+#         ax.set_xticklabels(config_labels, fontsize=9)
+#
+#         # Channel labels on y axis — every 4 channels
+#         ax.set_yticks(range(0, 64, 4))
+#         ax.set_yticklabels(range(0, 64, 4), fontsize=8)
+#         ax.set_ylabel("Channel", fontsize=10)
+#
+#         detector_name = vmm_to_detector.get(vmm_id, "")
+#         ax.set_title(
+#             f"VMM {vmm_id} — {detector_name}\n"
+#             f"Per-channel SNR across configurations\n"
+#             f"(grey = excluded by quality cuts  |  "
+#             f"color scale: {vmin}–{vmax})",
+#             fontsize=11
+#         )
+#
+#         # Median SNR and channel count per config below x axis
+#         for j in range(n_configs):
+#             col   = matrix[:, j]
+#             valid = col[~np.isnan(col)]
+#             if len(valid) > 0:
+#                 ax.text(
+#                     j, 66,
+#                     f"med={np.median(valid):.0f}\nn={n_valid[j]}",
+#                     ha="center", va="top",
+#                     fontsize=7, color="black"
+#                 )
+#
+#         # Highlight best config column
+#         best_j = int(np.nanargmax(
+#             [np.nanmedian(matrix[:, j])
+#              for j in range(n_configs)]
+#         ))
+#         ax.axvline(best_j - 0.5, color="gold",
+#                    linewidth=2, linestyle="--")
+#         ax.axvline(best_j + 0.5, color="gold",
+#                    linewidth=2, linestyle="--")
+#         ax.text(best_j, -2, "best",
+#                 ha="center", va="bottom",
+#                 fontsize=8, color="goldenrod",
+#                 fontweight="bold")
+#
+#         # Colorbar
+#         cbar_ax = fig.add_axes([0.82, 0.12, 0.02, 0.80])
+#         fig.colorbar(im, cax=cbar_ax, label="SNR")
+#
+#         plt.show()
+
+def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
+                                      show_quality_overlay=False,
+                                      min_noise_hits=50,
+                                      min_sigma=2.0,
+                                      max_sigma=20.0,
+                                      mpv_min=100,
+                                      mpv_max=300):
+    """
+    One heatmap per VMM showing SNR per channel per configuration.
+    Rows = channels (0-63), columns = configurations (sg/snt).
+
+    Parameters
+    ----------
+    show_quality_overlay : bool
+        If True, show all channels but mark low-quality ones
+        with an X overlay instead of hiding them.
+    min_noise_hits, min_sigma, max_sigma, mpv_min, mpv_max :
+        Quality thresholds used for overlay marking.
+        Only used if show_quality_overlay=True.
+    """
+    df = df_snr_ch.copy()
+
+    configs = (
+        df[["sg", "snt"]]
+        .drop_duplicates()
+        .sort_values(["sg", "snt"])
+    )
+    config_labels = [
+        f"sg={row['sg']:.1f}\nsnt={row['snt']:.0f}"
+        for _, row in configs.iterrows()
+    ]
+    config_keys = [
+        (row["sg"], row["snt"])
+        for _, row in configs.iterrows()
+    ]
+
+    vmin = 5
+    vmax = 50
+    cmap = plt.cm.RdYlGn.copy()
+    cmap.set_bad(color="lightgrey")
+
+    vmm_to_detector = {
+        vid: cfg.get("name", key)
+        for key, cfg in vmm_mapping.items()
+        for vid in cfg["vmm_ids"]
+    }
+
+    for vmm_id in sorted(detector_vmms):
+        df_vmm = df[df["vmm_id"] == vmm_id]
+        if df_vmm.empty:
+            continue
+
+        n_configs = len(config_keys)
+        matrix    = np.full((64, n_configs), np.nan)
+
+        # Quality mask matrix — True = low quality
+        quality_mask = np.zeros((64, n_configs), dtype=bool)
+
+        for j, (sg, snt) in enumerate(config_keys):
+            df_cfg = df_vmm[
+                (df_vmm["sg"]  == sg) &
+                (df_vmm["snt"] == snt)
+            ]
+            for _, row in df_cfg.iterrows():
+                ch  = int(row["ch"])
+                snr = row["snr_ch"]
+
+                # Clip SNR for display — don't let artifacts
+                # dominate the color scale
+                matrix[ch, j] = np.clip(snr, vmin, vmax)
+
+                # Mark as low quality if outside thresholds
+                if show_quality_overlay:
+                    is_bad = (
+                        row["n_noise"]        < min_noise_hits or
+                        row["noise_sigma_ch"] < min_sigma      or
+                        row["noise_sigma_ch"] > max_sigma      or
+                        row["mpv_ch"]         < mpv_min        or
+                        row["mpv_ch"]         > mpv_max        or
+                        row["n_signal"]       < 10
+                    )
+                    quality_mask[ch, j] = is_bad
+
+        n_valid = (~np.isnan(matrix)).sum(axis=0)
+
+        fig, ax = plt.subplots(
+            figsize=(n_configs * 1.8 + 3, 12)
+        )
+        fig.subplots_adjust(
+            left=0.08, right=0.80,
+            top=0.92, bottom=0.12
+        )
+
+        masked = np.ma.masked_invalid(matrix)
+        im = ax.imshow(masked, aspect="auto", cmap=cmap,
+                       vmin=vmin, vmax=vmax)
+
+        # Overlay X markers on low-quality channels
+        if show_quality_overlay:
+            for ch in range(64):
+                for j in range(n_configs):
+                    if quality_mask[ch, j]:
+                        ax.text(j, ch, "✕",
+                                ha="center", va="center",
+                                fontsize=6, color="black",
+                                alpha=0.6)
+
+        ax.set_xticks(range(n_configs))
+        ax.set_xticklabels(config_labels, fontsize=9)
+        ax.set_yticks(range(0, 64, 4))
+        ax.set_yticklabels(range(0, 64, 4), fontsize=8)
+        ax.set_ylabel("Channel", fontsize=10)
+
+        detector_name = vmm_to_detector.get(vmm_id, "")
+        quality_note  = (
+            "✕ = low quality estimate" if show_quality_overlay
+            else "grey = excluded by quality cuts"
+        )
+        ax.set_title(
+            f"VMM {vmm_id} — {detector_name}\n"
+            f"Per-channel SNR across configurations\n"
+            f"({quality_note}  |  color scale: {vmin}–{vmax})",
+            fontsize=11
+        )
+
+        for j in range(n_configs):
+            col   = matrix[:, j]
+            valid = col[~np.isnan(col)]
+            if len(valid) > 0:
+                ax.text(
+                    j, 66,
+                    f"med={np.median(valid):.0f}\nn={n_valid[j]}",
+                    ha="center", va="top",
+                    fontsize=7, color="black"
+                )
+
+        best_j = int(np.nanargmax(
+            [np.nanmedian(matrix[:, j])
+             for j in range(n_configs)]
+        ))
+        ax.axvline(best_j - 0.5, color="gold",
+                   linewidth=2, linestyle="--")
+        ax.axvline(best_j + 0.5, color="gold",
+                   linewidth=2, linestyle="--")
+        ax.text(best_j, -2, "best",
+                ha="center", va="bottom",
+                fontsize=8, color="goldenrod",
+                fontweight="bold")
+
+        cbar_ax = fig.add_axes([0.82, 0.12, 0.02, 0.80])
+        fig.colorbar(im, cax=cbar_ax, label="SNR")
+
+        plt.show()
+
+def summarise_best_config(df_snr, df_snr_ch, detector_vmms):
+    """
+    Print and return a summary table of the best configuration
+    per VMM at both VMM level and channel level (median SNR).
+    Also prints an overall recommendation across all VMMs.
+    """
+    vmm_to_detector = {
+        vid: cfg.get("name", key)
+        for key, cfg in vmm_mapping.items()
+        for vid in cfg["vmm_ids"]
+    }
+
+    records = []
+
+    print("\n" + "="*75)
+    print("BEST CONFIGURATION SUMMARY PER VMM")
+    print("="*75)
+    print(f"{'VMM':>5} {'Detector':>22} "
+          f"{'VMM_best':>14} {'VMM_SNR':>8} "
+          f"{'CH_best':>14} {'CH_med':>7} {'Agreement':>10}")
+    print("-"*75)
+
+    for vmm_id in sorted(detector_vmms):
+
+        # --- VMM level ---
+        df_v = df_snr[
+            (df_snr["vmm_id"]        == vmm_id) &
+            (df_snr["noise_quality"] == "ok")
+        ]
+        if df_v.empty:
+            continue
+        best_v     = df_v.loc[df_v["snr"].idxmax()]
+        vmm_cfg    = f"sg={best_v['sg']:.1f}/snt={best_v['snt']:.0f}"
+        vmm_snr    = best_v["snr"]
+
+        # --- Channel level (median SNR per config) ---
+        df_c = df_snr_ch[df_snr_ch["vmm_id"] == vmm_id]
+        if df_c.empty:
+            continue
+        ch_med     = df_c.groupby(["sg", "snt"])["snr_ch"].median()
+        best_c_idx = ch_med.idxmax()
+        best_c_snr = ch_med.max()
+        ch_cfg     = f"sg={best_c_idx[0]:.1f}/snt={best_c_idx[1]:.0f}"
+
+        # --- Do both levels agree? ---
+        agreement  = "✓" if vmm_cfg == ch_cfg else "✗"
+
+        detector   = vmm_to_detector.get(vmm_id, "")
+        print(f"{vmm_id:>5} {detector:>22} "
+              f"{vmm_cfg:>14} {vmm_snr:>8.1f} "
+              f"{ch_cfg:>14} {best_c_snr:>7.1f} "
+              f"{agreement:>10}")
+
+        records.append({
+            "vmm_id"         : vmm_id,
+            "detector"       : detector,
+            "vmm_best_config": vmm_cfg,
+            "vmm_snr"        : vmm_snr,
+            "ch_best_config" : ch_cfg,
+            "ch_median_snr"  : best_c_snr,
+            "agreement"      : agreement == "✓"
+        })
+
+    df_summary = pd.DataFrame(records)
+
+    # --- Overall recommendation ---
+    print("="*75)
+    print("\nOVERALL RECOMMENDATION:")
+
+    # Config that wins most VMMs at VMM level
+    vmm_votes = df_summary["vmm_best_config"].value_counts()
+    ch_votes  = df_summary["ch_best_config"].value_counts()
+
+    print(f"\n  VMM-level votes:")
+    for cfg, n in vmm_votes.items():
+        print(f"    {cfg} → {n} VMM(s)")
+
+    print(f"\n  Channel-level votes:")
+    for cfg, n in ch_votes.items():
+        print(f"    {cfg} → {n} VMM(s)")
+
+    # Config with most votes at both levels
+    overall_best = vmm_votes.idxmax()
+    print(f"\n  → Recommended configuration: {overall_best}")
+    print(f"    (wins {vmm_votes.max()} of {len(detector_vmms)} "
+          f"VMMs at VMM level)")
+
+    n_agree = df_summary["agreement"].sum()
+    print(f"\n  VMM and channel level agree for "
+          f"{n_agree}/{len(df_summary)} VMMs")
+
+    print("="*75)
+
+    return df_summary
 # -----------------------------
 # MAIN LOGIC
 # -----------------------------
@@ -1898,69 +2446,16 @@ def main():
 
     df_snr_ch.to_csv("vmm_snr_per_channel.csv", index=False)
 
-    print(f"\nChannel-level SNR: {len(df_snr_ch)} entries")
-    print(f"SNR range : {df_snr_ch['snr_ch'].min():.1f} "
-          f"— {df_snr_ch['snr_ch'].max():.1f}")
-    print(f"Mean SNR  : {df_snr_ch['snr_ch'].mean():.1f}")
-    print(f"Median SNR: {df_snr_ch['snr_ch'].median():.1f}")
-    print(f"\nPercentiles:")
-    for p in [1, 5, 25, 50, 75, 95, 99]:
-        print(f"  {p:>3}th : "
-              f"{np.percentile(df_snr_ch['snr_ch'], p):.1f}")
+    # print(f"\nChannel-level SNR: {len(df_snr_ch)} entries")
+    # print(f"SNR range : {df_snr_ch['snr_ch'].min():.1f} "
+    #       f"— {df_snr_ch['snr_ch'].max():.1f}")
+    # print(f"Mean SNR  : {df_snr_ch['snr_ch'].mean():.1f}")
+    # print(f"Median SNR: {df_snr_ch['snr_ch'].median():.1f}")
+    # print(f"\nPercentiles:")
+    # for p in [1, 5, 25, 50, 75, 95, 99]:
+    #     print(f"  {p:>3}th : "
+    #           f"{np.percentile(df_snr_ch['snr_ch'], p):.1f}")
 
-    #
-    # print("\n=== SNR Summary (noise quality=ok only) ===")
-    # df_snr_clean = df_snr[df_snr["noise_quality"] == "ok"]
-    # print(df_snr_clean[["sg", "snt", "vmm_id",
-    #                     "noise_sigma", "mpv",
-    #                     "snr"]].to_string(index=False))
-    #
-    # input("PRESS ENTER TO CONTINUE...")
-    #
-    # # Check MPV stability for VMM 10 across snt
-    # print("VMM 10 MPV check:")
-    # print(df_snr[df_snr["vmm_id"] == 10][
-    #           ["sg", "snt", "mpv", "noise_sigma", "snr", "noise_quality"]
-    #       ].to_string(index=False))
-    #
-    # # Same for VMM 9 since it's an outlier
-    # print("\nVMM 9 MPV check:")
-    # print(df_snr[df_snr["vmm_id"] == 9][
-    #           ["sg", "snt", "mpv", "noise_sigma", "snr", "noise_quality"]
-    #       ].to_string(index=False))
-    #
-    # input("PRESS ENTER TO CONTINUE...")
-    #
-    # # Check 1 — are signal runs being reused across pairs?
-    # print("Signal run usage per pair:")
-    # for p in run_groups["pairs"]:
-    #     print(f"  sg={p['sg']} snt={p['snt']} → "
-    #           f"signal=run {p['sng0']}  noise=run {p['sng1']}")
-    #
-    # # Check 2 — VMM 9 noise baseline in run 71 vs other sng=1 runs
-    # print("\nVMM 9 noise_sigma across all sng=1 runs:")
-    # for run_no in run_groups["sng1_runs"]:
-    #     run_dir = get_run_dir(data_dir, run_no)
-    #     root_files = list_root_files(run_dir, n=2)
-    #     if not root_files:
-    #         continue
-    #     df_hits = load_hits_root(
-    #         os.path.join(run_dir, root_files[1]),
-    #         branches=["adc", "vmm", "over_threshold"]
-    #     )
-    #     df_noise = compute_noise_baseline(df_hits)
-    #     row = df_noise[df_noise["vmm_id"] == 9]
-    #     if row.empty:
-    #         print(f"  run {run_no}: no data")
-    #         continue
-    #     snt = df_run_scan.loc[df_run_scan["run_no"] == run_no, "snt"].iloc[0]
-    #     sg = df_run_scan.loc[df_run_scan["run_no"] == run_no, "sg"].iloc[0]
-    #     print(f"  run {run_no} (sg={sg} snt={snt}): "
-    #           f"n_noise={row['n_noise'].iloc[0]}  "
-    #           f"sigma={row['robust_sigma'].iloc[0]:.2f}  "
-    #           f"quality={row['quality'].iloc[0]}")
-    #
-    # input("PRESS ENTER TO CONTINUE...")
 
 
     # ---- Get unique VMM IDs ----
@@ -1979,6 +2474,24 @@ def main():
     )
     df_results.dropna(inplace=True)
     df_results.to_csv("vmm_adc_analysis.csv", index=False)
+
+    df_snr_ch_uncut = compute_snr_per_channel(
+        data_dir=data_dir,
+        pairs=run_groups["pairs"],
+        detector_vmms=detector_vmms,
+        min_noise_hits=5,  # almost no cut
+        min_signal_hits=10,  # almost no cut
+        min_sigma=0.0,  # keep everything including stuck
+        max_sigma=999.0,  # keep everything including noisy
+        mpv_min=0.0,  # keep everything
+        mpv_max=1023.0  # keep everything
+    )
+
+    df_snr_ch_uncut.to_csv("vmm_snr_per_channel_uncut.csv", index=False)
+
+    # print(f"Uncut channel entries: {len(df_snr_ch_uncut)}")
+    # print(f"SNR range: {df_snr_ch_uncut['snr_ch'].min():.1f} "
+    #       f"— {df_snr_ch_uncut['snr_ch'].max():.1f}")
 
 # ---- QA investigations ----
     if PLOTS["qa_mpv_vs_median_comparison"]:
@@ -2015,8 +2528,6 @@ def main():
 
         if PLOTS["qa_adc16_artifact"]:
             qa_adc16_artifact(df_hits_qa, detector_vmms, run_no=run_no_qa)
-
-
 
     if PLOTS["qa_noise_pedestal_stability"]:
         qa_noise_pedestal_stability(df_run_scan, data_dir, run_num_sg_st_sng, vmm_groups)
@@ -2077,6 +2588,34 @@ def main():
     if PLOTS["snr_heatmap"]:
         plot_snr_heatmap(df_snr)
 
+    # if PLOTS["snr_channel_heatmap_per_vmm"]:
+    #     plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms)
+    if PLOTS["snr_channel_heatmap_per_vmm"]:
+        # Version 1 — all channels shown, quality marked with X
+        plot_snr_channel_heatmap_per_vmm(
+            df_snr_ch_uncut,
+            detector_vmms,
+            show_quality_overlay=True
+        )
+
+        # Version 2 — only quality-passing channels shown
+        plot_snr_channel_heatmap_per_vmm(
+            df_snr_ch,
+            detector_vmms,
+            show_quality_overlay=False
+        )
+
+    if PLOTS["snr_channel_heatmap"]:
+        # Show best config and also sg=4.5 snt=100 explicitly
+        plot_snr_channel_heatmap(df_snr_ch, vmm_groups)
+        plot_snr_channel_heatmap(
+            df_snr_ch, vmm_groups,
+            config={"sg": 4.5, "snt": 100}
+        )
+
+    if PLOTS["snr_channel_uniformity"]:
+        plot_snr_channel_uniformity(df_snr_ch, detector_vmms)
+
 
     if PLOTS["qa_noise_sigma_distribution"]:
         qa_noise_sigma_distribution(
@@ -2090,6 +2629,8 @@ def main():
             run_groups["sng1_runs"]
         )
 
+    df_summary = summarise_best_config(df_snr, df_snr_ch, detector_vmms)
+    df_summary.to_csv("vmm_snr_summary.csv", index=False)
 
 if __name__ == "__main__":
     main()
