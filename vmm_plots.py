@@ -459,6 +459,121 @@ def plot_snr_heatmap(df_snr):
     plt.show()
 
 
+def plot_adc_heatmap(df_snr, metric="mpv"):
+    """
+    Heatmap of ADC metric: rows=VMMs, columns=configurations.
+
+    Parameters
+    ----------
+    df_snr : pd.DataFrame
+        VMM-level SNR results from compute_snr().
+        Must contain columns: sg, snt, vmm_id, mpv, noise_sigma,
+        noise_quality.
+    metric : str
+        'mpv'         — signal most probable value (ADC units)
+        'noise_sigma' — noise width (ADC units)
+
+    Shows all data — warn/bad cells annotated with quality label.
+    Detector group labels on right axis from vmm_mapping.
+    Fixed color scale across all cells for direct comparison.
+    """
+    if metric not in ("mpv", "noise_sigma"):
+        raise ValueError("metric must be 'mpv' or 'noise_sigma'")
+
+    df = df_snr.copy()
+
+    def config_label(row):
+        return f"sg={row['sg']:.1f}\nsnt={row['snt']:.0f}"
+
+    df["config"] = df.apply(config_label, axis=1)
+
+    configs = (
+        df[["sg", "snt", "config"]]
+        .drop_duplicates()
+        .sort_values(["sg", "snt"])["config"]
+        .tolist()
+    )
+    vmm_ids = sorted(df["vmm_id"].unique())
+
+    val_matrix     = np.full((len(vmm_ids), len(configs)), np.nan)
+    quality_matrix = np.full((len(vmm_ids), len(configs)), "",
+                              dtype=object)
+
+    for i, vmm_id in enumerate(vmm_ids):
+        for j, cfg in enumerate(configs):
+            row = df[
+                (df["vmm_id"] == vmm_id) &
+                (df["config"] == cfg)
+            ]
+            if not row.empty:
+                val_matrix[i, j]     = row[metric].iloc[0]
+                quality_matrix[i, j] = row["noise_quality"].iloc[0]
+
+    cell_w = 2.2
+    cell_h = 1.0
+    fig_w  = max(16, len(configs) * cell_w + 8)
+    fig_h  = max(6,  len(vmm_ids) * cell_h + 3)
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    fig.subplots_adjust(left=0.07, right=0.62,
+                        top=0.88, bottom=0.15)
+
+    cmap = (plt.cm.Blues.copy() if metric == "mpv"
+            else plt.cm.Oranges.copy())
+    cmap.set_bad(color="lightgrey")
+
+    masked = np.ma.masked_invalid(val_matrix)
+    im = ax.imshow(masked, aspect="auto", cmap=cmap,
+                   vmin=np.nanmin(val_matrix),
+                   vmax=np.nanmax(val_matrix))
+
+    for i in range(len(vmm_ids)):
+        for j in range(len(configs)):
+            val     = val_matrix[i, j]
+            quality = quality_matrix[i, j]
+            if np.isnan(val):
+                ax.text(j, i, "—", ha="center", va="center",
+                        fontsize=9, color="gray")
+            else:
+                suffix = ("" if quality == "ok"
+                          else f"\n({quality})")
+                ax.text(j, i, f"{val:.1f}{suffix}",
+                        ha="center", va="center",
+                        fontsize=8, fontweight="bold")
+
+    ax.set_xticks(range(len(configs)))
+    ax.set_xticklabels(configs, fontsize=9)
+    ax.set_yticks(range(len(vmm_ids)))
+    ax.set_yticklabels([f"VMM {v}" for v in vmm_ids], fontsize=9)
+
+    label_str = ("MPV [ADC]" if metric == "mpv"
+                 else "Noise σ [ADC]")
+    title_str = ("ADC MPV heatmap — VMM vs configuration"
+                 if metric == "mpv"
+                 else "Noise σ heatmap — VMM vs configuration")
+    ax.set_title(f"{title_str}\n(warn/bad cells show quality label)",
+                 fontsize=11, pad=12)
+
+    vmm_to_detector = {
+        vid: cfg.get("name", key)
+        for key, cfg in vmm_mapping.items()
+        for vid in cfg["vmm_ids"]
+    }
+    for i, vmm_id in enumerate(vmm_ids):
+        label  = vmm_to_detector.get(vmm_id, "")
+        x_fig  = 0.635
+        y_fig  = (ax.get_position().y0 +
+                  ax.get_position().height *
+                  (1 - (i + 0.5) / len(vmm_ids)))
+        fig.text(x_fig, y_fig, label,
+                 ha="left", va="center",
+                 fontsize=7, clip_on=False)
+
+    cbar_ax = fig.add_axes([0.88, 0.15, 0.02, 0.73])
+    fig.colorbar(im, cax=cbar_ax, label=label_str)
+    plt.show()
+
+
 def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
                                       show_quality_overlay=False,
                                       min_noise_hits=50,
