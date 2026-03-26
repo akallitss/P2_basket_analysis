@@ -38,7 +38,6 @@ from vmm_io import (load_run_table, get_run_groups,
                     filter_runs)
 
 from vmm_noise  import compute_noise_baseline
-from vmm_signal import get_clean_signal, estimate_mpv
 
 from vmm_snr import (compute_snr,
                      compute_snr_per_channel,
@@ -65,6 +64,7 @@ from vmm_plots import (plot_adc_histograms_for_runs,
                        plot_snr_vs_peaking,
                        plot_snr_vs_gain,
                        plot_snr_heatmap,
+                       plot_adc_heatmap,
                        plot_snr_channel_heatmap_per_vmm,
                        plot_snr_channel_heatmap_all_configs,
                        plot_snr_channel_uniformity)
@@ -87,12 +87,12 @@ PLOTS = {
 
     # QA investigations
     "qa_over_threshold_split"   : False,
-    "qa_noise_pedestal_stability": False,
+    "qa_noise_pedestal_stability": True,
     "qa_signal_distributions"   : False,
-    "qa_noise_quality_check"    : False,
+    "qa_noise_quality_check"    : True,
     "qa_mpv_estimation"         : False,
-    "qa_channel_noise"          : False,
-    "qa_adc16_artifact"         : False,
+    "qa_channel_noise"          : True,
+    "qa_adc16_artifact"         : True,
     "qa_noise_sigma_distribution": False,
     "qa_robust_vs_std_comparison": False,
     "qa_mpv_vs_median_comparison": False,
@@ -101,6 +101,7 @@ PLOTS = {
     "snr_vs_peaking"            : True,
     "snr_vs_gain"               : True,
     "snr_heatmap"               : True,
+    "adc_heatmap"               : True,
     "snr_channel_heatmap_per_vmm": True,
     "snr_channel_heatmap_all_configs": True,
     "snr_channel_uniformity"    : True,
@@ -130,7 +131,7 @@ def main():
     # How many ROOT files to load and merge per run directory.
     # n_root_files=1 uses only the first file.
     # Increase to merge more statistics (e.g. 2, 3, or 99 for all).
-    n_root_files = 10
+    n_root_files = 1
 
     # --- QA investigation runs ---
     # Run to use for over_threshold split and signal distribution QA.
@@ -368,6 +369,10 @@ def main():
 
     if PLOTS["snr_heatmap"]:
         plot_snr_heatmap(df_snr)
+
+    if PLOTS["adc_heatmap"]:
+        plot_adc_heatmap(df_snr, metric="mpv")
+        plot_adc_heatmap(df_snr, metric="noise_sigma")
 
     if PLOTS["snr_channel_heatmap_per_vmm"]:
         plot_snr_channel_heatmap_per_vmm(
