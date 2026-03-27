@@ -30,6 +30,24 @@ from vmm_mapping import vmm_mapping
 
 
 # ─────────────────────────────────────────────
+# GLOBAL PLOT STYLE
+# ─────────────────────────────────────────────
+plt.rcParams.update({
+    "font.size"         : 13,
+    "font.weight"       : "bold",
+    "axes.titlesize"    : 15,
+    "axes.titleweight"  : "bold",
+    "axes.labelsize"    : 13,
+    "axes.labelweight"  : "bold",
+    "xtick.labelsize"   : 12,
+    "ytick.labelsize"   : 12,
+    "legend.fontsize"   : 12,
+    "figure.titlesize"  : 15,
+    "figure.titleweight": "bold",
+})
+
+
+# ─────────────────────────────────────────────
 # LEGACY PLOTS
 # ─────────────────────────────────────────────
 
@@ -262,7 +280,7 @@ def _quality_legend(ax):
                label="bad",  linestyle=":",  alpha=0.5),
     ]
     ax.legend(handles=handles, title="Noise quality",
-              fontsize=8, loc="lower right")
+              fontsize=14, loc="lower right")
 
 
 def plot_snr_vs_peaking(df_snr):
@@ -305,11 +323,11 @@ def plot_snr_vs_peaking(df_snr):
         ax.set_title(f"sg={sg_val}")
         ax.set_xlabel("Peaking time (snt)")
         ax.set_ylabel("SNR (MPV / noise σ)")
-        ax.legend(fontsize=8)
+        ax.legend(fontsize=14)
         ax.grid(True, alpha=0.3)
         _quality_legend(ax)
 
-    plt.suptitle("SNR vs Peaking Time (all data)", y=1.02)
+    plt.suptitle("SNR vs Peaking Time (all data)", y=1.02, fontweight="bold")
     plt.tight_layout()
     plt.show()
 
@@ -355,11 +373,11 @@ def plot_snr_vs_gain(df_snr):
         ax.set_title(f"snt={snt_val:.0f}")
         ax.set_xlabel("Gain (sg)")
         ax.set_ylabel("SNR (MPV / noise σ)")
-        ax.legend(fontsize=8)
+        ax.legend(fontsize=14)
         ax.grid(True, alpha=0.3)
         _quality_legend(ax)
 
-    plt.suptitle("SNR vs Gain (all data)", y=1.02)
+    plt.suptitle("SNR vs Gain (all data)", y=1.02, fontweight="bold")
     plt.tight_layout()
     plt.show()
 
@@ -423,21 +441,21 @@ def plot_snr_heatmap(df_snr):
             quality = quality_matrix[i, j]
             if np.isnan(val):
                 ax.text(j, i, "—", ha="center", va="center",
-                        fontsize=9, color="gray")
+                        fontsize=12, color="gray")
             else:
                 suffix = ("" if quality == "ok"
                           else f"\n({quality})")
                 ax.text(j, i, f"{val:.1f}{suffix}",
                         ha="center", va="center",
-                        fontsize=8, fontweight="bold")
+                        fontsize=14, fontweight="bold")
 
     ax.set_xticks(range(len(configs)))
-    ax.set_xticklabels(configs, fontsize=9)
+    ax.set_xticklabels(configs, fontsize=12)
     ax.set_yticks(range(len(vmm_ids)))
-    ax.set_yticklabels([f"VMM {v}" for v in vmm_ids], fontsize=9)
+    ax.set_yticklabels([f"VMM {v}" for v in vmm_ids], fontsize=12)
     ax.set_title("SNR heatmap — VMM vs configuration\n"
                  "(warn/bad cells show quality label)",
-                 fontsize=11, pad=12)
+                 fontsize=14, pad=12)
 
     vmm_to_detector = {
         vid: cfg.get("name", key)
@@ -452,7 +470,7 @@ def plot_snr_heatmap(df_snr):
                   (1 - (i + 0.5) / len(vmm_ids)))
         fig.text(x_fig, y_fig, label,
                  ha="left", va="center",
-                 fontsize=7, clip_on=False)
+                 fontsize=13, clip_on=False)
 
     cbar_ax = fig.add_axes([0.88, 0.15, 0.02, 0.73])
     fig.colorbar(im, cax=cbar_ax, label="SNR")
@@ -533,18 +551,18 @@ def plot_adc_heatmap(df_snr, metric="mpv"):
             quality = quality_matrix[i, j]
             if np.isnan(val):
                 ax.text(j, i, "—", ha="center", va="center",
-                        fontsize=9, color="gray")
+                        fontsize=12, color="gray")
             else:
                 suffix = ("" if quality == "ok"
                           else f"\n({quality})")
                 ax.text(j, i, f"{val:.1f}{suffix}",
                         ha="center", va="center",
-                        fontsize=8, fontweight="bold")
+                        fontsize=14, fontweight="bold")
 
     ax.set_xticks(range(len(configs)))
-    ax.set_xticklabels(configs, fontsize=9)
+    ax.set_xticklabels(configs, fontsize=12)
     ax.set_yticks(range(len(vmm_ids)))
-    ax.set_yticklabels([f"VMM {v}" for v in vmm_ids], fontsize=9)
+    ax.set_yticklabels([f"VMM {v}" for v in vmm_ids], fontsize=12)
 
     label_str = ("MPV [ADC]" if metric == "mpv"
                  else "Noise σ [ADC]")
@@ -552,7 +570,7 @@ def plot_adc_heatmap(df_snr, metric="mpv"):
                  if metric == "mpv"
                  else "Noise σ heatmap — VMM vs configuration")
     ax.set_title(f"{title_str}\n(warn/bad cells show quality label)",
-                 fontsize=11, pad=12)
+                 fontsize=14, pad=12)
 
     vmm_to_detector = {
         vid: cfg.get("name", key)
@@ -567,7 +585,7 @@ def plot_adc_heatmap(df_snr, metric="mpv"):
                   (1 - (i + 0.5) / len(vmm_ids)))
         fig.text(x_fig, y_fig, label,
                  ha="left", va="center",
-                 fontsize=7, clip_on=False)
+                 fontsize=13, clip_on=False)
 
     cbar_ax = fig.add_axes([0.88, 0.15, 0.02, 0.73])
     fig.colorbar(im, cax=cbar_ax, label=label_str)
@@ -666,14 +684,14 @@ def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
                     if quality_mask[ch, j]:
                         ax.text(j, ch, "✕",
                                 ha="center", va="center",
-                                fontsize=6, color="black",
+                                fontsize=12, color="black",
                                 alpha=0.6)
 
         ax.set_xticks(range(n_configs))
-        ax.set_xticklabels(config_labels, fontsize=9)
+        ax.set_xticklabels(config_labels, fontsize=12)
         ax.set_yticks(range(0, 64, 4))
-        ax.set_yticklabels(range(0, 64, 4), fontsize=8)
-        ax.set_ylabel("Channel", fontsize=10)
+        ax.set_yticklabels(range(0, 64, 4), fontsize=14)
+        ax.set_ylabel("Channel", fontsize=13)
 
         detector_name = vmm_to_detector.get(vmm_id, "")
         quality_note  = (
@@ -685,7 +703,7 @@ def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
             f"VMM {vmm_id} — {detector_name}\n"
             f"Per-channel SNR across configurations\n"
             f"({quality_note}  |  color scale: {vmin}–{vmax})",
-            fontsize=11
+            fontsize=14
         )
 
         for j in range(n_configs):
@@ -696,7 +714,7 @@ def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
                     j, 66,
                     f"med={np.median(valid):.0f}\nn={n_valid[j]}",
                     ha="center", va="top",
-                    fontsize=7, color="black"
+                    fontsize=13, color="black"
                 )
 
         best_j = int(np.nanargmax(
@@ -709,7 +727,7 @@ def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
                    linewidth=2, linestyle="--")
         ax.text(best_j, -2, "best",
                 ha="center", va="bottom",
-                fontsize=8, color="goldenrod",
+                fontsize=14, color="goldenrod",
                 fontweight="bold")
 
         cbar_ax = fig.add_axes([0.82, 0.12, 0.02, 0.80])
@@ -769,14 +787,14 @@ def plot_snr_channel_heatmap_all_configs(df_snr_ch):
 
         ax.set_xticks(range(len(vmm_ids)))
         ax.set_xticklabels(
-            [f"VMM {v}" for v in vmm_ids], fontsize=9
+            [f"VMM {v}" for v in vmm_ids], fontsize=12
         )
-        ax.set_ylabel("Channel", fontsize=10)
+        ax.set_ylabel("Channel", fontsize=13)
         ax.set_yticks(range(0, 64, 4))
         ax.set_title(
             f"Per-channel SNR — sg={sg:.1f}  snt={snt:.0f}\n"
             f"(grey = excluded  |  color scale: {vmin}–{vmax})",
-            fontsize=11
+            fontsize=14
         )
 
         ax2 = ax.twiny()
@@ -784,7 +802,7 @@ def plot_snr_channel_heatmap_all_configs(df_snr_ch):
         ax2.set_xticks(range(len(vmm_ids)))
         ax2.set_xticklabels(
             [vmm_to_detector.get(v, "") for v in vmm_ids],
-            fontsize=7, rotation=15, ha="left"
+            fontsize=13, rotation=15, ha="left"
         )
 
         for j, vmm_id in enumerate(vmm_ids):
@@ -794,7 +812,7 @@ def plot_snr_channel_heatmap_all_configs(df_snr_ch):
                 ax.text(j, 65,
                         f"med={np.median(valid):.0f}",
                         ha="center", va="top",
-                        fontsize=7, color="black")
+                        fontsize=13, color="black")
 
         cbar_ax = fig.add_axes([0.82, 0.08, 0.02, 0.84])
         fig.colorbar(im, cax=cbar_ax, label="SNR")
@@ -857,7 +875,7 @@ def plot_snr_channel_uniformity(df_snr_ch, detector_vmms):
         ):
             ax.text(i, ax.get_ylim()[1] * 0.97,
                     f"n={len(vals)}\nmed={np.median(vals):.0f}",
-                    ha="center", va="top", fontsize=7)
+                    ha="center", va="top", fontsize=13)
 
         ax.set_xlabel("Configuration")
         ax.set_ylabel("SNR per channel")
