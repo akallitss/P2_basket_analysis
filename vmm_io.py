@@ -15,6 +15,7 @@ Data loading and run management utilities for VMM config scan analysis.
 import os
 import uproot
 import pandas as pd
+from vmm_mapping import vmm_mapping
 
 def get_root_file(run_dir, n_files=2, file_index=1):
     """
@@ -91,6 +92,18 @@ def load_hits_root(filename, branches=None, tree_name="hits"):
     df.columns = [c.replace(f"{tree_name}/", "") for c in df.columns]
     return df
 
+def get_connected_channels(vmm_id):
+    """
+    Return the list of physically connected channels for a VMM.
+    Returns None if all channels are active (detector VMMs).
+    """
+    for key, cfg in vmm_mapping.items():
+        if vmm_id in cfg["vmm_ids"]:
+            channels = cfg.get("channels", None)
+            if channels is None:
+                return None   # all channels
+            return channels.get(vmm_id, None)
+    return None
 
 def load_run_table(csv_path):
     """Load run metadata CSV into a DataFrame."""
