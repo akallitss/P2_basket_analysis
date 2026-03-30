@@ -119,8 +119,10 @@ def main():
     # ════════════════════════════════════════════════════════════
 
     # --- Paths ---
-    cnfg_dir = "/drf/projets/clas12/P2/akallits/"
-    data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+    # cnfg_dir = "/drf/projets/clas12/P2/akallits/"
+    cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
+    # data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+    data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
 
     # --- Legacy ADC stats filter ---
     # Which gain and neighbor setting to use for legacy plots
@@ -164,7 +166,6 @@ def main():
               f"{p['sng0']:>8} {p['sng1']:>8}")
 
     # ── VMM groupings from vmm_mapping ─────────────────────────
-    trigger_vmms  = vmm_mapping["trigger"]["vmm_ids"]
     detector_vmms = [
         vid
         for key, cfg in vmm_mapping.items()
