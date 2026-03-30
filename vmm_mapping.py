@@ -12,9 +12,13 @@ Created as vmm_mapping.py
 # VMM mapping details combined
 vmm_mapping = {
     'trigger': {
-        'vmm_ids': [0, 1],
-        'connector_ids': [10, 11],
-        'orientation': None,
+    'vmm_ids'      : [0, 1],
+    'connector_ids': [10, 11],
+    'orientation'  : None,
+    'channels'     : {
+        0: [40, 48],
+        1: [0, 20, 40, 60]
+    }
     },
     'p2_large_1': {
         'name': 'P2 Large Detector',
