@@ -119,14 +119,15 @@ def main():
     # ════════════════════════════════════════════════════════════
 
     # --- Paths ---
-    # cnfg_dir = "/drf/projets/clas12/P2/akallits/"
-    cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
-    # data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
-    data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
+    cnfg_dir = "/drf/projets/clas12/P2/akallits/"
+    # cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
+    data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+    # data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
 
     # --- Legacy ADC stats filter ---
     # Which gain and neighbor setting to use for legacy plots
-    legacy_sg  = 4.5
+    # legacy_sg  = 4.5 sps beam test
+    legacy_sg  = 1.0
     legacy_sng = 1.0
 
     # --- Files per run ---
@@ -138,22 +139,25 @@ def main():
     # --- QA investigation runs ---
     # Run to use for over_threshold split and signal distribution QA.
     # Should be a well-behaved sng=1 run at your preferred config.
-    qa_run_signal = 79
+    # qa_run_signal = 79 beam test sps sng = 1
+    qa_run_signal = 1
 
     # Run to use for channel noise and ADC=16 artifact QA.
     # Should be the most problematic run (short peaking time).
-    qa_run_noisy  = 98
+    # qa_run_noisy  = 98 beam test sps
+    qa_run_noisy  = 2
 
     # Runs to check in noise quality check QA.
     # Include one run per peaking time to see the full picture.
-    qa_runs_quality_check = [79, 96, 98]
+    # qa_runs_quality_check = [79, 96, 98] beam test sps sng=1
+    qa_runs_quality_check = [2,4]
 
     # ════════════════════════════════════════════════════════════
     # END USER CONFIGURATION
     # ════════════════════════════════════════════════════════════
 
     # ── Run metadata ───────────────────────────────────────────
-    df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan.csv")
+    df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan_lab.csv")
     run_groups  = get_run_groups(df_run_scan)
 
     sng1_runs = run_groups["sng1_runs"]
