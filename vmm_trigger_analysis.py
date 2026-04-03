@@ -54,12 +54,11 @@ for g in vmm_groups:
 
 def main():
     # ── User configuration ──────────────────────────────────
-    cnfg_dir = "/drf/projets/clas12/P2/akallits/"
-    data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+    # cnfg_dir = "/drf/projets/clas12/P2/akallits/"
+    # data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
 
-    # cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
-    # data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
-
+    cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
+    data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
 
     root_file_index = 1
 
@@ -67,41 +66,36 @@ def main():
     df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan.csv")
     run_groups = get_run_groups(df_run_scan)
 
-    for run_no in run_groups["sng0_runs"]:
-        run_dir = get_run_dir(data_dir, run_no)
-        file_path = get_root_file(run_dir, file_index=root_file_index)
-        if file_path is None:
-            continue
+    # ── Timestamp sanity check (optional — slow, loads all runs) ──
+    RUN_TIMESTAMP_CHECK = False
+    if RUN_TIMESTAMP_CHECK:
+        for run_no in run_groups["sng0_runs"]:
+            run_dir = get_run_dir(data_dir, run_no)
+            file_path = get_root_file(run_dir, file_index=root_file_index)
+            if file_path is None:
+                continue
 
-        df = load_hits_root(file_path, branches=["time", "vmm"])
-        df = df.sort_values("time").reset_index(drop=True)
-        t = df["time"].values
+            df = load_hits_root(file_path, branches=["time", "vmm"])
+            df = df.sort_values("time").reset_index(drop=True)
+            t = df["time"].values
 
-        sg = df_run_scan.loc[df_run_scan["run_no"] == run_no, "sg"].iloc[0]
-        snt = df_run_scan.loc[df_run_scan["run_no"] == run_no, "snt"].iloc[0]
+            sg  = df_run_scan.loc[df_run_scan["run_no"] == run_no, "sg"].iloc[0]
+            snt = df_run_scan.loc[df_run_scan["run_no"] == run_no, "snt"].iloc[0]
 
-        print(f"\nRun {run_no} (sg={sg} snt={snt}):")
-        print(f"  N hits          : {len(t)}")
-        print(f"  t[0]            : {t[0]:.3e}")
-        print(f"  t[-1]           : {t[-1]:.3e}")
-        print(f"  t range (ticks) : {t[-1] - t[0]:.3e}")
-        print(f"  t range (s)     : {(t[-1] - t[0]) * S_PER_TICK:.1f}")
-        print(f"  t[0] (s)        : {t[0] * S_PER_TICK:.1f}")
-        print(f"  t[-1] (s)       : {t[-1] * S_PER_TICK:.1f}")
+            print(f"\nRun {run_no} (sg={sg} snt={snt}):")
+            print(f"  N hits          : {len(t)}")
+            print(f"  t range (s)     : {(t[-1] - t[0]) * S_PER_TICK:.1f}")
+            print(f"  t[0] (s)        : {t[0] * S_PER_TICK:.1f}")
+            print(f"  t[-1] (s)       : {t[-1] * S_PER_TICK:.1f}")
 
-        # Check for large jumps
-        dt = np.diff(t)
-        large_jumps = (dt > 1e11)
-        if large_jumps.any():
-            jump_idx = np.where(large_jumps)[0]
-            print(f"  WARNING: {large_jumps.sum()} large jumps detected")
-            for idx in jump_idx[:3]:
-                print(f"    Jump at index {idx}: "
-                      f"Δt={dt[idx]:.3e} ticks "
-                      f"= {dt[idx] * S_PER_TICK:.1f}s")
-
-
-    # input("Press enter to continue...")
+            dt = np.diff(t)
+            large_jumps = dt > 1e11
+            if large_jumps.any():
+                jump_idx = np.where(large_jumps)[0]
+                print(f"  WARNING: {large_jumps.sum()} large jumps")
+                for idx in jump_idx[:3]:
+                    print(f"    idx {idx}: Δt={dt[idx]:.3e} ticks"
+                          f" = {dt[idx] * S_PER_TICK:.1f}s")
     # ── Step 1: validate on one run ─────────────────────────
     # Use run 67 (sg=3, snt=200, sng=1) as the test case
     test_run = 67
@@ -133,15 +127,8 @@ def main():
         vtype = "trigger" if vmm_id in trigger_vmms else "detector"
         print(f"{vmm_id:>5} {vtype:>10} {n:>10} {rate:>12.1f}")
 
-    # For trigger rate — use one channel per physical trigger signal
-    # VMM 0 ch48 and VMM 1 ch20 are the reference channels
-    trigger_reference = {
-        0: 48,  # VMM 0, channel 48
-        1: 20,  # VMM 1, channel 0
-    }
-
     print(f"\nFitting inter-event distributions...")
-    for vmm_id, ref_ch in trigger_reference.items():
+    for vmm_id, ref_ch in trigger_ref_channels.items():
         # Get hits for this specific channel only
         df_ch = df_hits[
             (df_hits["vmm"] == vmm_id) &
@@ -190,8 +177,6 @@ def main():
             dt_us, vmm_id, test_run,
             rate_hz, chi2_ndf, tau, fit_x, fit_y
         )
-    trigger_ref_channels = {0: 48, 1: 20}
-
     df_rates = compute_rates_all_runs(
         df_run_scan=df_run_scan,
         data_dir=data_dir,
@@ -205,6 +190,19 @@ def main():
     df_rates.to_csv("vmm_rates.csv", index=False)
     print("\n")
     print(df_rates.to_string(index=False))
+
+    # ── Step 1: validate spill mask on test run ────────────────
+    # Inspect the trigger rate with spill-on/off shading BEFORE
+    # running all configs — confirm threshold separates beam-on
+    # from inter-spill gaps correctly.
+    plot_spill_mask_diagnostic(
+        df_hits,
+        run_no=test_run,
+        trigger_vmm=0,
+        trigger_ch=trigger_ref_channels[0],
+        spill_threshold_khz=1.0,
+        bin_width_ms=1.0,
+    )
 
     # ── Trigger stream QA on test run ──────────────────────────
     df_hits_dt = load_sorted_hits(
@@ -1260,6 +1258,93 @@ def compute_spill_masks(rates_khz, threshold_khz):
     on_mask  = rates_khz > threshold_khz
     off_mask = ~on_mask
     return on_mask, off_mask
+
+
+def plot_spill_mask_diagnostic(df_hits, run_no,
+                               trigger_vmm=0, trigger_ch=48,
+                               spill_threshold_khz=1.0,
+                               bin_width_ms=1.0):
+    """
+    Step 1 validation: plot 1 ms trigger rate with spill-on/off
+    regions shaded.
+
+    Use this on a single run before running all configs to confirm
+    the threshold correctly separates beam-on from beam-off.
+
+    Green shading = spill-on (rate > threshold).
+    Grey shading  = spill-off (noise floor).
+    Red dashed line = threshold.
+    """
+    t = df_hits[
+        (df_hits["vmm"] == trigger_vmm) &
+        (df_hits["ch"]  == trigger_ch)
+    ]["time"].values
+
+    if len(t) < 2:
+        print(f"No hits for VMM {trigger_vmm} ch {trigger_ch}")
+        return
+
+    bin_width_s = bin_width_ms * 1e-3
+    t_s      = t * S_PER_TICK
+    t_start  = t_s.min()
+    bins     = np.arange(t_start, t_s.max() + bin_width_s, bin_width_s)
+    counts, edges = np.histogram(t_s, bins=bins)
+    t_centers_s   = 0.5 * (edges[:-1] + edges[1:]) - t_start
+    rate_khz       = counts / bin_width_s / 1e3
+
+    on_mask, off_mask = compute_spill_masks(rate_khz, spill_threshold_khz)
+    n_on  = on_mask.sum()
+    n_off = off_mask.sum()
+    frac_on = 100 * n_on / len(rate_khz)
+
+    fig, axes = plt.subplots(2, 1, figsize=(14, 7), sharex=False)
+
+    for ax, xlim, title_suffix in zip(
+        axes,
+        [None, (0, min(10.0, t_centers_s.max()))],
+        ["full run", "zoom first 10 s"],
+    ):
+        ax.plot(t_centers_s, rate_khz,
+                color="steelblue", linewidth=0.7, zorder=3)
+        ax.axhline(spill_threshold_khz, color="crimson",
+                   linewidth=1.2, linestyle="--",
+                   label=f"threshold = {spill_threshold_khz:.1f} kHz")
+
+        # Shade contiguous spill-on / spill-off regions —
+        # one axvspan per region, not per bin
+        for mask_bool, color in [(on_mask, "limegreen"),
+                                  (off_mask, "lightgrey")]:
+            # Find starts and ends of each contiguous True block
+            padded   = np.concatenate(([False], mask_bool, [False]))
+            starts   = np.where(~padded[:-1] &  padded[1:])[0]
+            ends     = np.where( padded[:-1] & ~padded[1:])[0]
+            for s, e in zip(starts, ends):
+                ax.axvspan(t_centers_s[s]   - bin_width_s / 2,
+                           t_centers_s[e-1] + bin_width_s / 2,
+                           alpha=0.25, color=color,
+                           linewidth=0, zorder=1)
+
+        if xlim is not None:
+            ax.set_xlim(xlim)
+        ax.set_ylabel("Trigger rate (kHz)")
+        ax.set_title(f"Spill mask — {title_suffix}")
+        ax.grid(True, alpha=0.3, zorder=2)
+        ax.legend(loc="upper right")
+
+    axes[-1].set_xlabel("Time from run start (s)")
+    fig.suptitle(
+        f"Run {run_no} — VMM {trigger_vmm} ch {trigger_ch}  |  "
+        f"spill-on: {n_on} bins ({frac_on:.1f}%)  "
+        f"spill-off: {n_off} bins",
+        fontweight="bold"
+    )
+    plt.tight_layout()
+    plt.show()
+
+    print(f"Spill-on  bins : {n_on}  ({frac_on:.1f}%)")
+    print(f"Spill-off bins : {n_off}  ({100-frac_on:.1f}%)")
+    print(f"Mean rate (on) : {rate_khz[on_mask].mean():.2f} kHz")
+    print(f"Mean rate (off): {rate_khz[off_mask].mean():.3f} kHz")
 
 
 def compute_spill_rates_all_runs(df_run_scan, data_dir,
