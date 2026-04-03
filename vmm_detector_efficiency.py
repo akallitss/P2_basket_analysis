@@ -425,6 +425,10 @@ def main():
     cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
     data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
 
+    # ── User configuration cluster ──────────────────────────────────
+    # cnfg_dir = "/drf/projets/clas12/P2/akallits/"
+    # data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+
     root_file_index = 1
     test_run        = 67       # sg=3, snt=200 — used for diagnostics
 
@@ -499,6 +503,6 @@ def main():
 
     plot_time_correlated_efficiency(df_coinc_all, vmm_groups)
 
-
+    print("bonzo")
 if __name__ == "__main__":
     main()
