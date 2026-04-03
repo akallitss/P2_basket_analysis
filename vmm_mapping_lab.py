@@ -8,13 +8,12 @@ Created as vmm_mapping_lab.py
 @author: ak271430
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
-
-
-def main():
-    print('bonzo')
-
-
-if __name__ == '__main__':
-    main()
+# VMM mapping details combined
+vmm_mapping = {
+    'p2_small_1': {
+        'name': 'P2 Small Detector 1',
+        'vmm_ids': [4, 5],
+        'connector_ids': [0, 1],
+        'orientation': ['normal', 'normal', 'normal', 'normal'],
+    },
+}
