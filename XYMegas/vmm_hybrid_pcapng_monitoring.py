@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""
+VMM hybrid diagnostic script for irradiation measurements.
+Reads a pcapng file and produces per-VMM ADC and channel occupancy plots.
+
+Usage:
+    python3 vmm_hybrid_pcapng_monitoring.py <pcap_file>
+
+Output PNGs are saved in the same directory as the input file.
+
+hits DataFrame columns:
+    fec            : FEC ID (last octet of source IP)
+    vmm            : VMM ID (0-31, from packet data)
+    time           : frame counter (proxy for time; multiply by frame period for real time)
+    ch             : channel number (0-63)
+    adc            : ADC value (0-1023)
+    over_threshold : over-threshold flag (bool)
+"""
+
+import sys
+import os
+import array
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from scapy.all import PcapReader, UDP, IP
+
+#########################################
+# CONFIG — adapt if your FEC IP changes
+#########################################
+SRC_IP = "192.168.1.13" #CERN data
+# SRC_IP = "192.168.0.12" #Pagure data
+
+#########################################
+# PARSE ONE UDP PAYLOAD BLOCK
+#########################################
+def parse_block(block: bytes, frame_counter: int, fec_id: int,
+                fec_buf, vmm_buf, time_buf, ch_buf, adc_buf, ot_buf):
+    if len(block) < 22 or block[4:7] != b'VM3':
+        return
+    for i in range(0, len(block) - 22, 6):
+        d1 = "{:032b}".format(int(block[i+16:i+20].hex(), 16))
+        d2 = "{:016b}".format(int(block[i+20:i+22].hex(), 16))
+        if d2[0] == '1':
+            fec_buf.append(fec_id)
+            vmm_buf.append(int(d1[5:10], 2))
+            time_buf.append(frame_counter)
+            ch_buf.append(int(d2[2:8], 2))
+            adc_buf.append(int(d1[10:20], 2))
+            ot_buf.append(int(d2[1], 2))
+
+#########################################
+# MAIN
+#########################################
+if len(sys.argv) < 2:
+    print("Usage: python3 vmm_hybrid_pcapng_monitoring.py <pcap_file>")
+    sys.exit(1)
+
+pcap_file = sys.argv[1]
+if not os.path.isfile(pcap_file):
+    print(f"File not found: {pcap_file}")
+    sys.exit(1)
+
+# Memory-efficient typed arrays (no Python object overhead)
+fec_buf  = array.array('B')   # uint8
+vmm_buf  = array.array('B')   # uint8
+time_buf = array.array('I')   # uint32 ('I'=unsigned int, always 4 bytes; 'L' is 8 bytes on 64-bit Linux)
+ch_buf   = array.array('B')   # uint8
+adc_buf  = array.array('H')   # uint16
+ot_buf   = array.array('B')   # uint8 (0/1)
+
+print(f"Reading: {pcap_file}")
+pkt_count  = 0
+vm3_count  = 0
+
+with PcapReader(pcap_file) as reader:
+    for pkt in reader:
+        if UDP in pkt and IP in pkt and pkt[IP].src == SRC_IP:
+            payload = bytes(pkt[UDP].payload)
+            fc     = int(payload[0:4].hex(), 16)
+            fec_id = int(pkt[IP].src.split('.')[-1])
+            n_before = len(fec_buf)
+            parse_block(payload, fc, fec_id,
+                        fec_buf, vmm_buf, time_buf, ch_buf, adc_buf, ot_buf)
+            if len(fec_buf) > n_before:
+                vm3_count += 1
+        pkt_count += 1
+        if pkt_count % 10000 == 0:
+            print(f"  {pkt_count} packets | {len(fec_buf):,} hits so far...")
+
+print(f"\nDone: {pkt_count} packets | {vm3_count} VM3 packets | {len(fec_buf):,} total hits")
+
+# Build DataFrame with compact dtypes
+hits = pd.DataFrame({
+    'fec':            np.frombuffer(fec_buf,  dtype=np.uint8).copy(),
+    'vmm':            np.frombuffer(vmm_buf,  dtype=np.uint8).copy(),
+    'time':           np.frombuffer(time_buf, dtype=np.uint32).copy(),
+    'ch':             np.frombuffer(ch_buf,   dtype=np.uint8).copy(),
+    'adc':            np.frombuffer(adc_buf,  dtype=np.uint16).copy(),
+    'over_threshold': np.frombuffer(ot_buf,   dtype=np.uint8).astype(bool).copy(),
+})
+
+mem_mb = hits.memory_usage(deep=True).sum() / 1e6
+print(f"DataFrame memory: {mem_mb:.1f} MB")
+print(f"\nVMM IDs found: {sorted(hits.vmm.unique())}")
+for v in sorted(hits.vmm.unique()):
+    n = int((hits.vmm == v).sum())
+    print(f"  VMM {v:2d}: {n:,} hits")
+
+#########################################
+# PLOTS
+#########################################
+vmm_ids = sorted(hits.vmm.unique())
+n_vmm   = len(vmm_ids)
+ncols   = min(4, n_vmm)
+nrows   = (n_vmm + ncols - 1) // ncols
+
+# --- ADC histograms ---
+fig_adc, axes_adc = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows), squeeze=False)
+fig_adc.suptitle("ADC distributions per VMM", fontsize=14)
+for idx, v in enumerate(vmm_ids):
+    ax   = axes_adc[idx // ncols][idx % ncols]
+    data = hits.loc[hits.vmm == v, 'adc']
+    ax.hist(data, bins=100, range=(0, 1024), color='steelblue', alpha=0.8)
+    ax.set_title(f"VMM {v}  ({len(data):,} hits)")
+    ax.set_xlabel("ADC")
+    ax.set_ylabel("Counts")
+for idx in range(n_vmm, nrows * ncols):
+    axes_adc[idx // ncols][idx % ncols].set_visible(False)
+fig_adc.tight_layout()
+
+# --- Channel occupancy ---
+fig_ch, axes_ch = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows), squeeze=False)
+fig_ch.suptitle("Channel occupancy per VMM", fontsize=14)
+for idx, v in enumerate(vmm_ids):
+    ax   = axes_ch[idx // ncols][idx % ncols]
+    data = hits.loc[hits.vmm == v, 'ch']
+    ax.hist(data, bins=64, range=(0, 64), color='tomato', alpha=0.8)
+    ax.set_title(f"VMM {v}  ({len(data):,} hits)")
+    ax.set_xlabel("Channel")
+    ax.set_ylabel("Counts")
+    ax.set_xlim(0, 63)
+for idx in range(n_vmm, nrows * ncols):
+    axes_ch[idx // ncols][idx % ncols].set_visible(False)
+fig_ch.tight_layout()
+
+# --- Total hits per VMM ---
+fig_sum, ax_sum = plt.subplots(figsize=(max(6, n_vmm), 4))
+ax_sum.bar([str(v) for v in vmm_ids],
+           [int((hits.vmm == v).sum()) for v in vmm_ids],
+           color='mediumpurple', alpha=0.8)
+ax_sum.set_title("Total hits per VMM")
+ax_sum.set_xlabel("VMM ID")
+ax_sum.set_ylabel("Hits")
+fig_sum.tight_layout()
+
+# --- Time distribution: one PNG per VMM ---
+n_time_bins = 200
+t_min, t_max = int(hits.time.min()), int(hits.time.max())
+time_figs = {}
+for v in vmm_ids:
+    fig_t, ax_t = plt.subplots(figsize=(12, 5))
+    data = hits.loc[hits.vmm == v, 'time']
+    ax_t.hist(data, bins=n_time_bins, range=(t_min, t_max), color='darkorange', alpha=0.8)
+    ax_t.set_title(f"Hit rate over time — VMM {v}  ({len(data):,} hits)")
+    ax_t.set_xlabel("Frame counter (proxy for time)")
+    ax_t.set_ylabel("Hits per bin")
+    fig_t.tight_layout()
+    time_figs[v] = fig_t
+
+# --- Save all PNGs in qa_plots/<base>/ ---
+base     = os.path.splitext(os.path.basename(pcap_file))[0]
+out_dir  = os.path.join(os.path.dirname(os.path.abspath(pcap_file)), "qa_plots", base)
+os.makedirs(out_dir, exist_ok=True)
+
+saved = []
+
+fig_adc.savefig(os.path.join(out_dir, f"{base}_adc.png"),          dpi=150); saved.append("_adc.png")
+fig_ch.savefig(os.path.join(out_dir,  f"{base}_chno.png"),         dpi=150); saved.append("_chno.png")
+fig_sum.savefig(os.path.join(out_dir, f"{base}_hits_per_vmm.png"), dpi=150); saved.append("_hits_per_vmm.png")
+for v, fig_t in time_figs.items():
+    fname = f"{base}_time_vmm{v}.png"
+    fig_t.savefig(os.path.join(out_dir, fname), dpi=150)
+    saved.append(fname)
+
+print(f"\nSaved {len(saved)} files in: {out_dir}")
+for name in saved:
+    print(f"  {name}")
