@@ -28,10 +28,28 @@ import matplotlib.pyplot as plt
 from scapy.all import PcapReader, UDP, IP
 
 #########################################
-# CONFIG — adapt if your FEC IP changes
+# AUTO-DETECT FEC SOURCE IPs
+# Scans the first PROBE_PACKETS packets and
+# returns all source IPs that send VM3 data.
+# Pass SRC_IP_OVERRIDE to skip auto-detection.
 #########################################
-SRC_IP = "192.168.1.13" #CERN data
-# SRC_IP = "192.168.0.12" #Pagure data
+PROBE_PACKETS = 500
+SRC_IP_OVERRIDE = None  # e.g. "192.168.1.13" to force a specific IP
+
+
+def detect_fec_ips(filename, n_probe=PROBE_PACKETS):
+    found = {}
+    with PcapReader(filename) as r:
+        for i, pkt in enumerate(r):
+            if UDP in pkt and IP in pkt:
+                payload = bytes(pkt[UDP].payload)
+                if len(payload) > 6 and payload[4:7] == b'VM3':
+                    ip = pkt[IP].src
+                    found[ip] = found.get(ip, 0) + 1
+            if i >= n_probe:
+                break
+    return found
+
 
 #########################################
 # PARSE ONE UDP PAYLOAD BLOCK
@@ -71,13 +89,25 @@ ch_buf   = array.array('B')   # uint8
 adc_buf  = array.array('H')   # uint16
 ot_buf   = array.array('B')   # uint8 (0/1)
 
+if SRC_IP_OVERRIDE:
+    src_ips = {SRC_IP_OVERRIDE}
+    print(f"Using forced IP: {SRC_IP_OVERRIDE}")
+else:
+    detected = detect_fec_ips(pcap_file)
+    if not detected:
+        print("ERROR: no VM3 packets found in the first "
+              f"{PROBE_PACKETS} packets. Check the file or set SRC_IP_OVERRIDE.")
+        sys.exit(1)
+    src_ips = set(detected.keys())
+    print(f"Auto-detected FEC IP(s): {', '.join(sorted(src_ips))}")
+
 print(f"Reading: {pcap_file}")
-pkt_count  = 0
-vm3_count  = 0
+pkt_count = 0
+vm3_count = 0
 
 with PcapReader(pcap_file) as reader:
     for pkt in reader:
-        if UDP in pkt and IP in pkt and pkt[IP].src == SRC_IP:
+        if UDP in pkt and IP in pkt and pkt[IP].src in src_ips:
             payload = bytes(pkt[UDP].payload)
             fc     = int(payload[0:4].hex(), 16)
             fec_id = int(pkt[IP].src.split('.')[-1])
