@@ -188,7 +188,7 @@ def parse_pcapng(filepath, src_ip=None):
         'over_threshold': np.frombuffer(ot_buf,   dtype=np.uint8).astype(bool).copy(),
     })
     duration_s = (t_last - t_first) if t_first is not None else 0.0
-    return hits, duration_s
+    return hits, duration_s, t_first
 
 
 # =============================================================================
@@ -375,25 +375,51 @@ def _worker(task):
         return str(vmm_out), None
 
     try:
-        hits, duration_s = parse_pcapng(fp, src_ip=task["src_ip"])
+        hits, duration_s, t_first = parse_pcapng(fp, src_ip=task["src_ip"])
         if hits.empty:
             return None, f"no hits: {fp.name}"
 
+        # ── Compute dose from actual packet timestamp (finer than filename) ──
+        irrad_start_ts = task.get("irrad_start_ts")
+        dose_rate      = task.get("dose_rate", 1.0)
+        irrad_end_ts   = task.get("irrad_end_ts")
+
+        if t_first is not None and irrad_start_ts is not None:
+            dt_h = (t_first - irrad_start_ts) / 3600.0
+            if irrad_end_ts is not None and t_first > irrad_end_ts:
+                dose_krad  = (irrad_end_ts - irrad_start_ts) / 3600.0 * dose_rate
+                phase      = "anneal"
+                anneal_h   = (t_first - irrad_end_ts) / 3600.0
+            elif dt_h < 0:
+                dose_krad  = 0.0
+                phase      = "pre"
+                anneal_h   = float("nan")
+            else:
+                dose_krad  = dt_h * dose_rate
+                phase      = "irr"
+                anneal_h   = float("nan")
+            capture_time = datetime.fromtimestamp(t_first).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            dose_krad    = task["dose_krad"]
+            phase        = task["phase"]
+            anneal_h     = task["anneal_h"]
+            capture_time = str(task["capture_time"])
+
         # ── VMM metrics ──────────────────────────────────────────────────
         df_vmm = compute_vmm_metrics(hits, duration_s)
-        df_vmm["dose_krad"]    = task["dose_krad"]
-        df_vmm["phase"]        = task["phase"]
-        df_vmm["anneal_h"]     = task["anneal_h"]
-        df_vmm["capture_time"] = str(task["capture_time"])
+        df_vmm["dose_krad"]    = dose_krad
+        df_vmm["phase"]        = phase
+        df_vmm["anneal_h"]     = anneal_h
+        df_vmm["capture_time"] = capture_time
         df_vmm["filename"]     = task["filename"]
         df_vmm.to_csv(vmm_out, index=False)
 
         # ── Channel metrics (optional) ───────────────────────────────────
         if not task["skip_channels"]:
             df_ch = compute_channel_metrics(hits)
-            df_ch["dose_krad"]    = task["dose_krad"]
-            df_ch["phase"]        = task["phase"]
-            df_ch["capture_time"] = str(task["capture_time"])
+            df_ch["dose_krad"]    = dose_krad
+            df_ch["phase"]        = phase
+            df_ch["capture_time"] = capture_time
             df_ch.to_csv(ch_out, index=False)
             del df_ch
 
@@ -410,6 +436,7 @@ def _worker(task):
 
 def run_extract(df_files, processed_dir, src_ip=None,
                  skip_channels=False, n_workers=1,
+                 irrad_start=None, dose_rate=1.0, irrad_end=None,
                  stride=1, checkpoint_every=20):
     """
     Parse all pcapng files in df_files, save per-file summary CSVs.
@@ -427,17 +454,23 @@ def run_extract(df_files, processed_dir, src_ip=None,
     n      = len(df_sel)
     print(f"\nExtraction: {n} files  (stride={stride}, workers={n_workers})")
 
+    irrad_start_ts = irrad_start.timestamp() if irrad_start is not None else None
+    irrad_end_ts   = irrad_end.timestamp()   if irrad_end   is not None else None
+
     tasks = [
         {
-            "filepath"      : str(row["filepath"]),
-            "dose_krad"     : row["dose_krad"],
-            "phase"         : row["phase"],
-            "anneal_h"      : row["anneal_h"],
-            "capture_time"  : row["capture_time"],
-            "filename"      : row["filename"],
-            "processed_dir" : str(proc_dir),
-            "src_ip"        : src_ip,
-            "skip_channels" : skip_channels,
+            "filepath"       : str(row["filepath"]),
+            "dose_krad"      : row["dose_krad"],
+            "phase"          : row["phase"],
+            "anneal_h"       : row["anneal_h"],
+            "capture_time"   : row["capture_time"],
+            "filename"       : row["filename"],
+            "processed_dir"  : str(proc_dir),
+            "src_ip"         : src_ip,
+            "skip_channels"  : skip_channels,
+            "irrad_start_ts" : irrad_start_ts,
+            "dose_rate"      : dose_rate,
+            "irrad_end_ts"   : irrad_end_ts,
         }
         for _, row in df_sel.iterrows()
     ]
@@ -934,6 +967,10 @@ def main():
     parser.add_argument("--exclude", metavar="PATTERN", default=None,
                         help="exclude subdirectories whose name contains PATTERN "
                              "(e.g. --exclude NoIrad)")
+    parser.add_argument("--min-dose", type=float, default=None, metavar="KRAD",
+                        help="skip files with estimated dose below this value (krad)")
+    parser.add_argument("--max-dose", type=float, default=None, metavar="KRAD",
+                        help="skip files with estimated dose above this value (krad)")
     parser.add_argument("--no-channels", action="store_true",
                         help="skip per-channel metrics (faster for large datasets)")
     parser.add_argument("--heatmap-vmms", nargs="+", type=int, metavar="VMM",
@@ -970,6 +1007,15 @@ def main():
         sys.exit(1)
 
     df_files = assign_dose(df_files, irrad_start, dose_rate, irrad_end)
+
+    if args.min_dose is not None:
+        df_files = df_files[df_files["dose_krad"] >= args.min_dose].reset_index(drop=True)
+    if args.max_dose is not None:
+        df_files = df_files[df_files["dose_krad"] <= args.max_dose].reset_index(drop=True)
+    if df_files.empty:
+        print("No files in the requested dose range — exiting.")
+        sys.exit(1)
+
     n_total  = len(df_files)
     for ph in ("pre", "irr", "anneal"):
         sub = df_files[df_files["phase"] == ph]
@@ -987,6 +1033,9 @@ def main():
             n_workers       = args.n_workers,
             stride          = args.stride,
             checkpoint_every= 20,
+            irrad_start     = irrad_start,
+            dose_rate       = dose_rate,
+            irrad_end       = irrad_end,
         )
 
     # ── Plot ──────────────────────────────────────────────────────────────────
