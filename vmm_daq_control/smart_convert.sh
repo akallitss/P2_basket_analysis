@@ -58,7 +58,7 @@ do_action() {
 
     # Acquire lock
     touch "$LOCK_FILE"
-    trap 'rm -f "$LOCK_FILE"' RETURN
+    trap 'rm -f "$LOCK_FILE"; trap - RETURN' RETURN
 
     echo "[INFO] Converting (${size_mb} MB): $file"
 
