@@ -10,60 +10,91 @@ set -uo pipefail
 
 WATCH_DIR=$2
 INTERFACE=$3
-CONVERT_CMD="convertFile -geo config/geometry_${INTERFACE}.json -bc 44.444 -tac 60 -save [[0],[],[]] -df SRS -f"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONVERT_CMD="convertFile \
+    -geo ${SCRIPT_DIR}/config/geometry_${INTERFACE}.json \
+    -bc 44.444 -tac 60 \
+    -save [[0],[],[]] \
+    -df SRS -f"
+
 MAX_SIZE_BYTES=$((1 * 1024 * 1024 * 1024))      # 1 GB in bytes
+MEM_LIMIT="4G"                                 # kill if exceeds 4GB RAM
+LOCK_FILE="/tmp/convert_lock_${INTERFACE}"
 
 ### === Functions ===
 
 do_action() {
     local file="$1"
-    
-    # Check if file exists
+
+    # Check file exists
     if [ ! -f "$file" ]; then
-        echo "ACTION: file not found: $file"
+        echo "[WARN] file not found: $file"
         return 1
     fi
-    
-    # Get file size in bytes
-    local filesize=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null)
-    
+
+    # Get file size
+    local filesize
+    filesize=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null)
     if [ -z "$filesize" ]; then
-        echo "ACTION: could not determine size of: $file"
+        echo "[WARN] could not determine size of: $file"
         return 1
     fi
-    
-    # Convert bytes to human-readable format for logging
-    local size_mb=$((filesize / 1024 / 1024))
-    local size_gb=$(echo "scale=2; $filesize / 1024 / 1024 / 1024" | bc)
-    
-    # Check if file is too large
+
+    local size_mb=$(( filesize / 1024 / 1024 ))
+    local size_gb
+    size_gb=$(echo "scale=2; $filesize / 1024 / 1024 / 1024" | bc)
+
+    # Skip files that are too large
     if [ "$filesize" -gt "$MAX_SIZE_BYTES" ]; then
-        echo "ACTION: SKIPPING large file (${size_gb} GB > 1 GB): $file"
-        return 0  # Not an error, just skipped
-    fi
-    
-    echo "ACTION: file size OK (${size_mb} MB), running: $CONVERT_CMD $file"
-
-    if eval "$CONVERT_CMD $file" ; then
-        echo "ACTION: convert succeeded for: $file"
+        echo "[SKIP] file too large (${size_gb} GB > 1 GB): $file"
         return 0
+    fi
+
+    # Prevent parallel conversions for same interface
+    while [ -f "$LOCK_FILE" ]; do
+        echo "[WAIT] Another conversion in progress, waiting... ($file)"
+        sleep 5
+    done
+
+    # Acquire lock
+    touch "$LOCK_FILE"
+    trap 'rm -f "$LOCK_FILE"' RETURN
+
+    echo "[INFO] Converting (${size_mb} MB): $file"
+
+    # Run with memory cap — kills gracefully instead of crashing machine
+    if systemd-run --scope \
+            -p MemoryMax="$MEM_LIMIT" \
+            -p MemorySwapMax=0 \
+            -- bash -c "$CONVERT_CMD $file"; then
+        echo "[OK] Converted: $file"
     else
-        echo "ACTION: convert FAILED for: $file"
+        echo "[ERROR] Conversion failed (exit $?): $file"
+        rm -f "$LOCK_FILE"
         return 1
     fi
+
+    rm -f "$LOCK_FILE"
+    sleep 2  # let RAM settle before next conversion
 }
 
-process_path() {
-    local path="$1"
-    # Only process .pcapng files (adjust pattern if needed)
-}
+### === Main watch loop ===
+echo "[START] Watching $WATCH_DIR for interface $INTERFACE..."
 
-### === Main ===
-
-while IFS='|' read -r ev filepath; do
-    echo "Event: $ev -> $filepath"
+inotifywait \
+    -m \
+    -e close_write \
+    --format '%e|%w%f' \
+    --quiet \
+    "$WATCH_DIR" \
+| while IFS='|' read -r ev filepath; do
+    echo "[EVENT] $ev -> $filepath"
     case "$filepath" in
-        *.pcapng) do_action "$filepath" ;;
-        *) echo "Skipping non-pcapng: $filepath" ;;
+        *${INTERFACE}*.pcapng)
+            do_action "$filepath" ;;
+        *.pcapng)
+            echo "[SKIP] pcapng but wrong interface: $filepath" ;;
+        *)
+            echo "[SKIP] not a pcapng: $filepath" ;;
     esac
-done < <(inotifywait -m -e close_write --include "${INTERFACE}" --format '%e|%w%f' --quiet "$WATCH_DIR")
+done
