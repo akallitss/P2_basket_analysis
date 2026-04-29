@@ -32,6 +32,12 @@ do_action() {
         return 1
     fi
 
+    local rootfile_pattern="${file%.pcapng}_*.root"
+    if ls $rootfile_pattern 2>/dev/null | grep -q .; then
+        echo "[SKIP] ROOT file already exists for: $file"
+        return 0
+    fi
+
     # Get file size
     local filesize
     filesize=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null)
@@ -39,6 +45,8 @@ do_action() {
         echo "[WARN] could not determine size of: $file"
         return 1
     fi
+
+    sleep 1  # wait for cp to fully finish, avoids double trigger
 
     local size_mb=$(( filesize / 1024 / 1024 ))
     local size_gb
@@ -63,10 +71,7 @@ do_action() {
     echo "[INFO] Converting (${size_mb} MB): $file"
 
     # Run with memory cap — kills gracefully instead of crashing machine
-    if systemd-run --scope \
-            -p MemoryMax="$MEM_LIMIT" \
-            -p MemorySwapMax=0 \
-            -- bash -c "$CONVERT_CMD $file"; then
+    if (ulimit -v $((4 * 1024 * 1024)); exec bash -c "$CONVERT_CMD $file"); then
         echo "[OK] Converted: $file"
     else
         echo "[ERROR] Conversion failed (exit $?): $file"
@@ -91,9 +96,17 @@ inotifywait \
     echo "[EVENT] $ev -> $filepath"
     case "$filepath" in
         *${INTERFACE}*.pcapng)
-            do_action "$filepath" ;;
+            # Only process if not already converting this exact file
+            if [ ! -f "${LOCK_FILE}_${filepath##*/}" ]; then
+                touch "${LOCK_FILE}_${filepath##*/}"
+                do_action "$filepath"
+                rm -f "${LOCK_FILE}_${filepath##*/}"
+            else
+                echo "[SKIP] Already converting: $filepath"
+            fi
+            ;;
         *.pcapng)
-            echo "[SKIP] pcapng but wrong interface: $filepath" ;;
+            echo "[SKIP] wrong interface: $filepath" ;;
         *)
             echo "[SKIP] not a pcapng: $filepath" ;;
     esac
