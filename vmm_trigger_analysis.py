@@ -54,50 +54,17 @@ for g in vmm_groups:
 
 def main():
     # ── User configuration ──────────────────────────────────
-    # cnfg_dir = "/drf/projets/clas12/P2/akallits/"
-    # data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+    cnfg_dir = "/drf/projets/clas12/P2/akallits/"
+    data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
 
-    cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
-    data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
-
+    # cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
+    # data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
     root_file_index = 1
 
-    # ── Load run metadata ───────────────────────────────────
-    df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan.csv")
-    run_groups = get_run_groups(df_run_scan)
-
-    # ── Timestamp sanity check (optional — slow, loads all runs) ──
-    RUN_TIMESTAMP_CHECK = False
-    if RUN_TIMESTAMP_CHECK:
-        for run_no in run_groups["sng0_runs"]:
-            run_dir = get_run_dir(data_dir, run_no)
-            file_path = get_root_file(run_dir, file_index=root_file_index)
-            if file_path is None:
-                continue
-
-            df = load_hits_root(file_path, branches=["time", "vmm"])
-            df = df.sort_values("time").reset_index(drop=True)
-            t = df["time"].values
-
-            sg  = df_run_scan.loc[df_run_scan["run_no"] == run_no, "sg"].iloc[0]
-            snt = df_run_scan.loc[df_run_scan["run_no"] == run_no, "snt"].iloc[0]
-
-            print(f"\nRun {run_no} (sg={sg} snt={snt}):")
-            print(f"  N hits          : {len(t)}")
-            print(f"  t range (s)     : {(t[-1] - t[0]) * S_PER_TICK:.1f}")
-            print(f"  t[0] (s)        : {t[0] * S_PER_TICK:.1f}")
-            print(f"  t[-1] (s)       : {t[-1] * S_PER_TICK:.1f}")
-
-            dt = np.diff(t)
-            large_jumps = dt > 1e11
-            if large_jumps.any():
-                jump_idx = np.where(large_jumps)[0]
-                print(f"  WARNING: {large_jumps.sum()} large jumps")
-                for idx in jump_idx[:3]:
-                    print(f"    idx {idx}: Δt={dt[idx]:.3e} ticks"
-                          f" = {dt[idx] * S_PER_TICK:.1f}s")
-    # ── Step 1: validate on one run ─────────────────────────
-    # Use run 67 (sg=3, snt=200, sng=1) as the test case
+    # ── Step 1: trigger rate time series on one run ─────────
+    # Plot 1 ms binned trigger rate to see the spill structure.
+    # Confirm beam-on / beam-off periods are clearly visible
+    # before applying any threshold or looping over configs.
     test_run = 67
 
     print(f"Loading run {test_run}...")
@@ -107,94 +74,22 @@ def main():
         root_file_index=root_file_index
     )
 
-    # Inspect each channel separately
-    for vmm_id in trigger_vmms:
-        inspect_inter_event_per_channel(df_hits, vmm_id,
-                                        run_no=67)
-
     duration = compute_run_duration(df_hits)
     print(f"Run duration : {duration:.1f} s")
+    print(f"Total hits   : {len(df_hits)}")
 
-    # Hit rates for all VMMs
-    print(f"\n{'VMM':>5} {'Type':>10} {'N_hits':>10} "
-          f"{'Rate (Hz)':>12}")
-    print("-" * 42)
-
-    all_vmms = trigger_vmms + detector_vmms
-    for vmm_id in sorted(all_vmms):
-        n = (df_hits["vmm"] == vmm_id).sum()
-        rate = compute_hit_rate(df_hits, vmm_id)
-        vtype = "trigger" if vmm_id in trigger_vmms else "detector"
-        print(f"{vmm_id:>5} {vtype:>10} {n:>10} {rate:>12.1f}")
-
-    print(f"\nFitting inter-event distributions...")
-    for vmm_id, ref_ch in trigger_ref_channels.items():
-        # Get hits for this specific channel only
-        df_ch = df_hits[
-            (df_hits["vmm"] == vmm_id) &
-            (df_hits["ch"] == ref_ch)
-            ]
-        t = df_ch["time"].values
-        dt_ns = np.diff(t) * NS_PER_TICK
-        dt_us = dt_ns[(dt_ns > 0)] / 1000.0
-        dt_us = dt_us[dt_us < 1000]
-
-        print(f"\nVMM {vmm_id} ch {ref_ch}: {len(dt_us)} Δt values")
-
-        rate_hz, rate_err_hz, chi2_ndf, tau, fit_x, fit_y = \
-            fit_exponential(dt_us)
-
-        print(f"  Offset τ        : {tau:.1f} μs")
-        print(f"  Fitted rate     : {rate_hz:.1f} ± {rate_err_hz:.1f} Hz")
-        print(f"  Simple rate     : {len(t) / (t[-1] - t[0]) / S_PER_TICK:.1f} Hz")
-        print(f"  χ²/ndf          : {chi2_ndf:.2f}")
-
-        plot_inter_event_distribution(
-            dt_us, f"{vmm_id} ch{ref_ch}", test_run,
-            rate_hz, chi2_ndf, tau, fit_x, fit_y
-        )
-
-    # Detector VMMs — all channels combined per channel
-    print(f"\nDetector VMM inter-event times...")
-    for vmm_id in detector_vmms:
-        dt_us = compute_inter_event_times(
-            df_hits, vmm_id, max_dt_us=1000
-        )
-        if len(dt_us) < 50:
-            continue
-
-        print(f"\nVMM {vmm_id}: {len(dt_us)} Δt values")
-        rate_hz, rate_err_hz, chi2_ndf, tau, fit_x, fit_y = \
-            fit_exponential(dt_us)
-
-        print(f"  Offset τ        : {tau:.1f} μs")
-        print(f"  Fitted rate     : {rate_hz:.1f} ± {rate_err_hz:.1f} Hz")
-        print(f"  Simple rate     : "
-              f"{compute_hit_rate(df_hits, vmm_id):.1f} Hz")
-        print(f"  χ²/ndf          : {chi2_ndf:.2f}")
-
-        plot_inter_event_distribution(
-            dt_us, vmm_id, test_run,
-            rate_hz, chi2_ndf, tau, fit_x, fit_y
-        )
-    df_rates = compute_rates_all_runs(
-        df_run_scan=df_run_scan,
-        data_dir=data_dir,
-        sng0_runs=run_groups["sng0_runs"],
-        trigger_vmms=trigger_vmms,
-        detector_vmms=detector_vmms,
-        trigger_ref_channels=trigger_ref_channels,
-        root_file_index=root_file_index
+    plot_trigger_rate_ms(
+        df_hits,
+        run_no=test_run,
+        trigger_vmm=0,
+        trigger_ch=trigger_ref_channels[0],
+        bin_width_ms=1.0,
     )
 
-    df_rates.to_csv("vmm_rates.csv", index=False)
-    print("\n")
-    print(df_rates.to_string(index=False))
-
-    # ── Step 1: validate spill mask on test run ────────────────
-    # Inspect the trigger rate with spill-on/off shading BEFORE
-    # running all configs — confirm threshold separates beam-on
-    # from inter-spill gaps correctly.
+    # ── Step 2: spill mask validation on run 67 ─────────────
+    # Same trigger rate plot but with green/grey shading showing
+    # which 1 ms bins are classified as spill-on vs spill-off.
+    # Confirm the 1 kHz threshold correctly captures the spills.
     plot_spill_mask_diagnostic(
         df_hits,
         run_no=test_run,
@@ -204,53 +99,31 @@ def main():
         bin_width_ms=1.0,
     )
 
-    # ── Trigger stream QA on test run ──────────────────────────
-    df_hits_dt = load_sorted_hits(
-        data_dir, test_run,
-        branches=["time", "vmm", "ch"],
-        root_file_index=root_file_index
+    # ── Step 3: detector VMM rates on run 67 (sanity check) ─
+    # Before looping over all configs, verify that the spill-on
+    # and spill-off rates for each detector VMM look physically
+    # reasonable on the test run.
+    df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan.csv")
+
+    df_spill_test = compute_spill_rates_all_runs(
+        df_run_scan          = df_run_scan,
+        data_dir             = data_dir,
+        sng0_runs            = [test_run],
+        trigger_ref_channels = trigger_ref_channels,
+        detector_vmms        = detector_vmms,
+        bin_width_s          = 0.001,
+        root_file_index      = root_file_index,
+        spill_threshold_khz  = 1.0,
     )
 
-    inspect_trigger_timing(
-        df_hits_dt,
-        trigger_vmm=0,
-        trigger_ch=trigger_ref_channels[0],
-        window_ns=600
-    )
+    print("\n=== Step 3: spill rates on run 67 ===")
+    print(df_spill_test.to_string(index=False))
 
-    # ── Triggers/ms vs time — spill structure ──────────────────
-    plot_trigger_rate_ms(
-        df_hits_dt,
-        run_no=test_run,
-        trigger_vmm=0,
-        trigger_ch=trigger_ref_channels[0],
-        bin_width_ms=1.0,
-    )
+    # ── Step 4: loop over all sng=0 configs ─────────────────
+    # Same computation as Step 3 but over all 7 configurations.
+    # Produces the full table used for the summary plot.
+    run_groups = get_run_groups(df_run_scan)
 
-    # ── Detector rate overlaid with trigger rate ────────────────
-    plot_rate_overlay_with_trigger(
-        df_hits_dt,
-        run_no=test_run,
-        vmm_groups=vmm_groups,
-        trigger_vmm=0,
-        trigger_ch=trigger_ref_channels[0],
-        bin_width_ms=1.0,
-    )
-
-    # ── Rate vs time — all runs, 1 ms bins ─────────────────────
-    plot_rate_vs_time(
-        data_dir=data_dir,
-        df_run_scan=df_run_scan,
-        sng0_runs=run_groups["sng0_runs"],
-        vmm_groups=vmm_groups,
-        trigger_ref_channels=trigger_ref_channels,
-        bin_width_s=0.001,
-        root_file_index=root_file_index,
-    )
-
-    # ── Spill-on / spill-off rate vs configuration ─────────────
-    # Threshold set to 1 kHz — adjust if trigger rate in spill-off
-    # gaps is unexpectedly high (check plot_trigger_rate_ms output).
     df_spill = compute_spill_rates_all_runs(
         df_run_scan          = df_run_scan,
         data_dir             = data_dir,
@@ -261,17 +134,35 @@ def main():
         root_file_index      = root_file_index,
         spill_threshold_khz  = 1.0,
     )
+
     df_spill.to_csv("vmm_spill_rates.csv", index=False)
-    print("\n=== Spill rate summary ===")
+    print("\n=== Step 4: spill rates — all configs ===")
     print(df_spill.to_string(index=False))
 
+    # ── Step 5: summary plot ─────────────────────────────────
+    # rate_on and rate_off vs (sg, snt) per detector group.
     plot_spill_rates_vs_config(
         df_spill        = df_spill,
         vmm_groups      = vmm_groups,
         trigger_ref_vmm = list(trigger_ref_channels.keys())[0],
     )
 
-    print("bonzo")
+    # ── Step 5b: all VMMs on one plot per group ─────────────
+    trig_ref = list(trigger_ref_channels.keys())[0]
+
+    plot_spill_on_all_vmms(
+        df_spill        = df_spill,
+        vmm_groups      = vmm_groups,
+        trigger_ref_vmm = trig_ref,
+        rate_col        = "rate_on_khz",
+    )
+
+    plot_spill_on_all_vmms(
+        df_spill        = df_spill,
+        vmm_groups      = vmm_groups,
+        trigger_ref_vmm = trig_ref,
+        rate_col        = "rate_off_khz",
+    )
 
 def load_sorted_hits(data_dir, run_no, branches,
                       root_file_index=1,
@@ -1571,6 +1462,100 @@ def plot_spill_rates_vs_config(df_spill, vmm_groups,
 
         fig.suptitle(
             f"{group_label} — spill-on vs spill-off rate per configuration",
+            fontweight="bold"
+        )
+        plt.tight_layout()
+        plt.show()
+
+
+def plot_spill_on_all_vmms(df_spill, vmm_groups, trigger_ref_vmm=0,
+                            rate_col="rate_on_khz"):
+    """
+    One figure per detector group with all VMMs on the same axes.
+
+    rate_col : "rate_on_khz"  → spill-on summary
+               "rate_off_khz" → spill-off (noise floor) summary
+    Trigger reference (spill-on) is shown on a secondary axis.
+    For rate_off plots the trigger line serves as a beam-stability
+    reference rather than a noise comparison.
+    """
+    vmm_to_detector = {
+        vid: cfg.get("name", key)
+        for key, cfg in vmm_mapping.items()
+        for vid in cfg["vmm_ids"]
+    }
+
+    is_off    = rate_col == "rate_off_khz"
+    tag       = "spill-off (noise floor)" if is_off else "spill-on"
+    ylabel    = f"Detector rate — {tag} (kHz)"
+
+    configs = (
+        df_spill[["sg", "snt"]]
+        .drop_duplicates()
+        .sort_values(["sg", "snt"])
+        .reset_index(drop=True)
+    )
+    config_labels = [
+        f"sg={r['sg']:.1f}\nsnt={r['snt']:.0f}"
+        for _, r in configs.iterrows()
+    ]
+    x = np.arange(len(configs))
+
+    for group in vmm_groups:
+        vmm_ids     = group["vmm_ids"]
+        group_label = group["label"]
+
+        fig, ax = plt.subplots(figsize=(max(10, 1.8 * len(configs)), 5))
+
+        colors = plt.cm.tab10(np.linspace(0, 1, len(vmm_ids)))
+
+        for color, vmm_id in zip(colors, vmm_ids):
+            det_name = vmm_to_detector.get(vmm_id, "")
+            sub_vmm  = df_spill[df_spill["vmm_id"] == vmm_id]
+
+            rates = []
+            for _, cfg_row in configs.iterrows():
+                sub = sub_vmm[
+                    (sub_vmm["sg"]  == cfg_row["sg"]) &
+                    (sub_vmm["snt"] == cfg_row["snt"])
+                ]
+                rates.append(sub[rate_col].mean()
+                             if not sub.empty else np.nan)
+
+            ax.plot(x, rates, "o-", color=color, linewidth=1.5,
+                    label=f"VMM {vmm_id} — {det_name}")
+
+        # Trigger reference on secondary y-axis
+        trig_on = []
+        for _, cfg_row in configs.iterrows():
+            sub = df_spill[
+                (df_spill["sg"]  == cfg_row["sg"]) &
+                (df_spill["snt"] == cfg_row["snt"])
+            ]
+            trig_on.append(sub["trig_rate_on_khz"].mean()
+                           if not sub.empty else np.nan)
+
+        ax_r = ax.twinx()
+        ax_r.plot(x, trig_on, "k--", linewidth=1.5,
+                  alpha=0.5, label=f"Trigger VMM {trigger_ref_vmm}")
+        ax_r.set_ylabel("Trigger rate (kHz)", color="black", alpha=0.6)
+        ax_r.tick_params(axis="y", labelcolor="gray")
+        ax_r.set_ylim(bottom=0)
+
+        lines_l, labels_l = ax.get_legend_handles_labels()
+        lines_r, labels_r = ax_r.get_legend_handles_labels()
+        ax.legend(lines_l + lines_r, labels_l + labels_r,
+                  fontsize=9, loc="upper left")
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(config_labels, fontsize=10)
+        ax.set_xlabel("Configuration  (sg, snt)")
+        ax.set_ylabel(ylabel)
+        ax.set_ylim(bottom=0)
+        ax.grid(True, alpha=0.3)
+
+        fig.suptitle(
+            f"{group_label} — {tag} rate per VMM vs configuration",
             fontweight="bold"
         )
         plt.tight_layout()
