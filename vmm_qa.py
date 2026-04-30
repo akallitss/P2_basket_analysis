@@ -207,6 +207,11 @@ def qa_noise_quality_check(df_run_scan, data_dir, runs_to_check, n_files=1):
             df_run_scan["run_no"] == run_no, "snt"
         ].iloc[0]
 
+        if "quality" not in df_noise.columns:
+            print(f"Run {run_no} (snt={snt:.0f}) — "
+                  f"no noise baseline (no over_threshold=0 hits)")
+            continue
+
         bad  = df_noise[df_noise["quality"] == "bad"]
         warn = df_noise[df_noise["quality"] == "warn"]
 
@@ -457,6 +462,9 @@ def qa_noise_sigma_distribution(df_run_scan, data_dir,
             df_run_scan["run_no"] == run_no, "sg"
         ].iloc[0]
 
+        if "vmm_id" not in df_noise.columns:
+            continue
+
         for _, row in df_noise.iterrows():
             all_sigmas.append({
                 "run_no" : run_no,
@@ -659,6 +667,9 @@ def qa_mpv_vs_median_comparison(df_run_scan, data_dir, pairs,
         if df_hits_noise is None:
             continue
         df_noise = compute_noise_baseline(df_hits_noise)
+
+        if "vmm_id" not in df_noise.columns:
+            continue
 
         for vmm_id in detector_vmms:
             noise_row = df_noise[df_noise["vmm_id"] == vmm_id]
