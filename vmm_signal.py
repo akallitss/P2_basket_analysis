@@ -25,6 +25,42 @@ import numpy as np
 from scipy.ndimage import gaussian_filter1d
 
 
+def estimate_mpv_from_hist(hist, adc_min, adc_max=800, smooth_sigma=2):
+    """
+    Estimate MPV from a pre-accumulated integer ADC histogram.
+
+    Histogram-based equivalent of estimate_mpv — accepts the accumulated
+    counts array directly so no raw hit array is needed.
+
+    Parameters
+    ----------
+    hist : np.ndarray shape (1024,)
+        Integer counts per ADC value (index = ADC value 0..1023).
+    adc_min : float
+        Lower bound for MPV search (use per-VMM noise_cut).
+    adc_max : float
+        Upper bound (well below saturation).
+    smooth_sigma : float
+        Gaussian smoothing width in bins.
+
+    Returns
+    -------
+    Same 4-tuple as estimate_mpv: (mpv, counts, smoothed, bin_centers)
+    """
+    adc_bins = np.arange(1024, dtype=np.float64)
+    mask     = (adc_bins >= adc_min) & (adc_bins <= adc_max)
+
+    counts_range  = hist[mask].astype(float)
+    centers_range = adc_bins[mask]
+
+    if counts_range.sum() == 0:
+        return np.nan, counts_range, counts_range, centers_range
+
+    smoothed = gaussian_filter1d(counts_range, sigma=smooth_sigma)
+    mpv      = float(centers_range[np.argmax(smoothed)])
+    return mpv, counts_range, smoothed, centers_range
+
+
 def get_clean_signal(df_hits, vmm_id,
                       exclude_trigger_vmms=(0, 1)):
     """

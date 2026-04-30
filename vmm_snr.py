@@ -25,8 +25,8 @@ import numpy as np
 import pandas as pd
 
 from vmm_io     import get_run_dir, load_hits_run, iter_hits_files
-from vmm_noise  import compute_noise_baseline
-from vmm_signal import get_clean_signal, estimate_mpv
+from vmm_noise  import compute_noise_baseline, compute_noise_baseline_from_hists
+from vmm_signal import get_clean_signal, estimate_mpv, estimate_mpv_from_hist
 from vmm_mapping import vmm_mapping
 
 
@@ -166,51 +166,71 @@ def compute_snr(data_dir, pairs, detector_vmms,
         print(f"\nProcessing sg={sg} snt={snt} "
               f"| noise=run {run_sng1} | signal=run {run_sng0}")
 
-        # --- sng=1 run → noise baseline (streaming) ---
-        # Keep only noise hits (over_threshold=0, adc>20) per file,
-        # then delete each file DataFrame to limit peak memory.
+        # --- sng=1 run → noise histograms (one file at a time) ---
+        # Accumulate ADC counts per VMM into 1024-bin integer arrays.
+        # Peak memory = n_vmms * 1024 * 8 bytes, independent of file count.
         run_dir     = get_run_dir(data_dir, run_sng1)
-        noise_chunks = []
+        noise_hists = {v: np.zeros(1024, np.int64) for v in detector_vmms}
+        n_noise_files = 0
         for df in iter_hits_files(run_dir, n_files,
                                    branches=["adc", "vmm",
                                              "over_threshold"]):
             df_det = df[df["vmm"].isin(detector_vmms)]
-            chunk  = df_det[
-                (df_det["over_threshold"] == 0) & (df_det["adc"] > 20)
-            ][["adc", "vmm", "over_threshold"]].copy()
-            if len(chunk):
-                noise_chunks.append(chunk)
-            del df, df_det, chunk
-        if not noise_chunks:
+            for vmm_id in detector_vmms:
+                adc = df_det.loc[
+                    (df_det["vmm"]            == vmm_id) &
+                    (df_det["over_threshold"] == 0) &
+                    (df_det["adc"]            >  20), "adc"
+                ].values.clip(0, 1023).astype(np.int32)
+                if len(adc):
+                    noise_hists[vmm_id] += np.bincount(
+                        adc, minlength=1024
+                    )[:1024]
+            n_noise_files += 1
+            del df, df_det
+
+        if n_noise_files == 0:
             print(f"  WARNING: no files for run {run_sng1}, skipping")
             continue
-        df_hits_noise = pd.concat(noise_chunks, ignore_index=True)
-        del noise_chunks
-        df_noise_baseline = compute_noise_baseline(df_hits_noise)
-        del df_hits_noise
 
-        # --- sng=0 run → signal (streaming) ---
-        # Keep only signal hits (over_threshold=1, adc<1023) per file.
-        run_dir       = get_run_dir(data_dir, run_sng0)
-        signal_chunks = []
+        df_noise_baseline = compute_noise_baseline_from_hists(noise_hists)
+        del noise_hists
+
+        if "vmm_id" not in df_noise_baseline.columns:
+            print(f"  WARNING: no noise baseline for run {run_sng1} "
+                  f"(too few over_threshold=0 hits), skipping pair")
+            continue
+
+        # --- sng=0 run → signal histograms (one file at a time) ---
+        run_dir      = get_run_dir(data_dir, run_sng0)
+        signal_hists = {v: np.zeros(1024, np.int64) for v in detector_vmms}
+        n_signal_files = 0
         for df in iter_hits_files(run_dir, n_files,
                                    branches=["adc", "vmm",
                                              "over_threshold"]):
             df_det = df[df["vmm"].isin(detector_vmms)]
-            chunk  = df_det[
-                (df_det["over_threshold"] == 1) & (df_det["adc"] < 1023)
-            ][["adc", "vmm", "over_threshold"]].copy()
-            if len(chunk):
-                signal_chunks.append(chunk)
-            del df, df_det, chunk
-        if not signal_chunks:
+            for vmm_id in detector_vmms:
+                adc = df_det.loc[
+                    (df_det["vmm"]            == vmm_id) &
+                    (df_det["over_threshold"] == 1) &
+                    (df_det["adc"]            <  1023), "adc"
+                ].values.clip(0, 1023).astype(np.int32)
+                if len(adc):
+                    signal_hists[vmm_id] += np.bincount(
+                        adc, minlength=1024
+                    )[:1024]
+            n_signal_files += 1
+            del df, df_det
+
+        if n_signal_files == 0:
             print(f"  WARNING: no files for run {run_sng0}, skipping")
             continue
-        df_hits_signal = pd.concat(signal_chunks, ignore_index=True)
-        del signal_chunks
 
         # --- Per VMM ---
         for vmm_id in detector_vmms:
+            if vmm_id in exclude_trigger_vmms:
+                continue
+
             noise_row = df_noise_baseline[
                 df_noise_baseline["vmm_id"] == vmm_id
             ]
@@ -221,15 +241,14 @@ def compute_snr(data_dir, pairs, detector_vmms,
             noise_cut     = noise_row["noise_cut"].iloc[0]
             noise_quality = noise_row["quality"].iloc[0]
 
-            signal_clean = get_clean_signal(
-                df_hits_signal, vmm_id, exclude_trigger_vmms
-            )
-            if signal_clean is None or len(signal_clean) < 100:
+            if signal_hists[vmm_id].sum() < 100:
                 continue
 
-            mpv, _, _, _ = estimate_mpv(
-                signal_clean, adc_min=noise_cut
+            mpv, _, _, _ = estimate_mpv_from_hist(
+                signal_hists[vmm_id], adc_min=noise_cut
             )
+            if np.isnan(mpv):
+                continue
             snr = mpv / noise_sigma if noise_sigma > 0 else np.nan
 
             print(f"  VMM {vmm_id}: noise_sigma={noise_sigma:.1f}  "
@@ -248,7 +267,7 @@ def compute_snr(data_dir, pairs, detector_vmms,
                 "snr"          : snr,
             })
 
-        del df_hits_signal, df_noise_baseline
+        del signal_hists, df_noise_baseline
 
     return pd.DataFrame(results)
 
@@ -309,46 +328,91 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
         print(f"\nProcessing sg={sg} snt={snt} "
               f"| noise=run {run_sng1} | signal=run {run_sng0}")
 
-        # --- sng=1 run → noise (streaming) ---
-        run_dir      = get_run_dir(data_dir, run_sng1)
-        noise_chunks = []
+        # --- sng=1 run → per-(vmm,ch) noise histograms ---
+        run_dir        = get_run_dir(data_dir, run_sng1)
+        noise_hists_ch = {}   # (vmm_id, ch_id) -> np.ndarray(1024)
+        noise_hists_vmm = {v: np.zeros(1024, np.int64)
+                           for v in detector_vmms}
+        n_noise_files  = 0
         for df in iter_hits_files(run_dir, n_files,
                                    branches=["adc", "vmm", "ch",
                                              "over_threshold"]):
-            df_det = df[df["vmm"].isin(detector_vmms)]
-            chunk  = df_det[
-                (df_det["over_threshold"] == 0) & (df_det["adc"] > 20)
-            ][["adc", "vmm", "ch", "over_threshold"]].copy()
-            if len(chunk):
-                noise_chunks.append(chunk)
-            del df, df_det, chunk
-        if not noise_chunks:
+            df_det = df[
+                df["vmm"].isin(detector_vmms) &
+                (df["over_threshold"] == 0) &
+                (df["adc"] > 20)
+            ]
+            if not df_det.empty:
+                vmms = df_det["vmm"].values.astype(np.int32)
+                chs  = df_det["ch"].values.astype(np.int32)
+                adcs = df_det["adc"].values.clip(0, 1023).astype(np.int32)
+                for vmm_id in np.unique(vmms):
+                    if vmm_id not in detector_vmms:
+                        continue
+                    vm = vmms == vmm_id
+                    noise_hists_vmm[vmm_id] += np.bincount(
+                        adcs[vm], minlength=1024
+                    )[:1024]
+                    for ch_id in np.unique(chs[vm]):
+                        key = (int(vmm_id), int(ch_id))
+                        counts = np.bincount(
+                            adcs[vm & (chs == ch_id)], minlength=1024
+                        )[:1024]
+                        if key not in noise_hists_ch:
+                            noise_hists_ch[key] = np.zeros(1024, np.int64)
+                        noise_hists_ch[key] += counts
+            n_noise_files += 1
+            del df, df_det
+
+        if n_noise_files == 0:
             print(f"  WARNING: no files for run {run_sng1}, skipping")
             continue
-        df_hits_noise = pd.concat(noise_chunks, ignore_index=True)
-        del noise_chunks
 
-        # --- sng=0 run → signal (streaming) ---
-        run_dir       = get_run_dir(data_dir, run_sng0)
-        signal_chunks = []
+        # VMM-level noise baseline (for noise_cut used in MPV search)
+        df_noise_baseline = compute_noise_baseline_from_hists(
+            noise_hists_vmm
+        )
+        del noise_hists_vmm
+
+        if "vmm_id" not in df_noise_baseline.columns:
+            print(f"  WARNING: no noise baseline for run {run_sng1} "
+                  f"(too few over_threshold=0 hits), skipping pair")
+            continue
+
+        # --- sng=0 run → per-(vmm,ch) signal histograms ---
+        run_dir         = get_run_dir(data_dir, run_sng0)
+        signal_hists_ch = {}   # (vmm_id, ch_id) -> np.ndarray(1024)
+        n_signal_files  = 0
         for df in iter_hits_files(run_dir, n_files,
                                    branches=["adc", "vmm", "ch",
                                              "over_threshold"]):
-            df_det = df[df["vmm"].isin(detector_vmms)]
-            chunk  = df_det[
-                (df_det["over_threshold"] == 1) & (df_det["adc"] < 1023)
-            ][["adc", "vmm", "ch", "over_threshold"]].copy()
-            if len(chunk):
-                signal_chunks.append(chunk)
-            del df, df_det, chunk
-        if not signal_chunks:
+            df_det = df[
+                df["vmm"].isin(detector_vmms) &
+                (df["over_threshold"] == 1) &
+                (df["adc"] < 1023)
+            ]
+            if not df_det.empty:
+                vmms = df_det["vmm"].values.astype(np.int32)
+                chs  = df_det["ch"].values.astype(np.int32)
+                adcs = df_det["adc"].values.clip(0, 1023).astype(np.int32)
+                for vmm_id in np.unique(vmms):
+                    if vmm_id not in detector_vmms:
+                        continue
+                    vm = vmms == vmm_id
+                    for ch_id in np.unique(chs[vm]):
+                        key = (int(vmm_id), int(ch_id))
+                        counts = np.bincount(
+                            adcs[vm & (chs == ch_id)], minlength=1024
+                        )[:1024]
+                        if key not in signal_hists_ch:
+                            signal_hists_ch[key] = np.zeros(1024, np.int64)
+                        signal_hists_ch[key] += counts
+            n_signal_files += 1
+            del df, df_det
+
+        if n_signal_files == 0:
             print(f"  WARNING: no files for run {run_sng0}, skipping")
             continue
-        df_hits_signal = pd.concat(signal_chunks, ignore_index=True)
-        del signal_chunks
-
-        # VMM-level noise baseline → noise_cut per VMM
-        df_noise_baseline = compute_noise_baseline(df_hits_noise)
 
         n_ok = n_low_n = n_stuck = n_noisy = n_mpv = n_sig = 0
 
@@ -365,29 +429,32 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
             vmm_noise_cut     = noise_row["noise_cut"].iloc[0]
             vmm_noise_quality = noise_row["quality"].iloc[0]
 
-            df_vmm_noise = df_hits_noise[
-                (df_hits_noise["vmm"]            == vmm_id) &
-                (df_hits_noise["over_threshold"] == 0) &
-                (df_hits_noise["adc"]            >  20)
-            ]
-            df_vmm_signal = df_hits_signal[
-                (df_hits_signal["vmm"]            == vmm_id) &
-                (df_hits_signal["over_threshold"] == 1) &
-                (df_hits_signal["adc"]            <  1023)
-            ]
+            sig_keys = [k for k in signal_hists_ch
+                        if k[0] == vmm_id]
 
-            for ch_id in sorted(df_vmm_signal["ch"].unique()):
+            for key in sorted(sig_keys):
+                ch_id     = key[1]
+                sig_hist  = signal_hists_ch[key]
+                noi_hist  = noise_hists_ch.get(key,
+                                np.zeros(1024, np.int64))
 
-                noise_ch = df_vmm_noise[
-                    df_vmm_noise["ch"] == ch_id
-                ]["adc"].values
-
-                if len(noise_ch) < min_noise_hits:
+                n_noise_ch = int(noi_hist.sum())
+                if n_noise_ch < min_noise_hits:
                     n_low_n += 1
                     continue
 
-                median_n    = np.median(noise_ch)
-                mad_n       = np.median(np.abs(noise_ch - median_n))
+                # Channel-level noise sigma from histogram
+                adc_vals   = np.arange(1024, dtype=np.float64)
+                cumsum_n   = np.cumsum(noi_hist)
+                med_idx    = min(int(np.searchsorted(
+                    cumsum_n, n_noise_ch / 2)), 1023)
+                median_n   = adc_vals[med_idx]
+                devs       = np.abs(adc_vals - median_n)
+                order      = np.argsort(devs, kind="stable")
+                cum_dev    = np.cumsum(noi_hist[order])
+                mad_idx    = min(int(np.searchsorted(
+                    cum_dev, n_noise_ch / 2)), 1023)
+                mad_n      = float(devs[order[mad_idx]])
                 noise_sigma = 1.4826 * mad_n
 
                 if noise_sigma <= min_sigma:
@@ -397,22 +464,17 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
                     n_noisy += 1
                     continue
 
-                signal_ch = df_vmm_signal[
-                    df_vmm_signal["ch"] == ch_id
-                ]["adc"].values
-
-                if len(signal_ch) < min_signal_hits:
+                n_signal_ch = int(sig_hist.sum())
+                if n_signal_ch < min_signal_hits:
                     n_sig += 1
                     continue
 
-                mpv, _, _, _ = estimate_mpv(
-                    signal_ch,
+                mpv, _, _, _ = estimate_mpv_from_hist(
+                    sig_hist,
                     adc_min=vmm_noise_cut,
-                    bins=bins,
                     smooth_sigma=smooth_sigma
                 )
-
-                if not (mpv_min <= mpv <= mpv_max):
+                if np.isnan(mpv) or not (mpv_min <= mpv <= mpv_max):
                     n_mpv += 1
                     continue
 
@@ -431,8 +493,8 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
                     "vmm_noise_quality": vmm_noise_quality,
                     "mpv_ch"           : mpv,
                     "snr_ch"           : snr,
-                    "n_signal"         : len(signal_ch),
-                    "n_noise"          : len(noise_ch),
+                    "n_signal"         : n_signal_ch,
+                    "n_noise"          : n_noise_ch,
                 })
 
         print(f"  → {n_ok} channels ok | "
@@ -440,7 +502,7 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
               f"noisy={n_noisy} bad_mpv={n_mpv} "
               f"low_sig={n_sig}")
 
-        del df_hits_noise, df_hits_signal, df_noise_baseline
+        del noise_hists_ch, signal_hists_ch, df_noise_baseline
 
     return pd.DataFrame(results)
 

@@ -19,7 +19,8 @@ from scipy.optimize import curve_fit
 from vmm_mapping import vmm_mapping
 from vmm_io import (load_run_table, get_run_groups,
                     get_run_dir, get_root_file,
-                    load_hits_root)
+                    load_hits_root,
+                    iter_hits_files, list_root_files)
 # ── Constants ──────────────────────────────────────────────
 NS_PER_TICK  = 1.0          # 1 GHz clock
 S_PER_TICK   = NS_PER_TICK * 1e-9
@@ -112,7 +113,7 @@ def main():
         trigger_ref_channels = trigger_ref_channels,
         detector_vmms        = detector_vmms,
         bin_width_s          = 0.001,
-        root_file_index      = root_file_index,
+        n_files              = 1,
         spill_threshold_khz  = 1.0,
     )
 
@@ -131,7 +132,7 @@ def main():
         trigger_ref_channels = trigger_ref_channels,
         detector_vmms        = detector_vmms,
         bin_width_s          = 0.001,
-        root_file_index      = root_file_index,
+        n_files              = 99,
         spill_threshold_khz  = 1.0,
     )
 
@@ -1238,24 +1239,96 @@ def plot_spill_mask_diagnostic(df_hits, run_no,
     print(f"Mean rate (off): {rate_khz[off_mask].mean():.3f} kHz")
 
 
+def _get_run_time_range(run_dir, n_files, max_time_ticks=2e12):
+    """
+    Scan all files in a run to find the global timestamp range.
+    Reads only the time column — one file at a time.
+    Returns (t_start_s, t_end_s) or (None, None) if no data.
+    """
+    t_min = np.inf
+    t_max = -np.inf
+    for df in iter_hits_files(run_dir, n_files=n_files,
+                               branches=["time"]):
+        if df is None or df.empty:
+            continue
+        t = df["time"].values
+        t = t[t < max_time_ticks]
+        if len(t):
+            t_min = min(t_min, t.min())
+            t_max = max(t_max, t.max())
+        del df
+    if np.isinf(t_min):
+        return None, None
+    return t_min * S_PER_TICK, t_max * S_PER_TICK
+
+
+def _accumulate_run_histograms(run_dir, trig_vmm, trig_ch,
+                                detector_vmms, bins, n_files,
+                                max_time_ticks=2e12):
+    """
+    Iterate over all files in a run one at a time, accumulating
+    hit counts into pre-defined histogram bins.
+    Each file's DataFrame is deleted immediately after histogramming
+    to keep peak memory to a single file at a time.
+    """
+    from vmm_io import get_connected_channels
+
+    n_bins      = len(bins) - 1
+    trig_counts = np.zeros(n_bins, dtype=np.int64)
+    det_counts  = {v: np.zeros(n_bins, dtype=np.int64)
+                   for v in detector_vmms}
+
+    for df in iter_hits_files(run_dir, n_files=n_files,
+                               branches=["time", "vmm", "ch"]):
+        if df is None or df.empty:
+            continue
+        df = df[df["time"] < max_time_ticks].copy()
+        if df.empty:
+            del df
+            continue
+
+        t_s = df["time"].values * S_PER_TICK
+
+        # Trigger counts
+        m_trig = (df["vmm"] == trig_vmm) & (df["ch"] == trig_ch)
+        c, _   = np.histogram(t_s[m_trig.values], bins=bins)
+        trig_counts += c
+
+        # Detector counts — connected channels only
+        for vmm_id in detector_vmms:
+            channels = get_connected_channels(vmm_id)
+            m = df["vmm"] == vmm_id
+            if channels is not None:
+                m &= df["ch"].isin(channels)
+            c, _ = np.histogram(t_s[m.values], bins=bins)
+            det_counts[vmm_id] += c
+
+        del df
+
+    return trig_counts, det_counts
+
+
 def compute_spill_rates_all_runs(df_run_scan, data_dir,
                                   sng0_runs, trigger_ref_channels,
                                   detector_vmms,
                                   bin_width_s=0.001,
-                                  root_file_index=1,
+                                  n_files=99,
                                   spill_threshold_khz=1.0):
     """
     For each run compute the mean hit rate during spill-on and spill-off
     periods for every detector VMM.
 
-    All VMMs within a run share the same time bins so that the
-    spill mask derived from the trigger rate applies consistently.
+    Processes files one at a time to avoid loading a full run into memory.
+    All VMMs share the same time bins so the trigger-derived spill mask
+    applies consistently across detectors.
 
     Parameters
     ----------
+    n_files : int
+        Maximum number of ROOT files to read per run. Default 99
+        loads all available files.
     spill_threshold_khz : float
-        Trigger rate threshold (kHz) that separates spill-on from
-        spill-off bins. Bins above this value = spill-on.
+        Trigger rate threshold (kHz) separating spill-on from spill-off.
 
     Returns
     -------
@@ -1276,29 +1349,30 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
         sg  = row["sg"].iloc[0]
         snt = row["snt"].iloc[0]
 
-        df_hits = load_sorted_hits(
-            data_dir, run_no,
-            branches=["time", "vmm", "ch"],
-            root_file_index=root_file_index
-        )
-        if df_hits is None or df_hits.empty:
+        run_dir = get_run_dir(data_dir, run_no)
+        n_avail = len(list_root_files(run_dir))
+        if n_avail == 0:
+            print(f"  Run {run_no}: no files found, skipping")
+            continue
+        n_load = min(n_files, n_avail)
+        print(f"  Run {run_no} (sg={sg}, snt={snt:.0f}): "
+              f"loading {n_load}/{n_avail} files...")
+
+        # Pass 1: get time range across all files (time column only)
+        t_start, t_end = _get_run_time_range(run_dir, n_load)
+        if t_start is None:
+            print(f"    no valid timestamps, skipping")
             continue
 
-        # Shared time bins for the whole run
-        t_all_s = df_hits["time"].values * S_PER_TICK
-        t_start = t_all_s.min()
-        t_end   = t_all_s.max()
-        bins    = np.arange(t_start, t_end + bin_width_s, bin_width_s)
+        bins = np.arange(t_start, t_end + bin_width_s, bin_width_s)
 
-        # Trigger rate on shared bins
-        t_trig = df_hits[
-            (df_hits["vmm"] == trig_vmm) &
-            (df_hits["ch"]  == trig_ch)
-        ]["time"].values * S_PER_TICK
+        # Pass 2: accumulate histogram counts, one file at a time
+        trig_counts, det_counts = _accumulate_run_histograms(
+            run_dir, trig_vmm, trig_ch,
+            detector_vmms, bins, n_load
+        )
 
-        trig_counts, _ = np.histogram(t_trig, bins=bins)
-        trig_rate_khz  = trig_counts / bin_width_s / 1e3
-
+        trig_rate_khz = trig_counts / bin_width_s / 1e3
         on_mask, off_mask = compute_spill_masks(
             trig_rate_khz, spill_threshold_khz
         )
@@ -1306,25 +1380,17 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
         n_off = off_mask.sum()
 
         if n_on == 0:
-            print(f"  Run {run_no}: no spill-on bins "
-                  f"(threshold={spill_threshold_khz:.1f} kHz — "
-                  f"max trig rate={trig_rate_khz.max():.2f} kHz)")
+            print(f"    no spill-on bins "
+                  f"(max trig rate={trig_rate_khz.max():.2f} kHz)")
             continue
 
         trig_rate_on = trig_rate_khz[on_mask].mean()
 
         for vmm_id in detector_vmms:
-            t_det = df_hits[
-                df_hits["vmm"] == vmm_id
-            ]["time"].values * S_PER_TICK
-
-            det_counts, _ = np.histogram(t_det, bins=bins)
-            det_rate_khz  = det_counts / bin_width_s / 1e3
-
+            det_rate_khz = det_counts[vmm_id] / bin_width_s / 1e3
             rate_on  = det_rate_khz[on_mask].mean()
             rate_off = (det_rate_khz[off_mask].mean()
                         if n_off > 0 else np.nan)
-
             records.append({
                 "run_no"           : run_no,
                 "sg"               : sg,
@@ -1337,8 +1403,7 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
                 "n_off_bins"       : n_off,
             })
 
-        print(f"  Run {run_no} (sg={sg}, snt={snt:.0f}): "
-              f"on={n_on} bins  off={n_off} bins  "
+        print(f"    on={n_on} bins  off={n_off} bins  "
               f"trig_on={trig_rate_on:.1f} kHz")
 
     return pd.DataFrame(records)

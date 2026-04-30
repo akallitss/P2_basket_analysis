@@ -18,6 +18,77 @@ import numpy as np
 import pandas as pd
 
 
+def compute_noise_baseline_from_hists(noise_hists,
+                                       n_sigma=5,
+                                       sigma_warn=10.0,
+                                       sigma_bad=13.0,
+                                       min_noise_hits=500):
+    """
+    Compute per-VMM noise baseline from pre-accumulated ADC histograms.
+
+    Histogram-based equivalent of compute_noise_baseline — no raw hits
+    needed, so peak memory is O(n_vmms * 1024) regardless of file count.
+
+    Parameters
+    ----------
+    noise_hists : dict {vmm_id: np.ndarray shape (1024,)}
+        Integer ADC counts per bin (index = ADC value 0..1023),
+        already filtered to over_threshold=0 and adc>20.
+
+    Returns
+    -------
+    pd.DataFrame with the same columns as compute_noise_baseline:
+        vmm_id, n_noise, median_adc, robust_sigma,
+        noise_cut, tail_frac_pct, quality
+    """
+    adc_vals = np.arange(1024, dtype=np.float64)
+    records  = []
+
+    for vmm_id, hist in noise_hists.items():
+        total = int(hist.sum())
+        if total < 100:
+            continue
+
+        # Median via cumulative sum
+        cumsum     = np.cumsum(hist)
+        median_idx = int(np.searchsorted(cumsum, total / 2))
+        median_idx = min(median_idx, 1023)
+        median     = adc_vals[median_idx]
+
+        # MAD = weighted median of |adc - median|
+        deviations     = np.abs(adc_vals - median)
+        order          = np.argsort(deviations, kind="stable")
+        cumsum_dev     = np.cumsum(hist[order])
+        mad_idx        = int(np.searchsorted(cumsum_dev, total / 2))
+        mad_idx        = min(mad_idx, 1023)
+        mad            = float(deviations[order[mad_idx]])
+        robust_sigma   = 1.4826 * mad
+
+        cut       = median + n_sigma * robust_sigma
+        tail_frac = float(hist[adc_vals > cut].sum()) / total * 100
+
+        if total < min_noise_hits:
+            quality = "bad"
+        elif robust_sigma >= sigma_bad:
+            quality = "bad"
+        elif robust_sigma >= sigma_warn:
+            quality = "warn"
+        else:
+            quality = "ok"
+
+        records.append({
+            "vmm_id"       : vmm_id,
+            "n_noise"      : total,
+            "median_adc"   : median,
+            "robust_sigma" : robust_sigma,
+            "noise_cut"    : cut,
+            "tail_frac_pct": tail_frac,
+            "quality"      : quality,
+        })
+
+    return pd.DataFrame(records)
+
+
 def compute_noise_baseline(df_hits, n_sigma=5,
                             adc_low_cut=20,
                             sigma_warn=10.0,
