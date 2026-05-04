@@ -1,22 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on 3/25/26 1:12 PM
-Created in PyCharm
-Created as vmm_qa.py
-
-@author: ak271430
-"""
-
-"""
 vmm_qa.py
-
 
 Quality assurance and validation functions for VMM config scan analysis.
 
-All qa_ functions are designed to be toggled via the PLOTS dict in
-vmm_config_scan_analysis.py. They produce diagnostic plots and printed summaries
-but do not modify any data — they are purely investigative.
+All qa_ functions accept out_dir and show parameters:
+    out_dir : str or None — if set, saves PDF + PNG to that directory
+    show    : bool        — if True, displays the figure interactively
 
 Functions are grouped by investigation type:
 - Over-threshold flag validation
@@ -24,7 +15,9 @@ Functions are grouped by investigation type:
 - Signal distribution inspection
 - ADC=16 digital artifact investigation
 - Estimator validation (MPV vs median, robust sigma vs std)
+- Noise run diagnostic (too few over_threshold=0 hits)
 """
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -36,11 +29,26 @@ from vmm_signal import get_clean_signal, estimate_mpv
 from vmm_mapping import vmm_mapping
 
 
-def qa_over_threshold_split(df_hits, run_no, vmm_ids):
+# ─────────────────────────────────────────────
+# FIGURE SAVE / SHOW HELPER
+# ─────────────────────────────────────────────
+def _finish_fig(fig, stem, out_dir, show):
+    """Save fig as PDF and PNG to out_dir, optionally display, then close."""
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+        for ext in ("pdf", "png"):
+            fig.savefig(os.path.join(out_dir, f"{stem}.{ext}"),
+                        bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
+def qa_over_threshold_split(df_hits, run_no, vmm_ids,
+                              out_dir=None, show=True):
     """
     Investigate the over_threshold flag split for a given run.
     Shows ADC distributions split by over_threshold flag per VMM.
-    Validates that flag correctly separates noise from signal.
     """
     for vmm_id in vmm_ids:
         df_vmm  = df_hits[df_hits["vmm"] == vmm_id]
@@ -81,17 +89,16 @@ def qa_over_threshold_split(df_hits, run_no, vmm_ids):
         axes[1].legend()
 
         plt.tight_layout()
-        plt.show()
+        _finish_fig(fig, f"qa_ot_split_vmm{vmm_id}_run{run_no}",
+                    out_dir, show)
 
 
 def qa_noise_pedestal_stability(df_run_scan, data_dir,
-                                 sng1_runs, vmm_groups, n_files=1):
+                                 sng1_runs, vmm_groups, n_files=1,
+                                 out_dir=None, show=True):
     """
     Check noise pedestal stability across sng=1 runs.
-    Plots normalised noise distributions per VMM grouped by
-    peaking time. Validates that the noise floor is stable
-    across configurations (prerequisite for cross-config SNR
-    comparison).
+    Plots normalised noise distributions per VMM grouped by peaking time.
     """
     for group in vmm_groups:
         vmm_ids = group["vmm_ids"]
@@ -119,15 +126,14 @@ def qa_noise_pedestal_stability(df_run_scan, data_dir,
                 if len(noise) < 100:
                     continue
 
-                snt = df_run_scan.loc[
-                    df_run_scan["run_no"] == run_no, "snt"
-                ].iloc[0]
+                snt_ser = df_run_scan.loc[df_run_scan["run_no"] == run_no, "snt"]
+                snt_lbl = f"{snt_ser.iloc[0]:.0f}" if not snt_ser.empty else "?"
 
                 axes[idx].hist(
                     noise, bins=80, range=(0, 200),
                     alpha=0.5, histtype="step", linewidth=1.5,
                     density=True,
-                    label=f"Run {run_no} (snt={snt:.0f})"
+                    label=f"Run {run_no} (snt={snt_lbl})"
                 )
 
             axes[idx].set_title(f"VMM {vmm_id}")
@@ -139,15 +145,15 @@ def qa_noise_pedestal_stability(df_run_scan, data_dir,
             f"Noise pedestal stability — {label} — sng=1"
         )
         plt.tight_layout(rect=[0, 0, 1, 0.96])
-        plt.show()
+        stem = f"qa_noise_pedestal_{label.replace(' ', '_')}"
+        _finish_fig(fig, stem, out_dir, show)
 
 
-def qa_signal_distributions(df_hits, detector_vmms, run_no):
+def qa_signal_distributions(df_hits, detector_vmms, run_no,
+                              out_dir=None, show=True):
     """
     Plot signal ADC distributions per VMM for a given run.
     Also prints saturation statistics per VMM.
-    Validates that signal distributions are Landau-like and
-    identifies VMMs with high saturation fractions.
     """
     fig, axes = plt.subplots(2, 4, figsize=(16, 8))
     axes      = axes.flatten()
@@ -184,15 +190,15 @@ def qa_signal_distributions(df_hits, detector_vmms, run_no):
 
     plt.suptitle(f"Run {run_no} — Signal distribution per VMM")
     plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.show()
+    _finish_fig(fig, f"qa_signal_distributions_run{run_no}",
+                out_dir, show)
 
 
-def qa_noise_quality_check(df_run_scan, data_dir, runs_to_check, n_files=1):
+def qa_noise_quality_check(df_run_scan, data_dir, runs_to_check,
+                             n_files=1):
     """
     Run noise quality check across a list of runs.
     Prints flagged VMMs with their sigma and noise_cut values.
-    Useful for verifying that quality thresholds correctly
-    identify runs with degraded noise performance (e.g. snt=50).
     """
     for run_no in runs_to_check:
         run_dir = get_run_dir(data_dir, run_no)
@@ -203,9 +209,11 @@ def qa_noise_quality_check(df_run_scan, data_dir, runs_to_check, n_files=1):
         if df_hits is None:
             continue
         df_noise = compute_noise_baseline(df_hits)
-        snt = df_run_scan.loc[
-            df_run_scan["run_no"] == run_no, "snt"
-        ].iloc[0]
+        snt_ser = df_run_scan.loc[df_run_scan["run_no"] == run_no, "snt"]
+        if snt_ser.empty:
+            print(f"Run {run_no} — not found in run scan table, skipping")
+            continue
+        snt = snt_ser.iloc[0]
 
         if "quality" not in df_noise.columns:
             print(f"Run {run_no} (snt={snt:.0f}) — "
@@ -233,12 +241,11 @@ def qa_noise_quality_check(df_run_scan, data_dir, runs_to_check, n_files=1):
 
 def qa_mpv_estimation(df_hits, df_noise_baseline,
                        detector_vmms, run_no,
-                       exclude_trigger_vmms=(0, 1)):
+                       exclude_trigger_vmms=(0, 1),
+                       out_dir=None, show=True):
     """
     Visualise MPV estimation for each detector VMM.
     Shows smoothed signal distribution with noise cut and MPV marker.
-    Validates that MPV lands on the physical Landau peak and not
-    in the tail or noise region.
     """
     for vmm_id in detector_vmms:
         signal_clean = get_clean_signal(
@@ -278,19 +285,19 @@ def qa_mpv_estimation(df_hits, df_noise_baseline,
         ax.set_title(f"VMM {vmm_id} Run {run_no} — MPV estimation")
         ax.legend()
         plt.tight_layout()
-        plt.show()
+        _finish_fig(fig, f"qa_mpv_vmm{vmm_id}_run{run_no}",
+                    out_dir, show)
 
         print(f"VMM {vmm_id} — noise_cut={noise_cut:.1f} "
               f"[{noise_quality}]  MPV={mpv:.1f} ADC  "
               f"N_signal={len(signal_clean)}")
 
 
-def qa_channel_noise(df_hits, detector_vmms, run_no):
+def qa_channel_noise(df_hits, detector_vmms, run_no,
+                      out_dir=None, show=True):
     """
     Per-channel noise investigation.
     Shows median ADC and robust sigma per channel per VMM.
-    Identifies channels with elevated noise, floating inputs,
-    or stuck ADC values.
     """
     for vmm_id in detector_vmms:
         df_vmm_noise = df_hits[
@@ -325,52 +332,40 @@ def qa_channel_noise(df_hits, detector_vmms, run_no):
                     color="steelblue", alpha=0.7)
         axes[0].axhline(
             df_ch_stats["median_adc"].median(),
-            color="red", linestyle="--",
-            label=f"VMM median="
-                  f"{df_ch_stats['median_adc'].median():.1f}"
+            color="red", linestyle="--"
         )
         axes[0].set_xlabel("Channel")
         axes[0].set_ylabel("Median ADC")
         axes[0].set_title(
             f"VMM {vmm_id} Run {run_no} — Noise median per channel"
         )
-        axes[0].legend()
 
         axes[1].bar(df_ch_stats["ch"], df_ch_stats["robust_sigma"],
                     color="orange", alpha=0.7)
         axes[1].axhline(
             df_ch_stats["robust_sigma"].median(),
-            color="red", linestyle="--",
-            label=f"VMM median sigma="
-                  f"{df_ch_stats['robust_sigma'].median():.1f}"
+            color="red", linestyle="--"
         )
         axes[1].set_xlabel("Channel")
         axes[1].set_ylabel("Robust sigma (ADC)")
         axes[1].set_title(
             f"VMM {vmm_id} Run {run_no} — Noise sigma per channel"
         )
-        axes[1].legend()
 
         plt.suptitle(
             f"VMM {vmm_id} — per channel noise — Run {run_no}"
         )
         plt.tight_layout()
-        plt.show()
+        _finish_fig(fig, f"qa_channel_noise_vmm{vmm_id}_run{run_no}",
+                    out_dir, show)
 
 
 def qa_adc16_artifact(df_hits, detector_vmms, run_no,
-                       artifact_adc=16, low_adc_threshold=25):
+                       artifact_adc=16, low_adc_threshold=25,
+                       out_dir=None, show=True):
     """
     Investigate the ADC=16 digital artifact.
-
-    The VMM3a outputs ADC=16 when the analog signal falls below
-    the valid conversion range — a fixed digital floor code.
-    This appears as a sharp spike at ADC=16 correlated across
-    all channels, most visible at short peaking time (snt=50).
-
-    Shows which channels are affected and how uniformly,
-    confirming it is a global VMM-level effect rather than
-    a single noisy channel.
+    Shows which channels are affected and how uniformly.
     """
     print(f"\nRun {run_no} — ADC={artifact_adc} artifact "
           f"investigation:")
@@ -426,23 +421,18 @@ def qa_adc16_artifact(df_hits, detector_vmms, run_no,
             f"ADC={artifact_adc} artifact per channel"
         )
         plt.tight_layout()
-        plt.show()
+        _finish_fig(fig, f"qa_adc16_vmm{vmm_id}_run{run_no}",
+                    out_dir, show)
 
 
 def qa_noise_sigma_distribution(df_run_scan, data_dir,
                                   sng1_runs,
                                   sigma_warn=10.0,
-                                  sigma_bad=13.0, n_files=1):
+                                  sigma_bad=13.0, n_files=1,
+                                  out_dir=None, show=True):
     """
     Plot distribution of robust_sigma across all VMMs and sng=1 runs.
     Shows where warn/bad thresholds sit relative to the data.
-    Validates that quality thresholds cleanly separate well-behaved
-    VMMs from degraded ones with a natural gap in the distribution.
-
-    Returns
-    -------
-    pd.DataFrame
-        One row per (run, VMM) with sigma and quality.
     """
     all_sigmas = []
 
@@ -455,12 +445,13 @@ def qa_noise_sigma_distribution(df_run_scan, data_dir,
         if df_hits is None:
             continue
         df_noise = compute_noise_baseline(df_hits)
-        snt = df_run_scan.loc[
-            df_run_scan["run_no"] == run_no, "snt"
-        ].iloc[0]
-        sg = df_run_scan.loc[
-            df_run_scan["run_no"] == run_no, "sg"
-        ].iloc[0]
+        snt_ser = df_run_scan.loc[df_run_scan["run_no"] == run_no, "snt"]
+        sg_ser  = df_run_scan.loc[df_run_scan["run_no"] == run_no, "sg"]
+        if snt_ser.empty or sg_ser.empty:
+            print(f"Run {run_no} — not found in run scan table, skipping")
+            continue
+        snt = snt_ser.iloc[0]
+        sg  = sg_ser.iloc[0]
 
         if "vmm_id" not in df_noise.columns:
             continue
@@ -499,7 +490,7 @@ def qa_noise_sigma_distribution(df_run_scan, data_dir,
     )
     ax.legend()
     plt.tight_layout()
-    plt.show()
+    _finish_fig(fig, "qa_noise_sigma_dist", out_dir, show)
 
     print("\nBorderline cases (sigma within 1 ADC of warn threshold):")
     borderline = df_sigmas[
@@ -516,19 +507,11 @@ def qa_noise_sigma_distribution(df_run_scan, data_dir,
     return df_sigmas
 
 
-def qa_robust_vs_std_comparison(df_run_scan, data_dir, sng1_runs, n_files=1):
+def qa_robust_vs_std_comparison(df_run_scan, data_dir, sng1_runs,
+                                  n_files=1, out_dir=None, show=True):
     """
     Compare robust_sigma (MAD-based) vs standard deviation
     across all VMMs and sng=1 runs.
-
-    Validates the choice of robust estimator for SNR computation.
-    Key finding: std is inflated 1-13x by the charge-sharing tail
-    in over_threshold=0 hits, making it unreliable for SNR estimation.
-
-    Returns
-    -------
-    pd.DataFrame
-        One row per (run, VMM) with both sigma estimates and ratio.
     """
     comparison = []
 
@@ -540,12 +523,13 @@ def qa_robust_vs_std_comparison(df_run_scan, data_dir, sng1_runs, n_files=1):
         )
         if df_hits is None:
             continue
-        snt = df_run_scan.loc[
-            df_run_scan["run_no"] == run_no, "snt"
-        ].iloc[0]
-        sg = df_run_scan.loc[
-            df_run_scan["run_no"] == run_no, "sg"
-        ].iloc[0]
+        snt_ser = df_run_scan.loc[df_run_scan["run_no"] == run_no, "snt"]
+        sg_ser  = df_run_scan.loc[df_run_scan["run_no"] == run_no, "sg"]
+        if snt_ser.empty or sg_ser.empty:
+            print(f"Run {run_no} — not found in run scan table, skipping")
+            continue
+        snt = snt_ser.iloc[0]
+        sg  = sg_ser.iloc[0]
 
         for vmm_id in sorted(df_hits["vmm"].unique()):
             noise = df_hits[
@@ -605,7 +589,7 @@ def qa_robust_vs_std_comparison(df_run_scan, data_dir, sng1_runs, n_files=1):
     plt.colorbar(sc1, ax=axes[1], label="snt")
 
     plt.tight_layout()
-    plt.show()
+    _finish_fig(fig, "qa_robust_vs_std", out_dir, show)
 
     print("\nSummary of std/robust ratio:")
     print(f"  Mean  : {df_comp['ratio'].mean():.3f}")
@@ -628,20 +612,11 @@ def qa_robust_vs_std_comparison(df_run_scan, data_dir, sng1_runs, n_files=1):
 
 def qa_mpv_vs_median_comparison(df_run_scan, data_dir, pairs,
                                   detector_vmms,
-                                  exclude_trigger_vmms=(0, 1), n_files=1):
+                                  exclude_trigger_vmms=(0, 1),
+                                  n_files=1,
+                                  out_dir=None, show=True):
     """
     Compare MPV-based vs median-based SNR across all config pairs.
-
-    Validates that MPV is the correct signal estimator for Landau
-    distributions. Key finding: median drifts into the Landau tail
-    and gives a configuration-dependent bias of up to 2.6x at
-    snt=50, which would reverse configuration rankings.
-
-    Returns
-    -------
-    pd.DataFrame
-        One row per (sg, snt, vmm_id) with MPV, median, mean
-        and all three SNR estimates.
     """
     records = []
 
@@ -772,7 +747,7 @@ def qa_mpv_vs_median_comparison(df_run_scan, data_dir, pairs,
         "MPV is stable — median drifts into Landau tail"
     )
     plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.show()
+    _finish_fig(fig, "qa_mpv_vs_median", out_dir, show)
 
     print("\nSNR estimator comparison summary:")
     print(f"{'sg':>5} {'snt':>6} {'VMM':>5} {'MPV':>8} "
@@ -791,8 +766,128 @@ def qa_mpv_vs_median_comparison(df_run_scan, data_dir, pairs,
 
     return df
 
+
+def qa_noise_run_diagnostic(data_dir, run_noise, run_signal,
+                             detector_vmms, n_files=1, adc_low_cut=20,
+                             out_dir=None, show=True):
+    """
+    Diagnose why a noise run fails to build a baseline.
+
+    Use when compute_snr warns:
+        "no noise baseline for run X (too few over_threshold=0 hits)"
+
+    Prints a per-VMM table and plots both runs' ADC distributions
+    split by over_threshold flag with the adc_low_cut marked.
+    """
+    run_dir_n = get_run_dir(data_dir, run_noise)
+    df_n = load_hits_run(run_dir_n, n_files=n_files,
+                          branches=["adc", "vmm", "over_threshold"])
+
+    run_dir_s = get_run_dir(data_dir, run_signal)
+    df_s = load_hits_run(run_dir_s, n_files=n_files,
+                          branches=["adc", "vmm", "over_threshold"])
+
+    print(f"\n{'='*74}")
+    print(f"Noise run diagnostic — noise=run {run_noise}  "
+          f"signal=run {run_signal}")
+    print(f"{'='*74}")
+    hdr = (f"{'VMM':>5}  {'N_total':>8}  {'ot=0':>7}  "
+           f"{'ot=0 & adc>'+str(adc_low_cut):>14}  "
+           f"{'ot=1':>7}  {'%ot=0':>6}  {'%ot=0 (cut)':>11}")
+    print(hdr)
+    print("-" * 74)
+
+    for vmm_id in sorted(detector_vmms):
+        if df_n is None:
+            print(f"{vmm_id:>5}  {'no data':>8}")
+            continue
+
+        df_vmm = df_n[df_n["vmm"] == vmm_id]
+        n_total = len(df_vmm)
+        if n_total == 0:
+            print(f"{vmm_id:>5}  {'0':>8}  {'—':>7}  {'—':>14}  "
+                  f"{'—':>7}  {'—':>6}  {'—':>11}")
+            continue
+
+        n_ot0     = int((df_vmm["over_threshold"] == 0).sum())
+        n_ot0_cut = int(((df_vmm["over_threshold"] == 0) &
+                         (df_vmm["adc"] > adc_low_cut)).sum())
+        n_ot1     = int((df_vmm["over_threshold"] == 1).sum())
+        pct_ot0   = 100.0 * n_ot0     / n_total
+        pct_ot0c  = 100.0 * n_ot0_cut / n_total
+
+        flag = " ← TOO FEW" if n_ot0_cut < 100 else ""
+
+        print(f"{vmm_id:>5}  {n_total:>8}  {n_ot0:>7}  {n_ot0_cut:>14}  "
+              f"{n_ot1:>7}  {pct_ot0:>5.1f}%  {pct_ot0c:>10.1f}%{flag}")
+
+    print()
+
+    vmm_list   = sorted(detector_vmms)
+    chunk_size = 4
+
+    for chunk_i, start in enumerate(range(0, len(vmm_list), chunk_size)):
+        chunk = vmm_list[start:start + chunk_size]
+        fig, axes = plt.subplots(len(chunk), 2,
+                                  figsize=(14, 4 * len(chunk)))
+        if len(chunk) == 1:
+            axes = [axes]
+
+        for row_i, vmm_id in enumerate(chunk):
+            for col_i, (df_hits, run_no, run_label) in enumerate([
+                (df_n, run_noise,  "noise run (sng=1)"),
+                (df_s, run_signal, "signal run (sng=0)"),
+            ]):
+                ax = axes[row_i][col_i]
+
+                if df_hits is None:
+                    ax.text(0.5, 0.5, "No data",
+                            transform=ax.transAxes,
+                            ha="center", va="center", fontsize=13)
+                    ax.set_title(f"VMM {vmm_id} — {run_label} "
+                                 f"(run {run_no})")
+                    continue
+
+                df_vmm = df_hits[df_hits["vmm"] == vmm_id]
+                if df_vmm.empty:
+                    ax.text(0.5, 0.5, "No hits",
+                            transform=ax.transAxes,
+                            ha="center", va="center", fontsize=13)
+                    ax.set_title(f"VMM {vmm_id} — {run_label} "
+                                 f"(run {run_no})")
+                    continue
+
+                for flag, color, lbl in [
+                    (0, "steelblue", "ot=0 (noise)"),
+                    (1, "tomato",    "ot=1 (signal)"),
+                ]:
+                    adc = df_vmm[df_vmm["over_threshold"] == flag]["adc"]
+                    ax.hist(adc, bins=100, range=(0, 300),
+                            alpha=0.6, color=color,
+                            label=f"{lbl} (n={len(adc)})")
+
+                ax.axvline(adc_low_cut, color="black",
+                           linestyle="--", linewidth=1.5,
+                           label=f"adc_low_cut={adc_low_cut}")
+                ax.set_xlabel("ADC")
+                ax.set_ylabel("Hits")
+                ax.set_title(f"VMM {vmm_id} — {run_label} "
+                             f"(run {run_no})")
+                ax.legend(fontsize=9)
+
+        plt.suptitle(
+            f"Noise run diagnostic — noise=run {run_noise}  "
+            f"signal=run {run_signal}",
+            fontweight="bold"
+        )
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        stem = (f"qa_noise_diagnostic_"
+                f"run{run_noise}_vs_{run_signal}_{chunk_i}")
+        _finish_fig(fig, stem, out_dir, show)
+
+
 def main():
-    print('bonzo')
+    pass
 
 
 if __name__ == '__main__':
