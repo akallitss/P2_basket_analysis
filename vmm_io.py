@@ -13,8 +13,10 @@ vmm_io.py
 Data loading and run management utilities for VMM config scan analysis.
 """
 import os
+import re
 import uproot
 import pandas as pd
+from collections import defaultdict
 from vmm_mapping import vmm_mapping
 
 def get_root_file(run_dir, n_files=2, file_index=1):
@@ -125,15 +127,54 @@ def get_run_dir(base_dir, run_no):
     return os.path.join(base_dir, f"run_{run_no}")
 
 
-def list_root_files(run_dir, n=None):
-    """List ROOT files in a run directory, optionally limited to n."""
+_SESSION_RE = re.compile(r'^enp[^_]+_(\d{8}-\d{6})_')
+
+def list_root_files(run_dir, n=None, min_size=10_000):
+    """
+    List ROOT files in a run directory, optionally limited to n.
+
+    Applies two filters before returning:
+    1. Skip files <= min_size bytes (empty ROOT files are ~10 KB).
+    2. When multiple pcap sessions exist (different YYYYMMDD-HHMMSS
+       prefix), keep only the session with the most files — the stray
+       trigger-board pcap that precedes the main data capture is
+       typically a single file and is silently dropped.
+       A warning is printed whenever a session is skipped.
+    """
     if not os.path.isdir(run_dir):
         return []
-    files = sorted([
+
+    candidates = sorted([
         f for f in os.listdir(run_dir)
         if f.startswith("enp") and f.endswith(".root")
     ])
-    return files[:n] if n else files
+
+    # Drop empty / near-empty files
+    candidates = [
+        f for f in candidates
+        if os.path.getsize(os.path.join(run_dir, f)) > min_size
+    ]
+
+    if not candidates:
+        return []
+
+    # Group by pcap session prefix (YYYYMMDD-HHMMSS)
+    sessions = defaultdict(list)
+    for f in candidates:
+        m = _SESSION_RE.match(f)
+        sessions[m.group(1) if m else "_other"].append(f)
+
+    if len(sessions) > 1:
+        # Most files = main data session; break ties by latest timestamp
+        main_key = max(sessions, key=lambda k: (len(sessions[k]), k))
+        n_skipped = sum(len(v) for k, v in sessions.items()
+                        if k != main_key)
+        print(f"  NOTE {run_dir}: multiple pcap sessions — "
+              f"using {main_key} ({len(sessions[main_key])} files), "
+              f"skipping {n_skipped} file(s) from other session(s)")
+        candidates = sorted(sessions[main_key])
+
+    return candidates[:n] if n else candidates
 
 
 def iter_hits_files(run_dir, n_files=1, branches=None):
