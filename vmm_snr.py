@@ -251,9 +251,6 @@ def compute_snr(data_dir, pairs, detector_vmms,
                 continue
             snr = mpv / noise_sigma if noise_sigma > 0 else np.nan
 
-            print(f"  VMM {vmm_id}: noise_sigma={noise_sigma:.1f}  "
-                  f"MPV={mpv:.1f}  SNR={snr:.1f}  [{noise_quality}]")
-
             results.append({
                 "sg"           : sg,
                 "snt"          : snt,
@@ -269,6 +266,11 @@ def compute_snr(data_dir, pairs, detector_vmms,
 
         del signal_hists, df_noise_baseline
 
+    if not results:
+        return pd.DataFrame(columns=[
+            "sg", "snt", "run_sng0", "run_sng1", "vmm_id",
+            "noise_sigma", "noise_cut", "noise_quality", "mpv", "snr",
+        ])
     return pd.DataFrame(results)
 
 
@@ -504,6 +506,12 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
 
         del noise_hists_ch, signal_hists_ch, df_noise_baseline
 
+    if not results:
+        return pd.DataFrame(columns=[
+            "sg", "snt", "run_sng0", "run_sng1", "vmm_id", "ch",
+            "noise_sigma", "noise_cut", "vmm_noise_quality",
+            "mpv_ch", "snr_ch", "n_signal", "n_noise",
+        ])
     return pd.DataFrame(results)
 
 
@@ -611,7 +619,7 @@ def summarise_best_config(df_snr, df_snr_ch, detector_vmms):
     return df_summary
 
 def main():
-    print('bonzo')
+    pass
 
 
 if __name__ == '__main__':
