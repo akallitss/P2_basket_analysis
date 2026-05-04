@@ -1,25 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on 3/25/26 1:18 PM
-Created in PyCharm
-Created as vmm_plots.py
-
-@author: ak271430
-"""
-"""
 vmm_plots.py
 
 Plotting functions for VMM config scan analysis.
 
 Two categories:
 - Legacy plots : ADC distributions, mean/std vs peaking time
-                 (kept for backward compatibility)
 - SNR plots    : configuration comparison at VMM and channel level
-                 (main deliverables of the analysis)
 
-All SNR comparison plots use a consistent color scale and
-derive VMM groupings and detector names from vmm_mapping.py.
+All plot functions accept out_dir and show parameters:
+    out_dir : str or None — if set, saves PDF + PNG to that directory
+    show    : bool        — if True, displays the figure interactively
 """
 import os
 import numpy as np
@@ -48,6 +40,21 @@ plt.rcParams.update({
 
 
 # ─────────────────────────────────────────────
+# FIGURE SAVE / SHOW HELPER
+# ─────────────────────────────────────────────
+def _finish_fig(fig, stem, out_dir, show):
+    """Save fig as PDF and PNG to out_dir, optionally display, then close."""
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+        for ext in ("pdf", "png"):
+            fig.savefig(os.path.join(out_dir, f"{stem}.{ext}"),
+                        bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
+# ─────────────────────────────────────────────
 # LEGACY PLOTS
 # ─────────────────────────────────────────────
 
@@ -60,9 +67,10 @@ def plot_adc_histograms(df_hits, run_no, ax):
 
 
 def plot_adc_histograms_for_runs(run_list, data_dir,
-                                  get_run_dir_fn,
-                                  list_root_files_fn,
-                                  load_hits_root_fn):
+                                  get_run_dir_fn=None,
+                                  list_root_files_fn=None,
+                                  load_hits_root_fn=None,
+                                  out_dir=None, show=True):
     """Plot ADC distributions for all runs overlaid."""
     from vmm_io import get_run_dir, list_root_files, load_hits_root
     fig, ax = plt.subplots()
@@ -86,11 +94,12 @@ def plot_adc_histograms_for_runs(run_list, data_dir,
     ax.set_ylabel("Counts")
     ax.set_title("ADC Value Distribution by Run/VMM")
     ax.legend()
-    plt.show()
+    _finish_fig(fig, "adc_hist_per_run", out_dir, show)
 
 
 def compare_full_vs_cut(df_hits, vmm_id, run_no,
-                         adc_cut=100, use_over_threshold=True):
+                         adc_cut=100, use_over_threshold=True,
+                         out_dir=None, show=True):
     """Compare full ADC distribution vs selected noise events."""
     full_adc = df_hits[df_hits["vmm"] == vmm_id]["adc"].values
 
@@ -104,7 +113,7 @@ def compare_full_vs_cut(df_hits, vmm_id, run_no,
         cut_adc   = full_adc[full_adc < adc_cut]
         label_cut = f"ADC < {adc_cut}"
 
-    plt.figure()
+    fig = plt.figure()
     plt.hist(full_adc, bins=80, alpha=0.3,
              label="Full", density=False)
     plt.hist(cut_adc, bins=80, alpha=0.6,
@@ -113,12 +122,13 @@ def compare_full_vs_cut(df_hits, vmm_id, run_no,
     plt.xlabel("ADC")
     plt.ylabel("Numb of Hits")
     plt.legend()
-    plt.show()
+    _finish_fig(fig, f"compare_full_vs_cut_vmm{vmm_id}_run{run_no}",
+                out_dir, show)
 
 
-def plot_removed_fraction(df_results, vmm_ids):
+def plot_removed_fraction(df_results, vmm_ids, out_dir=None, show=True):
     """Plot fraction of hits removed by ADC cut vs peaking time."""
-    plt.figure()
+    fig = plt.figure()
     for vmm_id in vmm_ids:
         df_vmm = df_results[df_results["vmm_id"] == vmm_id]
         if df_vmm.empty:
@@ -129,11 +139,12 @@ def plot_removed_fraction(df_results, vmm_ids):
     plt.ylabel("Fraction removed by ADC over threshold cut")
     plt.title("Truncation bias vs peaking time")
     plt.legend()
-    plt.show()
+    _finish_fig(fig, "removed_fraction", out_dir, show)
 
 
-def plot_mean_vs_peaking(df_results, vmm_ids):
+def plot_mean_vs_peaking(df_results, vmm_ids, out_dir=None, show=True):
     """Plot mean ADC vs peaking time per VMM."""
+    fig = plt.figure()
     for vmm_id in vmm_ids:
         df_vmm = df_results[df_results["vmm_id"] == vmm_id]
         if df_vmm.empty:
@@ -145,11 +156,12 @@ def plot_mean_vs_peaking(df_results, vmm_ids):
     plt.ylabel("Mean ADC (ADC overthreshold cut)")
     plt.title("Mean ADC vs Peaking Time")
     plt.legend()
-    plt.show()
+    _finish_fig(fig, "mean_vs_peaking", out_dir, show)
 
 
-def plot_std_vs_peaking(df_results, vmm_ids):
+def plot_std_vs_peaking(df_results, vmm_ids, out_dir=None, show=True):
     """Plot std ADC vs peaking time per VMM."""
+    fig = plt.figure()
     for vmm_id in vmm_ids:
         df_vmm = df_results[df_results["vmm_id"] == vmm_id]
         if df_vmm.empty:
@@ -161,16 +173,16 @@ def plot_std_vs_peaking(df_results, vmm_ids):
     plt.ylabel("Std ADC (ADC over threshold cut)")
     plt.title("Std ADC vs Peaking Time")
     plt.legend()
-    plt.show()
+    _finish_fig(fig, "std_vs_peaking", out_dir, show)
 
 
-def plot_robust_vs_peaking(df_results, vmm_ids):
+def plot_robust_vs_peaking(df_results, vmm_ids, out_dir=None, show=True):
     """Plot robust noise indicators vs peaking time per VMM."""
     for vmm_id in vmm_ids:
         df_vmm = df_results[df_results["vmm_id"] == vmm_id]
         if df_vmm.empty:
             continue
-        plt.figure()
+        fig = plt.figure()
         plt.plot(df_vmm["peaking_time"], df_vmm["median_adc"],
                  "o-", label="Median ADC")
         plt.plot(df_vmm["peaking_time"], df_vmm["robust_sigma"],
@@ -179,9 +191,9 @@ def plot_robust_vs_peaking(df_results, vmm_ids):
         plt.xlabel("Peaking time (snt)")
         plt.ylabel("ADC / σ")
         plt.legend()
-        plt.show()
+        _finish_fig(fig, f"robust_indicators_vmm{vmm_id}", out_dir, show)
 
-    plt.figure()
+    fig = plt.figure()
     for vmm_id in vmm_ids:
         df_vmm = df_results[df_results["vmm_id"] == vmm_id]
         if df_vmm.empty:
@@ -192,9 +204,9 @@ def plot_robust_vs_peaking(df_results, vmm_ids):
     plt.ylabel("Median ADC")
     plt.title("Summary of Median ADC for all VMMs")
     plt.legend()
-    plt.show()
+    _finish_fig(fig, "robust_median_summary", out_dir, show)
 
-    plt.figure()
+    fig = plt.figure()
     for vmm_id in vmm_ids:
         df_vmm = df_results[df_results["vmm_id"] == vmm_id]
         if df_vmm.empty:
@@ -205,10 +217,11 @@ def plot_robust_vs_peaking(df_results, vmm_ids):
     plt.ylabel("Robust σ (MAD)")
     plt.title("Summary of Robust σ for all VMMs")
     plt.legend()
-    plt.show()
+    _finish_fig(fig, "robust_sigma_summary", out_dir, show)
 
 
-def plot_adc_by_vmm(vmm_ids, run_list, df_run_scan, data_dir):
+def plot_adc_by_vmm(vmm_ids, run_list, df_run_scan, data_dir,
+                     out_dir=None, show=True):
     """Plot normalised ADC distributions per VMM across runs."""
     from vmm_io import get_run_dir, list_root_files, load_hits_root
     for vmm_id in vmm_ids:
@@ -238,7 +251,7 @@ def plot_adc_by_vmm(vmm_ids, run_list, df_run_scan, data_dir):
         ax.set_ylabel("Normalized Counts")
         ax.set_title(f"ADC Distribution for VMM {vmm_id}")
         ax.legend()
-        plt.show()
+        _finish_fig(fig, f"adc_by_vmm_vmm{vmm_id}", out_dir, show)
 
 
 # ─────────────────────────────────────────────
@@ -283,7 +296,7 @@ def _quality_legend(ax):
               fontsize=14, loc="lower right")
 
 
-def plot_snr_vs_peaking(df_snr):
+def plot_snr_vs_peaking(df_snr, out_dir=None, show=True):
     """
     SNR vs peaking time per sg.
     Skips sg values with only one peaking time.
@@ -327,12 +340,12 @@ def plot_snr_vs_peaking(df_snr):
         ax.grid(True, alpha=0.3)
         _quality_legend(ax)
 
-    plt.suptitle("SNR vs Peaking Time (all data)", y=1.02, fontweight="bold")
-    plt.tight_layout()
-    plt.show()
+    plt.suptitle("SNR vs Peaking Time (all data)", fontweight="bold")
+    plt.tight_layout(rect=[0, 0, 1, 0.94])
+    _finish_fig(fig, "snr_vs_peaking", out_dir, show)
 
 
-def plot_snr_vs_gain(df_snr):
+def plot_snr_vs_gain(df_snr, out_dir=None, show=True):
     """
     SNR vs gain per snt.
     Skips snt values with only one gain setting.
@@ -377,12 +390,12 @@ def plot_snr_vs_gain(df_snr):
         ax.grid(True, alpha=0.3)
         _quality_legend(ax)
 
-    plt.suptitle("SNR vs Gain (all data)", y=1.02, fontweight="bold")
-    plt.tight_layout()
-    plt.show()
+    plt.suptitle("SNR vs Gain (all data)", fontweight="bold")
+    plt.tight_layout(rect=[0, 0, 1, 0.94])
+    _finish_fig(fig, "snr_vs_gain", out_dir, show)
 
 
-def plot_snr_heatmap(df_snr):
+def plot_snr_heatmap(df_snr, out_dir=None, show=True):
     """
     Heatmap of SNR: rows=VMMs, columns=configurations.
     Shows all data — warn/bad cells annotated with quality label.
@@ -474,26 +487,18 @@ def plot_snr_heatmap(df_snr):
 
     cbar_ax = fig.add_axes([0.88, 0.15, 0.02, 0.73])
     fig.colorbar(im, cax=cbar_ax, label="SNR")
-    plt.show()
+    _finish_fig(fig, "snr_heatmap", out_dir, show)
 
 
-def plot_adc_heatmap(df_snr, metric="mpv"):
+def plot_adc_heatmap(df_snr, metric="mpv", out_dir=None, show=True):
     """
     Heatmap of ADC metric: rows=VMMs, columns=configurations.
 
     Parameters
     ----------
-    df_snr : pd.DataFrame
-        VMM-level SNR results from compute_snr().
-        Must contain columns: sg, snt, vmm_id, mpv, noise_sigma,
-        noise_quality.
     metric : str
         'mpv'         — signal most probable value (ADC units)
         'noise_sigma' — noise width (ADC units)
-
-    Shows all data — warn/bad cells annotated with quality label.
-    Detector group labels on right axis from vmm_mapping.
-    Fixed color scale across all cells for direct comparison.
     """
     if metric not in ("mpv", "noise_sigma"):
         raise ValueError("metric must be 'mpv' or 'noise_sigma'")
@@ -589,7 +594,7 @@ def plot_adc_heatmap(df_snr, metric="mpv"):
 
     cbar_ax = fig.add_axes([0.88, 0.15, 0.02, 0.73])
     fig.colorbar(im, cax=cbar_ax, label=label_str)
-    plt.show()
+    _finish_fig(fig, f"adc_heatmap_{metric}", out_dir, show)
 
 
 def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
@@ -598,18 +603,13 @@ def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
                                       min_sigma=2.0,
                                       max_sigma=20.0,
                                       mpv_min=100,
-                                      mpv_max=300):
+                                      mpv_max=300,
+                                      out_dir=None, show=True):
     """
     One heatmap per VMM showing SNR per channel per configuration.
     Rows = channels (0-63), columns = configurations (sg/snt).
     Consistent color scale across all VMMs for direct comparison.
     Gold border highlights the best configuration per VMM.
-
-    Parameters
-    ----------
-    show_quality_overlay : bool
-        If True show all channels with ✕ on low-quality ones.
-        If False show only quality-passing channels (grey = excluded).
     """
     df = df_snr_ch.copy()
 
@@ -688,7 +688,10 @@ def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
                                 alpha=0.6)
 
         ax.set_xticks(range(n_configs))
-        ax.set_xticklabels(config_labels, fontsize=12)
+        ax.set_xticklabels(
+            [f"{lbl}\nn={n}" for lbl, n in zip(config_labels, n_valid)],
+            fontsize=11
+        )
         ax.set_yticks(range(0, 64, 4))
         ax.set_yticklabels(range(0, 64, 4), fontsize=14)
         ax.set_ylabel("Channel", fontsize=13)
@@ -706,17 +709,6 @@ def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
             fontsize=14
         )
 
-        for j in range(n_configs):
-            col   = matrix[:, j]
-            valid = col[~np.isnan(col)]
-            if len(valid) > 0:
-                ax.text(
-                    j, 66,
-                    f"med={np.median(valid):.0f}\nn={n_valid[j]}",
-                    ha="center", va="top",
-                    fontsize=13, color="black"
-                )
-
         best_j = int(np.nanargmax(
             [np.nanmedian(matrix[:, j])
              for j in range(n_configs)]
@@ -732,15 +724,14 @@ def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
 
         cbar_ax = fig.add_axes([0.82, 0.12, 0.02, 0.80])
         fig.colorbar(im, cax=cbar_ax, label="SNR")
-        plt.show()
+        _finish_fig(fig, f"snr_channel_heatmap_vmm{vmm_id}", out_dir, show)
 
 
-def plot_snr_channel_heatmap_all_configs(df_snr_ch):
+def plot_snr_channel_heatmap_all_configs(df_snr_ch,
+                                          out_dir=None, show=True):
     """
     One heatmap per configuration showing SNR per channel per VMM.
     Rows = channels (0-63), columns = VMMs.
-    Useful for spatial detector maps — shows which detector
-    regions perform best at each configuration.
     """
     df = df_snr_ch.copy()
 
@@ -785,9 +776,14 @@ def plot_snr_channel_heatmap_all_configs(df_snr_ch):
         im = ax.imshow(masked, aspect="auto", cmap=cmap,
                        vmin=vmin, vmax=vmax)
 
+        n_valid = [
+            int((~np.isnan(matrix[:, j])).sum())
+            for j in range(len(vmm_ids))
+        ]
         ax.set_xticks(range(len(vmm_ids)))
         ax.set_xticklabels(
-            [f"VMM {v}" for v in vmm_ids], fontsize=12
+            [f"VMM {v}\nn={n}" for v, n in zip(vmm_ids, n_valid)],
+            fontsize=11
         )
         ax.set_ylabel("Channel", fontsize=13)
         ax.set_yticks(range(0, 64, 4))
@@ -805,25 +801,19 @@ def plot_snr_channel_heatmap_all_configs(df_snr_ch):
             fontsize=13, rotation=15, ha="left"
         )
 
-        for j, vmm_id in enumerate(vmm_ids):
-            col   = matrix[:, j]
-            valid = col[~np.isnan(col)]
-            if len(valid) > 0:
-                ax.text(j, 65,
-                        f"med={np.median(valid):.0f}",
-                        ha="center", va="top",
-                        fontsize=13, color="black")
-
         cbar_ax = fig.add_axes([0.82, 0.08, 0.02, 0.84])
         fig.colorbar(im, cax=cbar_ax, label="SNR")
-        plt.show()
+
+        stem = (f"snr_channel_all_configs_"
+                f"sg{sg:.1f}_snt{snt:.0f}".replace(".", "p"))
+        _finish_fig(fig, stem, out_dir, show)
 
 
-def plot_snr_channel_uniformity(df_snr_ch, detector_vmms):
+def plot_snr_channel_uniformity(df_snr_ch, detector_vmms,
+                                 out_dir=None, show=True):
     """
     One figure per VMM showing SNR distribution across channels
     per configuration as box plots.
-    Answers: which config gives best and most uniform channel SNR?
     """
     df = df_snr_ch.copy()
     df["config"] = df.apply(
@@ -845,9 +835,10 @@ def plot_snr_channel_uniformity(df_snr_ch, detector_vmms):
         labels = []
         for cfg in config_order:
             vals = df_vmm[df_vmm["config"] == cfg]["snr_ch"].values
+            vals = vals[~np.isnan(vals)]
             if len(vals) > 0:
                 data.append(vals)
-                labels.append(cfg)
+                labels.append(f"{cfg}\nn={len(vals)}")
 
         if not data:
             continue
@@ -870,13 +861,6 @@ def plot_snr_channel_uniformity(df_snr_ch, detector_vmms):
             patch.set_facecolor(color)
             patch.set_alpha(0.7)
 
-        for i, (vals, label) in enumerate(
-            zip(data, labels), start=1
-        ):
-            ax.text(i, ax.get_ylim()[1] * 0.97,
-                    f"n={len(vals)}\nmed={np.median(vals):.0f}",
-                    ha="center", va="top", fontsize=13)
-
         ax.set_xlabel("Configuration")
         ax.set_ylabel("SNR per channel")
         ax.set_title(
@@ -886,10 +870,12 @@ def plot_snr_channel_uniformity(df_snr_ch, detector_vmms):
         )
         ax.grid(True, alpha=0.3, axis="y")
         plt.tight_layout()
-        plt.show()
+        _finish_fig(fig, f"snr_channel_uniformity_vmm{vmm_id}",
+                    out_dir, show)
+
 
 def main():
-    print('bonzo')
+    pass
 
 
 if __name__ == '__main__':
