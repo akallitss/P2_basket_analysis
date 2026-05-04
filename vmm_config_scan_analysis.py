@@ -31,7 +31,8 @@ All analysis logic lives in dedicated modules:
     vmm_plots.py   — all plotting functions
     vmm_mapping.py — detector geometry and VMM groupings
 """
-from vmm_mapping import vmm_mapping
+# from vmm_mapping import vmm_mapping
+from vmm_mapping_lab import vmm_mapping
 
 from vmm_io import (load_run_table, get_run_groups,
                     get_run_dir, load_hits_run,
@@ -52,7 +53,8 @@ from vmm_qa import (qa_over_threshold_split,
                     qa_adc16_artifact,
                     qa_noise_sigma_distribution,
                     qa_robust_vs_std_comparison,
-                    qa_mpv_vs_median_comparison)
+                    qa_mpv_vs_median_comparison,
+                    qa_noise_run_diagnostic)
 
 from vmm_plots import (plot_adc_histograms_for_runs,
                        plot_adc_by_vmm,
@@ -86,6 +88,7 @@ PLOTS = {
     "robust_stats"              : False,
 
     # QA investigations
+    "qa_noise_run_diagnostic"   : True,
     "qa_over_threshold_split"   : False,
     "qa_noise_pedestal_stability": True,
     "qa_signal_distributions"   : False,
@@ -121,7 +124,8 @@ def main():
     # --- Paths ---
     cnfg_dir = "/drf/projets/clas12/P2/akallits/"
     # cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
-    data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+    # data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+    data_dir = "/drf/projets/clas12/P2/vmm_config_scan_lab/"
     # data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
 
     # --- Legacy ADC stats filter ---
@@ -139,18 +143,30 @@ def main():
     # --- QA investigation runs ---
     # Run to use for over_threshold split and signal distribution QA.
     # Should be a well-behaved sng=1 run at your preferred config.
-    # qa_run_signal = 79 beam test sps sng = 1
-    qa_run_signal = 1
+    # qa_run_signal = 79 (CERN delay module trigger), 1 (lab), 149 (CERN direct trigger) beam test sps sng = 1
+    qa_run_signal = 5 # lab
 
     # Run to use for channel noise and ADC=16 artifact QA.
     # Should be the most problematic run (short peaking time).
-    # qa_run_noisy  = 98 beam test sps
-    qa_run_noisy  = 2
+    # qa_run_noisy  = 98, 2, 150 beam test sps
+    qa_run_noisy  = 6 #lab
 
     # Runs to check in noise quality check QA.
     # Include one run per peaking time to see the full picture.
-    # qa_runs_quality_check = [79, 96, 98] beam test sps sng=1
+    # qa_runs_quality_check = [79, 96, 98], [2,4] beam test sps sng=1
     qa_runs_quality_check = [2,4]
+
+    # Pair to diagnose when compute_snr warns "no noise baseline".
+    # Set to the (noise=sng1, signal=sng0) run numbers from the warning.
+    # e.g. "noise=run 157 | signal=run 156" → (157, 156)
+    qa_noise_diag_noise  = 6 # lab config
+    qa_noise_diag_signal = 5 # lab config
+
+    # --- Plot output ---
+    # Directory where all plots are saved as PDF and PNG.
+    plot_dir   = f"{cnfg_dir}plots_lab/"
+    # Set True to also display each figure interactively while running.
+    show_plots = False
 
     # ════════════════════════════════════════════════════════════
     # END USER CONFIGURATION
@@ -158,6 +174,8 @@ def main():
 
     # ── Run metadata ───────────────────────────────────────────
     df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan_lab.csv")
+    # df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan_5kHz.csv")
+    # df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan_15kHz.csv")
     run_groups  = get_run_groups(df_run_scan)
 
     sng1_runs = run_groups["sng1_runs"]
@@ -200,7 +218,7 @@ def main():
         n_files     = n_root_files
     )
     df_results.dropna(inplace=True)
-    df_results.to_csv(f"{cnfg_dir}vmm_adc_analysis.csv", index=False)
+    df_results.to_csv(f"{cnfg_dir}vmm_adc_analysis_lab.csv", index=False)
 
     # ── VMM-level SNR ──────────────────────────────────────────
     df_snr = compute_snr(
@@ -209,7 +227,7 @@ def main():
         detector_vmms = detector_vmms,
         n_files       = n_root_files
     )
-    df_snr.to_csv(f"{cnfg_dir}vmm_snr_results.csv", index=False)
+    df_snr.to_csv(f"{cnfg_dir}vmm_snr_results_lab.csv", index=False)
 
     print("\n=== SNR Summary (noise quality=ok only) ===")
     df_snr_clean = df_snr[df_snr["noise_quality"] == "ok"]
@@ -225,12 +243,13 @@ def main():
         detector_vmms = detector_vmms,
         n_files       = n_root_files
     )
-    df_snr_ch.to_csv(f"{cnfg_dir}vmm_snr_per_channel.csv", index=False)
+    df_snr_ch.to_csv(f"{cnfg_dir}vmm_snr_per_channel_lab.csv", index=False)
 
     print(f"\nChannel-level SNR: {len(df_snr_ch)} entries")
-    print(f"SNR range : {df_snr_ch['snr_ch'].min():.1f} "
-          f"— {df_snr_ch['snr_ch'].max():.1f}")
-    print(f"Median SNR: {df_snr_ch['snr_ch'].median():.1f}")
+    if not df_snr_ch.empty:
+        print(f"SNR range : {df_snr_ch['snr_ch'].min():.1f} "
+              f"— {df_snr_ch['snr_ch'].max():.1f}")
+        print(f"Median SNR: {df_snr_ch['snr_ch'].median():.1f}")
 
     # Uncut version for overlay plots
     df_snr_ch_uncut = compute_snr_per_channel(
@@ -250,9 +269,20 @@ def main():
     df_summary = summarise_best_config(
         df_snr, df_snr_ch, detector_vmms
     )
-    df_summary.to_csv(f"{cnfg_dir}vmm_snr_summary.csv", index=False)
+    df_summary.to_csv(f"{cnfg_dir}vmm_snr_summary_lab.csv", index=False)
 
     # ── QA investigations ──────────────────────────────────────
+    if PLOTS["qa_noise_run_diagnostic"]:
+        qa_noise_run_diagnostic(
+            data_dir,
+            run_noise     = qa_noise_diag_noise,
+            run_signal    = qa_noise_diag_signal,
+            detector_vmms = detector_vmms,
+            n_files       = n_root_files,
+            out_dir       = plot_dir,
+            show          = show_plots
+        )
+
     if PLOTS["qa_over_threshold_split"]:
         run_dir = get_run_dir(data_dir, qa_run_signal)
         df_hits = load_hits_run(
@@ -261,12 +291,14 @@ def main():
         )
         qa_over_threshold_split(
             df_hits, run_no=qa_run_signal,
-            vmm_ids=detector_vmms
+            vmm_ids=detector_vmms,
+            out_dir=plot_dir, show=show_plots
         )
 
     if PLOTS["qa_noise_pedestal_stability"]:
         qa_noise_pedestal_stability(
-            df_run_scan, data_dir, sng1_runs, vmm_groups
+            df_run_scan, data_dir, sng1_runs, vmm_groups,
+            out_dir=plot_dir, show=show_plots
         )
 
     if PLOTS["qa_signal_distributions"]:
@@ -276,7 +308,8 @@ def main():
             branches=["adc", "vmm", "ch", "over_threshold"]
         )
         qa_signal_distributions(
-            df_hits, detector_vmms, qa_run_signal
+            df_hits, detector_vmms, qa_run_signal,
+            out_dir=plot_dir, show=show_plots
         )
 
     if PLOTS["qa_noise_quality_check"]:
@@ -294,55 +327,69 @@ def main():
             run_dir, n_files=n_root_files,
             branches=["adc", "vmm", "ch", "over_threshold"]
         )
-        df_noise_qa = compute_noise_baseline(df_hits_qa)
+        if df_hits_qa is None:
+            print(f"  WARNING: no data for qa_run_noisy={qa_run_noisy}, "
+                  f"skipping channel-noise / ADC16 / MPV-estimation QA")
+        else:
+            df_noise_qa = compute_noise_baseline(df_hits_qa)
 
-        if PLOTS["qa_channel_noise"]:
-            qa_channel_noise(
-                df_hits_qa, detector_vmms,
-                run_no=qa_run_noisy
-            )
-        if PLOTS["qa_adc16_artifact"]:
-            qa_adc16_artifact(
-                df_hits_qa, detector_vmms,
-                run_no=qa_run_noisy
-            )
-        if PLOTS["qa_mpv_estimation"]:
-            qa_mpv_estimation(
-                df_hits_qa, df_noise_qa,
-                detector_vmms, run_no=qa_run_noisy
-            )
+            if PLOTS["qa_channel_noise"]:
+                qa_channel_noise(
+                    df_hits_qa, detector_vmms,
+                    run_no=qa_run_noisy,
+                    out_dir=plot_dir, show=show_plots
+                )
+            if PLOTS["qa_adc16_artifact"]:
+                qa_adc16_artifact(
+                    df_hits_qa, detector_vmms,
+                    run_no=qa_run_noisy,
+                    out_dir=plot_dir, show=show_plots
+                )
+            if PLOTS["qa_mpv_estimation"]:
+                qa_mpv_estimation(
+                    df_hits_qa, df_noise_qa,
+                    detector_vmms, run_no=qa_run_noisy,
+                    out_dir=plot_dir, show=show_plots
+                )
 
     if PLOTS["qa_noise_sigma_distribution"]:
         qa_noise_sigma_distribution(
-            df_run_scan, data_dir, sng1_runs
+            df_run_scan, data_dir, sng1_runs,
+            out_dir=plot_dir, show=show_plots
         )
 
     if PLOTS["qa_robust_vs_std_comparison"]:
         qa_robust_vs_std_comparison(
-            df_run_scan, data_dir, sng1_runs
+            df_run_scan, data_dir, sng1_runs,
+            out_dir=plot_dir, show=show_plots
         )
 
     if PLOTS["qa_mpv_vs_median_comparison"]:
         qa_mpv_vs_median_comparison(
-            df_run_scan, data_dir, pairs, detector_vmms
+            df_run_scan, data_dir, pairs, detector_vmms,
+            out_dir=plot_dir, show=show_plots
         )
 
     # ── Legacy plots ───────────────────────────────────────────
     if PLOTS["adc_hist_per_run"]:
         plot_adc_histograms_for_runs(
-            run_num_sg_st_sng, data_dir
+            run_num_sg_st_sng, data_dir,
+            out_dir=plot_dir, show=show_plots
         )
 
     if PLOTS["adc_hist_separate_vmm"]:
         plot_adc_by_vmm(
-            vmm_ids, run_num_sg_st_sng, df_run_scan, data_dir
+            vmm_ids, run_num_sg_st_sng, df_run_scan, data_dir,
+            out_dir=plot_dir, show=show_plots
         )
 
     if PLOTS["mean_vs_peaking"]:
-        plot_mean_vs_peaking(df_results, vmm_ids)
+        plot_mean_vs_peaking(df_results, vmm_ids,
+                             out_dir=plot_dir, show=show_plots)
 
     if PLOTS["plot_std_vs_peaking"]:
-        plot_std_vs_peaking(df_results, vmm_ids)
+        plot_std_vs_peaking(df_results, vmm_ids,
+                            out_dir=plot_dir, show=show_plots)
 
     if PLOTS["compare_full_vs_cut"]:
         for vmm_id in vmm_ids:
@@ -356,43 +403,56 @@ def main():
                 if df_hits is None:
                     continue
                 compare_full_vs_cut(
-                    df_hits, vmm_id, run_no, adc_cut=100
+                    df_hits, vmm_id, run_no, adc_cut=100,
+                    out_dir=plot_dir, show=show_plots
                 )
 
     if PLOTS["removed_fraction"]:
-        plot_removed_fraction(df_results, vmm_ids)
+        plot_removed_fraction(df_results, vmm_ids,
+                              out_dir=plot_dir, show=show_plots)
 
     if PLOTS["robust_stats"]:
-        plot_robust_vs_peaking(df_results, vmm_ids)
+        plot_robust_vs_peaking(df_results, vmm_ids,
+                               out_dir=plot_dir, show=show_plots)
 
     # ── SNR comparison plots ───────────────────────────────────
     if PLOTS["snr_vs_peaking"]:
-        plot_snr_vs_peaking(df_snr)
+        plot_snr_vs_peaking(df_snr,
+                            out_dir=plot_dir, show=show_plots)
 
     if PLOTS["snr_vs_gain"]:
-        plot_snr_vs_gain(df_snr)
+        plot_snr_vs_gain(df_snr,
+                         out_dir=plot_dir, show=show_plots)
 
     if PLOTS["snr_heatmap"]:
-        plot_snr_heatmap(df_snr)
+        plot_snr_heatmap(df_snr,
+                         out_dir=plot_dir, show=show_plots)
 
     if PLOTS["adc_heatmap"]:
-        plot_adc_heatmap(df_snr, metric="mpv")
-        plot_adc_heatmap(df_snr, metric="noise_sigma")
+        plot_adc_heatmap(df_snr, metric="mpv",
+                         out_dir=plot_dir, show=show_plots)
+        plot_adc_heatmap(df_snr, metric="noise_sigma",
+                         out_dir=plot_dir, show=show_plots)
 
     if PLOTS["snr_channel_heatmap_per_vmm"]:
         plot_snr_channel_heatmap_per_vmm(
             df_snr_ch_uncut,
             detector_vmms,
-            show_quality_overlay=True
+            show_quality_overlay=True,
+            out_dir=plot_dir, show=show_plots
         )
 
     if PLOTS["snr_channel_heatmap_all_configs"]:
-        plot_snr_channel_heatmap_all_configs(df_snr_ch)
+        plot_snr_channel_heatmap_all_configs(
+            df_snr_ch,
+            out_dir=plot_dir, show=show_plots
+        )
 
     if PLOTS["snr_channel_uniformity"]:
-        plot_snr_channel_uniformity(df_snr_ch, detector_vmms)
-
-    print('bonzo')
+        plot_snr_channel_uniformity(
+            df_snr_ch, detector_vmms,
+            out_dir=plot_dir, show=show_plots
+        )
 
 if __name__ == "__main__":
     main()
