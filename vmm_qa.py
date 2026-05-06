@@ -862,7 +862,7 @@ def qa_noise_run_diagnostic(data_dir, run_noise, run_signal,
                     (1, "tomato",    "ot=1 (signal)"),
                 ]:
                     adc = df_vmm[df_vmm["over_threshold"] == flag]["adc"]
-                    ax.hist(adc, bins=100, range=(0, 300),
+                    ax.hist(adc, bins=100, range=(0, 700),
                             alpha=0.6, color=color,
                             label=f"{lbl} (n={len(adc)})")
 

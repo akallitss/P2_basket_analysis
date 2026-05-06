@@ -79,8 +79,8 @@ from vmm_snr import compute_adc_stats
 # ─────────────────────────────────────────────
 PLOTS = {
     # Legacy ADC plots
-    "adc_hist_per_run"          : False,
-    "adc_hist_separate_vmm"     : False,
+    "adc_hist_per_run"          : True,
+    "adc_hist_separate_vmm"     : True,
     "mean_vs_peaking"           : False,
     "plot_std_vs_peaking"       : False,
     "compare_full_vs_cut"       : False,
@@ -89,7 +89,7 @@ PLOTS = {
 
     # QA investigations
     "qa_noise_run_diagnostic"   : True,
-    "qa_over_threshold_split"   : False,
+    "qa_over_threshold_split"   : True,
     "qa_noise_pedestal_stability": True,
     "qa_signal_distributions"   : False,
     "qa_noise_quality_check"    : True,
@@ -126,6 +126,7 @@ def main():
     # cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
     # data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
     data_dir = "/drf/projets/clas12/P2/vmm_config_scan_lab/"
+    # data_dir = "/drf/projets/clas12/P2/vmm_config_scan_15kHz/"
     # data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
 
     # --- Legacy ADC stats filter ---
@@ -138,18 +139,18 @@ def main():
     # How many ROOT files to load and merge per run directory.
     # n_root_files=1 uses only the first file.
     # Increase to merge more statistics (e.g. 2, 3, or 99 for all).
-    n_root_files = 1
+    n_root_files = 5
 
     # --- QA investigation runs ---
     # Run to use for over_threshold split and signal distribution QA.
     # Should be a well-behaved sng=1 run at your preferred config.
     # qa_run_signal = 79 (CERN delay module trigger), 1 (lab), 149 (CERN direct trigger) beam test sps sng = 1
-    qa_run_signal = 5 # lab
+    qa_run_signal = 3 # lab
 
     # Run to use for channel noise and ADC=16 artifact QA.
     # Should be the most problematic run (short peaking time).
     # qa_run_noisy  = 98, 2, 150 beam test sps
-    qa_run_noisy  = 6 #lab
+    qa_run_noisy  = 4 #lab
 
     # Runs to check in noise quality check QA.
     # Include one run per peaking time to see the full picture.
@@ -159,12 +160,13 @@ def main():
     # Pair to diagnose when compute_snr warns "no noise baseline".
     # Set to the (noise=sng1, signal=sng0) run numbers from the warning.
     # e.g. "noise=run 157 | signal=run 156" → (157, 156)
-    qa_noise_diag_noise  = 6 # lab config
-    qa_noise_diag_signal = 5 # lab config
+    qa_noise_diag_noise  = 8 # lab config
+    qa_noise_diag_signal = 7 # lab config
 
     # --- Plot output ---
     # Directory where all plots are saved as PDF and PNG.
-    plot_dir   = f"{cnfg_dir}plots_lab/"
+    plot_dir   = f"{cnfg_dir}plots_lab_test/"
+    # plot_dir   = f"{cnfg_dir}plots_15kHz/"
     # Set True to also display each figure interactively while running.
     show_plots = False
 
@@ -218,6 +220,7 @@ def main():
         n_files     = n_root_files
     )
     df_results.dropna(inplace=True)
+    # df_results.to_csv(f"{cnfg_dir}vmm_adc_analysis_15kHz.csv", index=False)
     df_results.to_csv(f"{cnfg_dir}vmm_adc_analysis_lab.csv", index=False)
 
     # ── VMM-level SNR ──────────────────────────────────────────
@@ -228,6 +231,7 @@ def main():
         n_files       = n_root_files
     )
     df_snr.to_csv(f"{cnfg_dir}vmm_snr_results_lab.csv", index=False)
+    # df_snr.to_csv(f"{cnfg_dir}vmm_snr_results_15kHz.csv", index=False)
 
     print("\n=== SNR Summary (noise quality=ok only) ===")
     df_snr_clean = df_snr[df_snr["noise_quality"] == "ok"]
@@ -244,6 +248,7 @@ def main():
         n_files       = n_root_files
     )
     df_snr_ch.to_csv(f"{cnfg_dir}vmm_snr_per_channel_lab.csv", index=False)
+    # df_snr_ch.to_csv(f"{cnfg_dir}vmm_snr_per_channel_15kHz.csv", index=False)
 
     print(f"\nChannel-level SNR: {len(df_snr_ch)} entries")
     if not df_snr_ch.empty:
@@ -270,6 +275,7 @@ def main():
         df_snr, df_snr_ch, detector_vmms
     )
     df_summary.to_csv(f"{cnfg_dir}vmm_snr_summary_lab.csv", index=False)
+    # df_summary.to_csv(f"{cnfg_dir}vmm_snr_summary_15kHz.csv", index=False)
 
     # ── QA investigations ──────────────────────────────────────
     if PLOTS["qa_noise_run_diagnostic"]:

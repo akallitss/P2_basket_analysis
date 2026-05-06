@@ -11,6 +11,7 @@ across different configurations (sg, snt).
 @author: ak271430
 """
 
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -24,6 +25,19 @@ from vmm_io import (load_run_table, get_run_groups,
 # ── Constants ──────────────────────────────────────────────
 NS_PER_TICK  = 1.0          # 1 GHz clock
 S_PER_TICK   = NS_PER_TICK * 1e-9
+
+
+def _finish_fig(fig, stem, out_dir, show, rate_tag=""):
+    """Save fig as PDF and PNG to out_dir, optionally display, then close."""
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+        full = f"{stem}_{rate_tag}" if rate_tag else stem
+        for ext in ("pdf", "png"):
+            fig.savefig(os.path.join(out_dir, f"{full}.{ext}"),
+                        bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close(fig)
 
 # ── VMM groups from mapping ─────────────────────────────────
 trigger_vmms  = vmm_mapping["trigger"]["vmm_ids"]
@@ -60,13 +74,19 @@ def main():
 
     # cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
     # data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
-    root_file_index = 1
+    root_file_index = 2
+    out_dir     = "/drf/projets/clas12/P2/akallits/plots_trigger"
+    show        = False
+    # config_file = "vmm_config_scan_5kHz.csv"
+    config_file = "vmm_config_scan_15kHz.csv"
+    rate_tag    = config_file.replace("vmm_config_scan_", "").replace(".csv", "")
 
     # ── Step 1: trigger rate time series on one run ─────────
     # Plot 1 ms binned trigger rate to see the spill structure.
     # Confirm beam-on / beam-off periods are clearly visible
     # before applying any threshold or looping over configs.
-    test_run = 67
+    # test_run = 67
+    test_run = 149
 
     print(f"Loading run {test_run}...")
     df_hits = load_sorted_hits(
@@ -74,6 +94,10 @@ def main():
         branches=["time", "vmm", "ch"],
         root_file_index=root_file_index
     )
+    if df_hits is None or df_hits.empty:
+        print(f"No data for run {test_run} at file_index={root_file_index}, "
+              f"try a different root_file_index")
+        return
 
     duration = compute_run_duration(df_hits)
     print(f"Run duration : {duration:.1f} s")
@@ -85,6 +109,7 @@ def main():
         trigger_vmm=0,
         trigger_ch=trigger_ref_channels[0],
         bin_width_ms=1.0,
+        out_dir=out_dir, show=show, rate_tag=rate_tag,
     )
 
     # ── Step 2: spill mask validation on run 67 ─────────────
@@ -98,13 +123,14 @@ def main():
         trigger_ch=trigger_ref_channels[0],
         spill_threshold_khz=1.0,
         bin_width_ms=1.0,
+        out_dir=out_dir, show=show, rate_tag=rate_tag,
     )
 
     # ── Step 3: detector VMM rates on run 67 (sanity check) ─
     # Before looping over all configs, verify that the spill-on
     # and spill-off rates for each detector VMM look physically
     # reasonable on the test run.
-    df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan.csv")
+    df_run_scan = load_run_table(f"{cnfg_dir}{config_file}")
 
     df_spill_test = compute_spill_rates_all_runs(
         df_run_scan          = df_run_scan,
@@ -115,9 +141,11 @@ def main():
         bin_width_s          = 0.001,
         n_files              = 1,
         spill_threshold_khz  = 1.0,
+        file_start           = 1,
     )
 
-    print("\n=== Step 3: spill rates on run 67 ===")
+    # print("\n=== Step 3: spill rates on run 67 ===")
+    print("\n=== Step 3: spill rates on run 149 ===")
     print(df_spill_test.to_string(index=False))
 
     # ── Step 4: loop over all sng=0 configs ─────────────────
@@ -132,11 +160,12 @@ def main():
         trigger_ref_channels = trigger_ref_channels,
         detector_vmms        = detector_vmms,
         bin_width_s          = 0.001,
-        n_files              = 99,
+        n_files              = 1,
         spill_threshold_khz  = 1.0,
     )
 
-    df_spill.to_csv("vmm_spill_rates.csv", index=False)
+    # df_spill.to_csv("vmm_spill_rates_5kHz.csv", index=False)
+    df_spill.to_csv("vmm_spill_rates_15kHz.csv", index=False)
     print("\n=== Step 4: spill rates — all configs ===")
     print(df_spill.to_string(index=False))
 
@@ -146,6 +175,7 @@ def main():
         df_spill        = df_spill,
         vmm_groups      = vmm_groups,
         trigger_ref_vmm = list(trigger_ref_channels.keys())[0],
+        out_dir=out_dir, show=show, rate_tag=rate_tag,
     )
 
     # ── Step 5b: all VMMs on one plot per group ─────────────
@@ -156,6 +186,7 @@ def main():
         vmm_groups      = vmm_groups,
         trigger_ref_vmm = trig_ref,
         rate_col        = "rate_on_khz",
+        out_dir=out_dir, show=show, rate_tag=rate_tag,
     )
 
     plot_spill_on_all_vmms(
@@ -163,11 +194,12 @@ def main():
         vmm_groups      = vmm_groups,
         trigger_ref_vmm = trig_ref,
         rate_col        = "rate_off_khz",
+        out_dir=out_dir, show=show, rate_tag=rate_tag,
     )
 
 def load_sorted_hits(data_dir, run_no, branches,
                       root_file_index=1,
-                      connected_channels_only=True,
+                      connected_channels_only=False,
                       max_time_ticks=2e12):
     from vmm_io import get_connected_channels
     from functools import reduce
@@ -175,6 +207,7 @@ def load_sorted_hits(data_dir, run_no, branches,
 
     run_dir   = get_run_dir(data_dir, run_no)
     file_path = get_root_file(run_dir,
+                               n_files=root_file_index + 1,
                                file_index=root_file_index)
     if file_path is None:
         return None
@@ -206,11 +239,17 @@ def load_sorted_hits(data_dir, run_no, branches,
             combined = reduce(operator.or_, masks)
             df       = df[combined]
 
+    if df.empty:
+        print(f"  Run {run_no} file {root_file_index}: "
+              f"no hits after filtering — try a different file_index")
+        return None
+
     df = df.sort_values("time").reset_index(drop=True)
     return df
 
 def inspect_trigger_channels(data_dir, run_no,
-                              root_file_index=1):
+                              root_file_index=1,
+                              out_dir=None, show=True, rate_tag=""):
     """
     Plot hit count per channel for trigger VMMs.
     Connected channels show significantly more hits than
@@ -293,10 +332,12 @@ def inspect_trigger_channels(data_dir, run_no,
             f"trigger channel inspection"
         )
         plt.tight_layout()
-        # plt.show()
+        _finish_fig(fig, f"trigger_channels_vmm{vmm_id}_run{run_no}",
+                    out_dir, show, rate_tag)
 
 def inspect_inter_event_per_channel(df_hits, vmm_id, run_no,
-                                     max_dt_us=1000):
+                                     max_dt_us=1000,
+                                     out_dir=None, show=True, rate_tag=""):
     """
     Plot inter-event time distribution separately per channel
     for a trigger VMM. Reveals which channel contributes the
@@ -354,12 +395,17 @@ def inspect_inter_event_per_channel(df_hits, vmm_id, run_no,
         f"inter-event Δt per channel"
     )
     plt.tight_layout()
-    plt.show()
+    _finish_fig(fig,
+                f"inter_event_per_ch_vmm{vmm_id}_run{run_no}",
+                out_dir, show, rate_tag)
 
 def compute_run_duration(df_hits):
     """
     Compute run duration in seconds from timestamp range.
+    Returns 0.0 if df_hits is None or empty.
     """
+    if df_hits is None or df_hits.empty:
+        return 0.0
     t = df_hits["time"].values
     return (t[-1] - t[0]) * S_PER_TICK
 
@@ -656,7 +702,8 @@ def compute_rates_all_runs(df_run_scan, data_dir,
 def plot_inter_event_distribution(dt_us, vmm_id, run_no,
                                     rate_hz, chi2_ndf, tau,
                                     fit_x, fit_y,
-                                    n_bins=200):
+                                    n_bins=200,
+                                    out_dir=None, show=True, rate_tag=""):
     fig, axes = plt.subplots(1, 3, figsize=(16, 4))
 
     # Original distribution
@@ -701,11 +748,14 @@ def plot_inter_event_distribution(dt_us, vmm_id, run_no,
         f"Fitted rate={rate_hz:.0f} Hz"
     )
     plt.tight_layout()
-    plt.show()
+    _finish_fig(fig,
+                f"inter_event_dist_vmm{vmm_id}_run{run_no}",
+                out_dir, show, rate_tag)
 
 
 def inspect_trigger_timing(df_hits, trigger_vmm=0, trigger_ch=48,
-                            window_ns=600):
+                            window_ns=600,
+                            out_dir=None, show=True, rate_tag=""):
     """
     Diagnostic checks on the trigger timestamp stream before
     running coincidence efficiency.
@@ -787,7 +837,9 @@ def inspect_trigger_timing(df_hits, trigger_vmm=0, trigger_ch=48,
         fontweight="bold"
     )
     plt.tight_layout()
-    plt.show()
+    _finish_fig(fig,
+                f"trigger_timing_vmm{trigger_vmm}_ch{trigger_ch}",
+                out_dir, show, rate_tag)
 
     return {
         "n_total"     : n_total,
@@ -842,7 +894,8 @@ def compute_rate_vs_time(df_hits, vmm_id, bin_width_s=10.0,
 def plot_rate_vs_time(data_dir, df_run_scan, sng0_runs,
                        vmm_groups, trigger_ref_channels,
                        bin_width_s=10.0,
-                       root_file_index=1):
+                       root_file_index=1,
+                       out_dir=None, show=True, rate_tag=""):
     """
     Plot hit rate (kHz) vs time for each run, grouped by detector.
 
@@ -965,12 +1018,14 @@ def plot_rate_vs_time(data_dir, df_run_scan, sng0_runs,
             fontweight="bold"
         )
         plt.tight_layout()
-        plt.show()
+        stem = f"rate_vs_time_{group_label.replace(' ', '_')}"
+        _finish_fig(fig, stem, out_dir, show, rate_tag)
 
 
 def plot_trigger_rate_ms(df_hits, run_no,
                           trigger_vmm=0, trigger_ch=48,
-                          bin_width_ms=1.0):
+                          bin_width_ms=1.0,
+                          out_dir=None, show=True, rate_tag=""):
     """
     Plot trigger count per ms as a function of time.
 
@@ -1032,12 +1087,13 @@ def plot_trigger_rate_ms(df_hits, run_no,
         fontweight="bold"
     )
     plt.tight_layout()
-    plt.show()
+    _finish_fig(fig, f"trigger_rate_ms_run{run_no}", out_dir, show, rate_tag)
 
 
 def plot_rate_overlay_with_trigger(df_hits, run_no, vmm_groups,
                                     trigger_vmm=0, trigger_ch=48,
-                                    bin_width_ms=1.0):
+                                    bin_width_ms=1.0,
+                                    out_dir=None, show=True, rate_tag=""):
     """
     Overlay detector hit rate and trigger rate on the same time axis.
 
@@ -1126,10 +1182,12 @@ def plot_rate_overlay_with_trigger(df_hits, run_no, vmm_groups,
             fontweight="bold"
         )
         plt.tight_layout()
-        plt.show()
+        stem = (f"rate_overlay_run{run_no}_"
+                f"{group_label.replace(' ', '_')}")
+        _finish_fig(fig, stem, out_dir, show, rate_tag)
 
 
-def compute_spill_masks(rates_khz, threshold_khz):
+def compute_spill_masks(rates_khz, threshold_khz, min_spill_bins=0):
     """
     Derive spill-on / spill-off boolean masks from a binned rate array.
 
@@ -1139,6 +1197,10 @@ def compute_spill_masks(rates_khz, threshold_khz):
         Binned hit or trigger rate in kHz.
     threshold_khz : float
         Bins above this value are classified as spill-on.
+    min_spill_bins : int
+        Minimum number of consecutive on-bins required to keep an
+        on-region. Shorter regions (e.g. startup artifacts) are
+        reclassified as off. 0 disables this filter.
 
     Returns
     -------
@@ -1147,7 +1209,16 @@ def compute_spill_masks(rates_khz, threshold_khz):
     off_mask : np.ndarray of bool
         True for spill-off bins.
     """
-    on_mask  = rates_khz > threshold_khz
+    on_mask = rates_khz > threshold_khz
+
+    if min_spill_bins > 1:
+        padded = np.concatenate(([False], on_mask, [False]))
+        starts = np.where(~padded[:-1] &  padded[1:])[0]
+        ends   = np.where( padded[:-1] & ~padded[1:])[0]
+        for s, e in zip(starts, ends):
+            if (e - s) < min_spill_bins:
+                on_mask[s:e] = False
+
     off_mask = ~on_mask
     return on_mask, off_mask
 
@@ -1155,7 +1226,9 @@ def compute_spill_masks(rates_khz, threshold_khz):
 def plot_spill_mask_diagnostic(df_hits, run_no,
                                trigger_vmm=0, trigger_ch=48,
                                spill_threshold_khz=1.0,
-                               bin_width_ms=1.0):
+                               bin_width_ms=1.0,
+                               min_spill_s=1.0,
+                               out_dir=None, show=True, rate_tag=""):
     """
     Step 1 validation: plot 1 ms trigger rate with spill-on/off
     regions shaded.
@@ -1184,7 +1257,10 @@ def plot_spill_mask_diagnostic(df_hits, run_no,
     t_centers_s   = 0.5 * (edges[:-1] + edges[1:]) - t_start
     rate_khz       = counts / bin_width_s / 1e3
 
-    on_mask, off_mask = compute_spill_masks(rate_khz, spill_threshold_khz)
+    min_spill_bins = max(1, int(min_spill_s / bin_width_s))
+    on_mask, off_mask = compute_spill_masks(
+        rate_khz, spill_threshold_khz, min_spill_bins
+    )
     n_on  = on_mask.sum()
     n_off = off_mask.sum()
     frac_on = 100 * n_on / len(rate_khz)
@@ -1231,7 +1307,7 @@ def plot_spill_mask_diagnostic(df_hits, run_no,
         fontweight="bold"
     )
     plt.tight_layout()
-    plt.show()
+    _finish_fig(fig, f"spill_mask_run{run_no}", out_dir, show, rate_tag)
 
     print(f"Spill-on  bins : {n_on}  ({frac_on:.1f}%)")
     print(f"Spill-off bins : {n_off}  ({100-frac_on:.1f}%)")
@@ -1239,7 +1315,8 @@ def plot_spill_mask_diagnostic(df_hits, run_no,
     print(f"Mean rate (off): {rate_khz[off_mask].mean():.3f} kHz")
 
 
-def _get_run_time_range(run_dir, n_files, max_time_ticks=2e12):
+def _get_run_time_range(run_dir, n_files, max_time_ticks=2e12,
+                        file_start=0):
     """
     Scan all files in a run to find the global timestamp range.
     Reads only the time column — one file at a time.
@@ -1247,8 +1324,10 @@ def _get_run_time_range(run_dir, n_files, max_time_ticks=2e12):
     """
     t_min = np.inf
     t_max = -np.inf
+
     for df in iter_hits_files(run_dir, n_files=n_files,
-                               branches=["time"]):
+                               branches=["time"],
+                               file_start=file_start):
         if df is None or df.empty:
             continue
         t = df["time"].values
@@ -1264,7 +1343,7 @@ def _get_run_time_range(run_dir, n_files, max_time_ticks=2e12):
 
 def _accumulate_run_histograms(run_dir, trig_vmm, trig_ch,
                                 detector_vmms, bins, n_files,
-                                max_time_ticks=2e12):
+                                max_time_ticks=2e12, file_start=0):
     """
     Iterate over all files in a run one at a time, accumulating
     hit counts into pre-defined histogram bins.
@@ -1279,7 +1358,8 @@ def _accumulate_run_histograms(run_dir, trig_vmm, trig_ch,
                    for v in detector_vmms}
 
     for df in iter_hits_files(run_dir, n_files=n_files,
-                               branches=["time", "vmm", "ch"]):
+                               branches=["time", "vmm", "ch"],
+                               file_start=file_start):
         if df is None or df.empty:
             continue
         df = df[df["time"] < max_time_ticks].copy()
@@ -1313,7 +1393,9 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
                                   detector_vmms,
                                   bin_width_s=0.001,
                                   n_files=99,
-                                  spill_threshold_khz=1.0):
+                                  spill_threshold_khz=1.0,
+                                  min_spill_s=1.0,
+                                  file_start=0):
     """
     For each run compute the mean hit rate during spill-on and spill-off
     periods for every detector VMM.
@@ -1327,8 +1409,15 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
     n_files : int
         Maximum number of ROOT files to read per run. Default 99
         loads all available files.
+    file_start : int
+        Index of the first file to read per run (0-based). Use 1 to
+        skip file 0 when it has corrupted timestamps.
     spill_threshold_khz : float
         Trigger rate threshold (kHz) separating spill-on from spill-off.
+    min_spill_s : float
+        Minimum duration (seconds) of a contiguous above-threshold region
+        to be counted as a real spill. Shorter bursts (e.g. startup
+        artifacts at t≈0) are reclassified as spill-off. Default 1.0 s.
 
     Returns
     -------
@@ -1359,7 +1448,8 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
               f"loading {n_load}/{n_avail} files...")
 
         # Pass 1: get time range across all files (time column only)
-        t_start, t_end = _get_run_time_range(run_dir, n_load)
+        t_start, t_end = _get_run_time_range(run_dir, n_load,
+                                              file_start=file_start)
         if t_start is None:
             print(f"    no valid timestamps, skipping")
             continue
@@ -1369,12 +1459,14 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
         # Pass 2: accumulate histogram counts, one file at a time
         trig_counts, det_counts = _accumulate_run_histograms(
             run_dir, trig_vmm, trig_ch,
-            detector_vmms, bins, n_load
+            detector_vmms, bins, n_load,
+            file_start=file_start
         )
 
-        trig_rate_khz = trig_counts / bin_width_s / 1e3
+        trig_rate_khz  = trig_counts / bin_width_s / 1e3
+        min_spill_bins = max(1, int(min_spill_s / bin_width_s))
         on_mask, off_mask = compute_spill_masks(
-            trig_rate_khz, spill_threshold_khz
+            trig_rate_khz, spill_threshold_khz, min_spill_bins
         )
         n_on  = on_mask.sum()
         n_off = off_mask.sum()
@@ -1410,7 +1502,8 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
 
 
 def plot_spill_rates_vs_config(df_spill, vmm_groups,
-                                trigger_ref_vmm=0):
+                                trigger_ref_vmm=0,
+                                out_dir=None, show=True, rate_tag=""):
     """
     Summary plot: mean VMM hit rate during spill-on and spill-off
     vs configuration (sg, snt).
@@ -1530,11 +1623,13 @@ def plot_spill_rates_vs_config(df_spill, vmm_groups,
             fontweight="bold"
         )
         plt.tight_layout()
-        plt.show()
+        stem = f"spill_rates_config_{group_label.replace(' ', '_')}"
+        _finish_fig(fig, stem, out_dir, show, rate_tag)
 
 
 def plot_spill_on_all_vmms(df_spill, vmm_groups, trigger_ref_vmm=0,
-                            rate_col="rate_on_khz"):
+                            rate_col="rate_on_khz",
+                            out_dir=None, show=True, rate_tag=""):
     """
     One figure per detector group with all VMMs on the same axes.
 
@@ -1624,7 +1719,9 @@ def plot_spill_on_all_vmms(df_spill, vmm_groups, trigger_ref_vmm=0,
             fontweight="bold"
         )
         plt.tight_layout()
-        plt.show()
+        stem = (f"spill_on_vmms_{group_label.replace(' ', '_')}"
+                f"_{rate_col}")
+        _finish_fig(fig, stem, out_dir, show, rate_tag)
 
 
 if __name__ == '__main__':

@@ -127,7 +127,12 @@ def get_run_dir(base_dir, run_no):
     return os.path.join(base_dir, f"run_{run_no}")
 
 
-_SESSION_RE = re.compile(r'^enp[^_]+_(\d{8}-\d{6})_')
+_SESSION_RE  = re.compile(r'^enp[^_]+_(\d{8}-\d{6})_')
+_FILE_IDX_RE = re.compile(r'^enp[^_]+_\d{8}-\d{6}_(\d+)')
+
+def _sort_key(fname):
+    m = _FILE_IDX_RE.match(fname)
+    return int(m.group(1)) if m else 0
 
 def list_root_files(run_dir, n=None, min_size=10_000):
     """
@@ -147,7 +152,7 @@ def list_root_files(run_dir, n=None, min_size=10_000):
     candidates = sorted([
         f for f in os.listdir(run_dir)
         if f.startswith("enp") and f.endswith(".root")
-    ])
+    ], key=_sort_key)
 
     # Drop empty / near-empty files
     candidates = [
@@ -172,12 +177,12 @@ def list_root_files(run_dir, n=None, min_size=10_000):
         print(f"  NOTE {run_dir}: multiple pcap sessions — "
               f"using {main_key} ({len(sessions[main_key])} files), "
               f"skipping {n_skipped} file(s) from other session(s)")
-        candidates = sorted(sessions[main_key])
+        candidates = sorted(sessions[main_key], key=_sort_key)
 
     return candidates[:n] if n else candidates
 
 
-def iter_hits_files(run_dir, n_files=1, branches=None):
+def iter_hits_files(run_dir, n_files=1, branches=None, file_start=0):
     """
     Yield one DataFrame per ROOT file, processing files one at a time.
 
@@ -193,13 +198,17 @@ def iter_hits_files(run_dir, n_files=1, branches=None):
         Maximum number of files to iterate over.
     branches : list of str or None
         Branch names to load. None loads all branches.
+    file_start : int
+        Index of the first file to read (0-based). Use 1 to skip the
+        first file when it is known to have corrupted timestamps.
 
     Yields
     ------
     pd.DataFrame
         Hit data from one ROOT file.
     """
-    for fname in list_root_files(run_dir, n=n_files):
+    files = list_root_files(run_dir)
+    for fname in files[file_start:file_start + n_files]:
         yield load_hits_root(os.path.join(run_dir, fname),
                              branches=branches)
 
