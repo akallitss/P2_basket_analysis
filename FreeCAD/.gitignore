@@ -1,0 +1,8 @@
+# Ignore FreeCAD binary files
+*.FCStd
+*.FCStd1
+*.FCBak
+*.fctmp
+
+# Ignore FreeCAD app/config files
+*.FCMacro
