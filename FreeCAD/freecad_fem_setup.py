@@ -154,12 +154,11 @@ def run_one_step(doc, T_Nm, log, wall_nodes=None, pillar_nodes=None):
     fea.setup_working_dir()
     fea.setup_ccx()
 
-    # 3. Inject wall + pillar displacement BCs into the .inp file
+    # 3. Patch write_inp_file so BCs are injected the moment the file is written
+    #    (fea.run() calls write_inp_file() internally before launching CalculiX)
     if wall_nodes or pillar_nodes:
-        try:
-            inject_bcs_into_inp(fea, wall_nodes or set(), pillar_nodes or set(), log)
-        except Exception as exc:
-            info(log, "  WARNING: BC injection failed — {}".format(exc))
+        patch_write_for_bc_injection(
+            fea, wall_nodes or set(), pillar_nodes or set(), log)
 
     info(log, "  Running CalculiX ...")
     message = fea.run()
@@ -384,17 +383,41 @@ def build_bc_node_sets(fem_mesh, log):
 
 def _find_inp_file(fea):
     """Return path to the CalculiX .inp file produced by setup_ccx()."""
-    # FreeCAD 0.20 stores it in fea.inp_file_name
-    candidate = getattr(fea, "inp_file_name", None)
-    if candidate and os.path.isfile(candidate):
-        return candidate
-    # Fallback: search working dir for any .inp
+    # Try known attribute names first
+    for attr in ("inp_file_name", "ccx_inp_file"):
+        val = getattr(fea, attr, None)
+        if val and isinstance(val, str) and val.endswith(".inp") and os.path.isfile(val):
+            return val
+    # Recursive walk of working_dir (file may be in a subdirectory)
     wdir = getattr(fea, "working_dir", None)
     if wdir and os.path.isdir(wdir):
-        for fname in os.listdir(wdir):
-            if fname.endswith(".inp"):
-                return os.path.join(wdir, fname)
-    raise RuntimeError("Cannot locate CalculiX .inp file")
+        for root, _dirs, files in os.walk(wdir):
+            for fname in files:
+                if fname.endswith(".inp"):
+                    return os.path.join(root, fname)
+    raise RuntimeError(
+        "Cannot locate .inp file — working_dir={!r}, inp_file_name={!r}".format(
+            getattr(fea, "working_dir", "N/A"),
+            getattr(fea, "inp_file_name", "N/A")))
+
+
+def patch_write_for_bc_injection(fea, wall_nodes, pillar_nodes, log):
+    """
+    Monkey-patch fea.write_inp_file so that displacement BCs are injected
+    into the .inp file immediately after FreeCAD writes it and before
+    CalculiX is invoked.  Safe to call before fea.run().
+    """
+    orig_write = fea.write_inp_file
+
+    def write_and_inject():
+        result = orig_write()
+        try:
+            inject_bcs_into_inp(fea, wall_nodes, pillar_nodes, log)
+        except Exception as exc:
+            info(log, "  WARNING: BC injection failed — {}".format(exc))
+        return result
+
+    fea.write_inp_file = write_and_inject
 
 
 def inject_bcs_into_inp(fea, wall_nodes, pillar_nodes, log):
