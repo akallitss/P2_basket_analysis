@@ -75,6 +75,15 @@ OBJ_TEMP_BC   = "ConstraintTemperature"
 OBJ_RESULT    = "CCX_Results"
 OBJ_RES_MESH  = "ResultMesh"
 
+# ---------------------------------------------------------------------------
+# Boundary-condition injection parameters
+# ---------------------------------------------------------------------------
+MESH_Z_LO_MM    = 0.05   # z lower bound for mesh-layer nodes (mm)
+MESH_Z_HI_MM    = 0.70   # z upper bound
+PILLAR_PITCH_MM = 3.0    # Dynamask pillar pitch, centre-to-centre (mm)
+WALL_MM         = 1.0    # peripheral mesh-frame wall thickness (mm)
+PILLAR_TOL_MM   = 1.5    # max snap distance: pillar centre → nearest node
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -109,9 +118,14 @@ def info(log, msg):
 # FreeCAD solver runner
 # ---------------------------------------------------------------------------
 
-def run_one_step(doc, T_Nm, log):
+def run_one_step(doc, T_Nm, log, wall_nodes=None, pillar_nodes=None):
     """
-    Update ConstraintTemperature, run CalculiX, return result arrays.
+    Update ConstraintTemperature, inject BCs, run CalculiX, return result arrays.
+
+    Parameters
+    ----------
+    wall_nodes   : set[int] or None  — peripheral frame nodes (Ux=Uy=Uz=0)
+    pillar_nodes : set[int] or None  — pillar-snapped nodes (Uz=0)
 
     Returns dict with keys:
         node_ids   : list[int]
@@ -122,7 +136,7 @@ def run_one_step(doc, T_Nm, log):
     import FreeCAD
     from femtools import ccxtools
 
-    # 1. Update BC
+    # 1. Update thermal BC (tension analogy)
     T_applied = tension_to_applied_T(T_Nm)
     delta_T   = tension_to_delta_T(T_Nm)
     info(log, "  T={} N/m  →  ΔT={:.2f} K  →  T_applied={:.2f} K".format(
@@ -132,14 +146,20 @@ def run_one_step(doc, T_Nm, log):
     bc.Temperature = T_applied
     doc.recompute()
 
-    # 2. Run CalculiX via FreeCAD FEM tools
-    # (FreeCAD manages its own temp working dir; work_subdir is for our CSV output)
+    # 2. Prepare CalculiX solver
     analysis = doc.getObject(OBJ_ANALYSIS)
-    solver = doc.getObject(OBJ_SOLVER)
+    solver   = doc.getObject(OBJ_SOLVER)
     fea = ccxtools.FemToolsCcx(analysis, solver)
     fea.update_objects()
     fea.setup_working_dir()
     fea.setup_ccx()
+
+    # 3. Inject wall + pillar displacement BCs into the .inp file
+    if wall_nodes or pillar_nodes:
+        try:
+            inject_bcs_into_inp(fea, wall_nodes or set(), pillar_nodes or set(), log)
+        except Exception as exc:
+            info(log, "  WARNING: BC injection failed — {}".format(exc))
 
     info(log, "  Running CalculiX ...")
     message = fea.run()
@@ -229,6 +249,202 @@ def save_summary_csv(summary_rows, results_dir):
 
 
 # ---------------------------------------------------------------------------
+# BC injection helpers  (pure Python, no external deps)
+# ---------------------------------------------------------------------------
+
+def _hull_2d(xy_pairs):
+    """Andrew's monotone-chain convex hull."""
+    pts = sorted(set((round(x, 2), round(y, 2)) for x, y in xy_pairs))
+    if len(pts) < 3:
+        return pts
+
+    def _cross(O, A, B):
+        return (A[0] - O[0]) * (B[1] - O[1]) - (A[1] - O[1]) * (B[0] - O[0])
+
+    lower = []
+    for p in pts:
+        while len(lower) >= 2 and _cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    upper = []
+    for p in reversed(pts):
+        while len(upper) >= 2 and _cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
+def _pip(px, py, poly):
+    """Ray-casting point-in-polygon test."""
+    inside = False
+    n = len(poly)
+    j = n - 1
+    for i in range(n):
+        xi, yi = poly[i]
+        xj, yj = poly[j]
+        if ((yi > py) != (yj > py)) and (px < (xj - xi) * (py - yi) / (yj - yi) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _shrink_hull(hull, amount):
+    """Move each vertex toward the centroid by `amount` mm."""
+    import math
+    cx = sum(p[0] for p in hull) / len(hull)
+    cy = sum(p[1] for p in hull) / len(hull)
+    out = []
+    for x, y in hull:
+        dx, dy = x - cx, y - cy
+        dist = math.sqrt(dx * dx + dy * dy)
+        if dist > amount:
+            s = (dist - amount) / dist
+            out.append((cx + dx * s, cy + dy * s))
+    return out
+
+
+def build_bc_node_sets(fem_mesh, log):
+    """
+    Derive wall-BC and pillar-BC node sets from the FreeCAD FemMesh object.
+
+    Returns
+    -------
+    wall_nodes   : set[int]  nodes on the peripheral 1-mm frame (Ux=Uy=Uz=0)
+    pillar_nodes : set[int]  one node per pillar centre, snapped to nearest
+                             interior mesh node (Uz=0)
+    """
+    import math
+
+    # --- collect mesh-layer nodes -------------------------------------------
+    all_nodes = fem_mesh.Nodes          # dict: node_id -> FreeCAD.Vector (mm)
+    mesh_nodes = {}
+    for nid, v in all_nodes.items():
+        if MESH_Z_LO_MM <= v.z <= MESH_Z_HI_MM:
+            mesh_nodes[nid] = (v.x, v.y, v.z)
+
+    if not mesh_nodes:
+        raise RuntimeError(
+            "No nodes found in mesh-layer z=[{}, {}] mm".format(
+                MESH_Z_LO_MM, MESH_Z_HI_MM))
+    info(log, "  Mesh-layer nodes: {}".format(len(mesh_nodes)))
+
+    # --- convex hull of mesh layer ------------------------------------------
+    xy_pairs = [(x, y) for x, y, z in mesh_nodes.values()]
+    hull_outer = _hull_2d(xy_pairs)
+    hull_inner = _shrink_hull(hull_outer, WALL_MM)
+    info(log, "  Hull vertices: {} outer → {} inner (after {}-mm shrink)".format(
+        len(hull_outer), len(hull_inner), WALL_MM))
+
+    xs = [p[0] for p in xy_pairs]
+    ys = [p[1] for p in xy_pairs]
+    xmin, xmax = min(xs), max(xs)
+    ymin, ymax = min(ys), max(ys)
+
+    # --- wall nodes: mesh-layer nodes outside the inner hull ----------------
+    wall_nodes = set()
+    for nid, (x, y, z) in mesh_nodes.items():
+        if not _pip(x, y, hull_inner):
+            wall_nodes.add(nid)
+    info(log, "  Wall BC nodes: {}".format(len(wall_nodes)))
+
+    # --- spatial hash of interior nodes for fast nearest-node lookup --------
+    cell = PILLAR_PITCH_MM
+    grid = {}
+    for nid, (x, y, z) in mesh_nodes.items():
+        if nid in wall_nodes:
+            continue
+        key = (int(x / cell), int(y / cell))
+        grid.setdefault(key, []).append((nid, x, y))
+
+    # --- pillar nodes: nearest interior node to each pillar centre ----------
+    pillar_nodes = set()
+    tol2 = PILLAR_TOL_MM ** 2
+    px = xmin + WALL_MM + PILLAR_PITCH_MM / 2
+    while px <= xmax - WALL_MM:
+        py = ymin + WALL_MM + PILLAR_PITCH_MM / 2
+        while py <= ymax - WALL_MM:
+            if _pip(px, py, hull_inner):
+                cx_cell = int(px / cell)
+                cy_cell = int(py / cell)
+                best_nid, best_d2 = None, tol2
+                for di in (-1, 0, 1):
+                    for dj in (-1, 0, 1):
+                        for nid, nx, ny in grid.get((cx_cell + di, cy_cell + dj), []):
+                            d2 = (nx - px) ** 2 + (ny - py) ** 2
+                            if d2 < best_d2:
+                                best_d2, best_nid = d2, nid
+                if best_nid is not None:
+                    pillar_nodes.add(best_nid)
+            py += PILLAR_PITCH_MM
+        px += PILLAR_PITCH_MM
+
+    info(log, "  Pillar BC nodes: {}".format(len(pillar_nodes)))
+    return wall_nodes, pillar_nodes
+
+
+def _find_inp_file(fea):
+    """Return path to the CalculiX .inp file produced by setup_ccx()."""
+    # FreeCAD 0.20 stores it in fea.inp_file_name
+    candidate = getattr(fea, "inp_file_name", None)
+    if candidate and os.path.isfile(candidate):
+        return candidate
+    # Fallback: search working dir for any .inp
+    wdir = getattr(fea, "working_dir", None)
+    if wdir and os.path.isdir(wdir):
+        for fname in os.listdir(wdir):
+            if fname.endswith(".inp"):
+                return os.path.join(wdir, fname)
+    raise RuntimeError("Cannot locate CalculiX .inp file")
+
+
+def inject_bcs_into_inp(fea, wall_nodes, pillar_nodes, log):
+    """
+    Write *BOUNDARY cards for wall and pillar constraints into the
+    CalculiX .inp file, immediately before the first *STEP card.
+    """
+    inp_file = _find_inp_file(fea)
+
+    with open(inp_file, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read()
+
+    lines = [
+        "**",
+        "** === Injected BCs: peripheral wall + Dynamask pillar supports ===",
+    ]
+    if wall_nodes:
+        lines += [
+            "** Peripheral frame wall — Ux=Uy=Uz=0  ({} nodes)".format(len(wall_nodes)),
+            "*BOUNDARY",
+        ]
+        for nid in sorted(wall_nodes):
+            lines.append("{}, 1, 3, 0.0".format(nid))
+
+    if pillar_nodes:
+        lines += [
+            "** Dynamask pillars — Uz=0  ({} nodes, {} mm pitch)".format(
+                len(pillar_nodes), int(PILLAR_PITCH_MM)),
+            "*BOUNDARY",
+        ]
+        for nid in sorted(pillar_nodes):
+            lines.append("{}, 3, 3, 0.0".format(nid))
+
+    lines.append("** === end injected BCs ===")
+    bc_block = "\n".join(lines) + "\n"
+
+    idx = content.find("*STEP")
+    if idx == -1:
+        raise RuntimeError("*STEP marker not found in .inp: " + inp_file)
+    line_start = content.rfind("\n", 0, idx) + 1
+    new_content = content[:line_start] + bc_block + content[line_start:]
+
+    with open(inp_file, "w", encoding="utf-8") as f:
+        f.write(new_content)
+
+    info(log, "  BCs injected → {}  ({} wall + {} pillar nodes)".format(
+        inp_file, len(wall_nodes), len(pillar_nodes)))
+
+
+# ---------------------------------------------------------------------------
 # Main sweep
 # ---------------------------------------------------------------------------
 
@@ -262,6 +478,27 @@ def run_sweep():
     info(log, "Opening: " + fcstd_path)
     doc = FreeCAD.openDocument(fcstd_path)
 
+    # --- pre-compute BC node sets once (geometry is fixed across all steps) --
+    wall_nids = pillar_nids = None
+    try:
+        info(log, "\nLocating FEM input mesh ...")
+        mesh_obj = None
+        for obj in doc.Objects:
+            if hasattr(obj, "FemMesh") and obj.Name != OBJ_RES_MESH:
+                mesh_obj = obj
+                info(log, "  Found mesh object: '{}'  ({} nodes)".format(
+                    obj.Name, len(obj.FemMesh.Nodes)))
+                break
+        if mesh_obj is None:
+            info(log, "  WARNING: no FEM input mesh found — "
+                 "wall/pillar BCs will not be injected")
+        else:
+            info(log, "Computing wall + pillar BC node sets ...")
+            wall_nids, pillar_nids = build_bc_node_sets(mesh_obj.FemMesh, log)
+    except Exception as exc:
+        info(log, "WARNING: BC node-set computation failed: " + str(exc))
+        info(log, traceback.format_exc())
+
     summary_rows = []
     failed = []
 
@@ -270,7 +507,8 @@ def run_sweep():
             T_Nm, T_Nm / 100.0))
 
         try:
-            data = run_one_step(doc, T_Nm, log)
+            data = run_one_step(doc, T_Nm, log,
+                                wall_nodes=wall_nids, pillar_nodes=pillar_nids)
 
             csv_path = save_step_csv(T_Nm, data, RESULTS_DIR)
             info(log, "  Saved: " + csv_path)
