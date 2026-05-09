@@ -6,3 +6,6 @@
 
 # Ignore FreeCAD app/config files
 *.FCMacro
+
+# Keep the launcher script tracked
+!launch_freecad.bat
