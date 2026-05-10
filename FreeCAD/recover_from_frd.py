@@ -116,10 +116,11 @@ def _parse_fixed_values(line, start=13):
 
 
 def parse_frd(path):
-    nodes = {}
-    disp  = {}
+    nodes  = {}
+    disp   = {}
     stress = {}
-    state = None
+    # 'nodes' | 'elements' | 'pending' | 'disp' | 'stress' | 'skip' | None
+    state  = None
 
     with open(path, "r", errors="replace") as fh:
         for raw in fh:
@@ -131,23 +132,29 @@ def parse_frd(path):
             if key6 == "    2C":
                 state = "nodes"
                 continue
-            if key6.startswith("  100C"):
-                upper = line.upper()
-                if "DISP" in upper:
-                    state = "disp"
-                elif "STRESS" in upper:
-                    state = "stress"
-                else:
-                    state = None
+            if key6 in ("    3C", "    2P"):
+                state = "elements"
                 continue
-            if line[:4] in ("  -4", " -4 "):
+            if key6.startswith("  100C"):
+                # Result type NOT in this line — determined by the -4 descriptor below
+                state = "pending"
+                continue
+            if line[:3] == " -4":
+                if state == "pending":
+                    content = line[3:].upper().strip()
+                    if any(k in content for k in ("DISP", "D1 ", "D2 ", "D3 ", " U ")):
+                        state = "disp"
+                    elif any(k in content for k in ("STRESS", "SXX", "SYY", "SZZ")):
+                        state = "stress"
+                    else:
+                        state = "skip"
                 continue
             if line[:3] == " -3" or line.startswith("  -3"):
                 state = None
                 continue
             if line.strip() == "9999":
                 break
-            if line[:3] == " -1" and state is not None:
+            if line[:3] == " -1" and state not in (None, "skip", "pending", "elements"):
                 try:
                     nid = int(line[3:13])
                 except ValueError:

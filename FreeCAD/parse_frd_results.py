@@ -90,8 +90,8 @@ def parse_frd(path):
     nodes  = {}
     disp   = {}
     stress = {}
-    state  = None   # 'nodes' | 'disp' | 'stress' | None
-    comps  = []
+    # 'nodes' | 'elements' | 'pending' | 'disp' | 'stress' | 'skip' | None
+    state  = None
 
     with open(path, "r", errors="replace") as fh:
         for raw in fh:
@@ -104,39 +104,44 @@ def parse_frd(path):
             # ---- block openers ------------------------------------------------
             if key6 == "    2C":
                 state = "nodes"
-                comps = []
+                continue
+
+            # Element connectivity block — skip data lines
+            if key6 in ("    3C", "    2P"):
+                state = "elements"
                 continue
 
             if key6.startswith("  100C"):
-                # e.g. "  100CL  1  0.000000E+00  DISP  4  1"
-                upper = line.upper()
-                if "DISP" in upper:
-                    state = "disp"
-                elif "STRESS" in upper:
-                    state = "stress"
-                else:
-                    state = None
-                comps = []
+                # Result type is NOT in this line — determined by the -4 descriptor below
+                state = "pending"
                 continue
 
-            # ---- component descriptor -----------------------------------------
-            if line[:4] == "  -4":
-                comps.append(line[4:].strip().split()[0] if line[4:].strip() else "?")
+            # ---- component descriptor: reveals the result type ----------------
+            if line[:3] == " -4":
+                if state == "pending":
+                    content = line[3:].upper().strip()
+                    if any(k in content for k in ("DISP", "D1 ", "D2 ", "D3 ", " U ")):
+                        state = "disp"
+                    elif any(k in content for k in ("STRESS", "SXX", "SYY", "SZZ")):
+                        state = "stress"
+                    elif "MISES" in content:
+                        state = "skip"   # single-component; not needed with full tensor
+                    else:
+                        state = "skip"
+                # subsequent -4 lines for same block: state already set
                 continue
 
             # ---- end of block -------------------------------------------------
-            if line[:3] in (" -3", "  -"):
-                if line[:3] == " -3" or line.startswith("  -3"):
-                    state = None
-                    comps = []
-                    continue
+            if line[:3] == " -3" or line.startswith("  -3"):
+                state = None
+                continue
 
             # end-of-file marker
             if line.strip() == "9999":
                 break
 
             # ---- data lines ---------------------------------------------------
-            if line[:3] == " -1" and state is not None:
+            if line[:3] == " -1" and state not in (None, "skip", "pending", "elements"):
                 try:
                     nid = int(line[3:13])
                 except ValueError:

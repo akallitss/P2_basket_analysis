@@ -160,50 +160,52 @@ def run_one_step(doc, T_Nm, log, wall_nodes=None, pillar_nodes=None):
         patch_write_for_bc_injection(
             fea, wall_nodes or set(), pillar_nodes or set(), log)
 
+    # Prevent fea.run() from loading results into the FreeCAD document.
+    # Each load creates a new CCX_Results00N object; by step 3+ this causes
+    # FreeCAD to crash (exit 58).  We parse the .frd directly instead.
+    fea.load_results = lambda: None
+
     info(log, "  Running CalculiX ...")
     message = fea.run()
     # fea.run() returns True on success in FreeCAD 0.20, or a non-empty string on error
     if message and not isinstance(message, bool):
         raise RuntimeError("CalculiX returned error:\n" + str(message))
 
-    info(log, "  Loading results ...")
-    fea.load_results()
+    # 4. Parse results directly from the .frd file in fea.working_dir.
+    #    fea.load_results() / doc.getObject(OBJ_RESULT) is intentionally
+    #    avoided: FreeCAD creates a NEW CCX_Results object for each solve
+    #    (CCX_Results001, CCX_Results002, …) while getObject("CCX_Results")
+    #    always returns the stale pre-existing one, making all steps read
+    #    identical values.
+    frd_path = _find_frd_file(fea)
+    info(log, "  Parsing FRD: {}".format(frd_path))
+    nodes_frd, disp_frd, stress_frd = _parse_frd_inline(frd_path)
+    info(log, "  FRD: {} nodes, {} disp, {} stress".format(
+        len(nodes_frd), len(disp_frd), len(stress_frd)))
 
-    # 4. Extract results
-    result = doc.getObject(OBJ_RESULT)
-    res_mesh = doc.getObject(OBJ_RES_MESH)
+    if not disp_frd:
+        raise RuntimeError("No displacement data in FRD: " + frd_path)
 
-    if result is None:
-        raise RuntimeError("CCX_Results object not found after solve")
-
-    node_numbers = list(result.NodeNumbers)   # list[int] - node ID order
-    disp_vecs    = result.DisplacementVectors  # list[FreeCAD.Vector]
-    von_mises    = list(result.vonMises)       # list[float], Pa
-
-    if len(node_numbers) == 0:
-        raise RuntimeError("NodeNumbers is empty - results not loaded")
-
-    # Build node coordinate lookup from result mesh
-    mesh_nodes = res_mesh.FemMesh.Nodes  # dict: node_id -> FreeCAD.Vector (mm)
+    import math
 
     nids, xs, ys, zs = [], [], [], []
     uxs, uys, uzs    = [], [], []
     vms               = []
 
-    for i, nid in enumerate(node_numbers):
-        coord = mesh_nodes.get(nid)
-        if coord is None:
-            continue
-        disp = disp_vecs[i]
+    for nid in sorted(set(nodes_frd) & set(disp_frd)):
+        x, y, z   = nodes_frd[nid]
+        ux, uy, uz = disp_frd[nid]
         nids.append(nid)
-        xs.append(round(float(coord.x), 4))
-        ys.append(round(float(coord.y), 4))
-        zs.append(round(float(coord.z), 4))
-        uxs.append(round(float(disp.x), 6))
-        uys.append(round(float(disp.y), 6))
-        uzs.append(round(float(disp.z), 6))
-        # CalculiX outputs stress in MPa when geometry is in mm
-        vms.append(round(float(von_mises[i]), 4))
+        xs.append(round(x,  4)); ys.append(round(y,  4)); zs.append(round(z,  4))
+        uxs.append(round(ux, 6)); uys.append(round(uy, 6)); uzs.append(round(uz, 6))
+        if nid in stress_frd:
+            s = stress_frd[nid]
+            vm2 = (s[0]**2 + s[1]**2 + s[2]**2
+                   - s[0]*s[1] - s[1]*s[2] - s[2]*s[0]
+                   + 3.0*(s[3]**2 + s[4]**2 + s[5]**2))
+            vms.append(round(math.sqrt(max(vm2, 0.0)), 4))
+        else:
+            vms.append(0.0)
 
     info(log, "  Extracted {} nodes".format(len(nids)))
 
@@ -379,6 +381,86 @@ def build_bc_node_sets(fem_mesh, log):
 
     info(log, "  Pillar BC nodes: {}".format(len(pillar_nodes)))
     return wall_nodes, pillar_nodes
+
+
+def _find_frd_file(fea):
+    """Return path to the CalculiX .frd result file written by this solve."""
+    wdir = getattr(fea, "working_dir", None)
+    if wdir and os.path.isdir(wdir):
+        for root, _dirs, files in os.walk(wdir):
+            for fname in files:
+                if fname.endswith(".frd"):
+                    return os.path.join(root, fname)
+    raise RuntimeError(
+        "Cannot locate .frd file — working_dir={!r}".format(wdir))
+
+
+def _parse_frd_inline(path):
+    """
+    Minimal CalculiX .frd reader.  Returns (nodes, disp, stress) dicts keyed
+    by integer node_id.  All values in the units CalculiX writes (mm and MPa
+    when geometry is in mm).
+    """
+    import math
+    nodes, disp, stress = {}, {}, {}
+    state = None
+
+    def _fields(line, start=13):
+        vals, pos, raw = [], start, line.rstrip()
+        while pos + 12 <= len(raw):
+            try:
+                vals.append(float(raw[pos:pos + 12]))
+            except ValueError:
+                break
+            pos += 12
+        if not vals:
+            for tok in raw[start:].strip().split():
+                try:
+                    vals.append(float(tok))
+                except ValueError:
+                    pass
+        return vals
+
+    with open(path, "r", errors="replace") as fh:
+        for raw in fh:
+            line = raw.rstrip("\n\r")
+            if not line:
+                continue
+            key6 = line[:6]
+            if key6 == "    2C":
+                state = "nodes"; continue
+            if key6 in ("    3C", "    2P"):
+                state = "elements"; continue
+            if key6.startswith("  100C"):
+                state = "pending"; continue
+            if line[:3] == " -4":
+                if state == "pending":
+                    c = line[3:].upper().strip()
+                    if any(k in c for k in ("DISP", "D1 ", "D2 ", "D3 ", " U ")):
+                        state = "disp"
+                    elif any(k in c for k in ("STRESS", "SXX", "SYY", "SZZ")):
+                        state = "stress"
+                    else:
+                        state = "skip"
+                continue
+            if line[:3] == " -3" or line.startswith("  -3"):
+                state = None; continue
+            if line.strip() == "9999":
+                break
+            if line[:3] == " -1" and state not in (None, "skip", "pending", "elements"):
+                try:
+                    nid = int(line[3:13])
+                except ValueError:
+                    continue
+                vals = _fields(line)
+                if state == "nodes" and len(vals) >= 3:
+                    nodes[nid] = (vals[0], vals[1], vals[2])
+                elif state == "disp" and len(vals) >= 3:
+                    disp[nid] = (vals[0], vals[1], vals[2])
+                elif state == "stress" and len(vals) >= 6:
+                    stress[nid] = tuple(vals[:6])
+
+    return nodes, disp, stress
 
 
 def _find_inp_file(fea):
