@@ -422,6 +422,9 @@ def _parse_buckle_dat(dat_path):
                     try:
                         mode = int(parts[0])
                         val  = float(parts[1])
+                        if math.isnan(val) or math.isinf(val):
+                            print("  DAT WARNING: mode {} eigenvalue is {} — skipped".format(mode, val))
+                            continue
                         eigenvalues.append((mode, val))
                     except ValueError:
                         continue  # skip sub-headers (MODE NO / FACTOR)
@@ -492,6 +495,8 @@ def run_one_tension(doc, T_Nm, wall_nodes, pillar_nodes, surf, log):
 
     if not eigenvalues:
         raise RuntimeError("No eigenvalues found in .dat — check CalculiX output")
+    if all(math.isnan(v) or math.isinf(v) for _, v in eigenvalues):
+        raise RuntimeError("All eigenvalues are NaN/inf — CalculiX solver likely failed")
 
     # The .frd has one static block (Step 1) followed by N eigenvector blocks.
     # Discard any leading static blocks so indices align with eigenvalues.
@@ -551,6 +556,8 @@ def save_summary_csv(summary_rows, results_dir):
         w.writerow(["T_Nm", "T_Ncm", "mode", "eigenvalue", "T_buckle_C", "survived"])
         for row in summary_rows:
             ev = row["eigenvalue"]
+            if math.isnan(ev) or math.isinf(ev):
+                continue
             t_buckle = 25.0 + ev * DT_BAKE_REAL
             w.writerow([
                 row["T_Nm"],
