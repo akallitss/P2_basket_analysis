@@ -77,17 +77,98 @@ def main():
     root_file_index = 2
     out_dir     = "/drf/projets/clas12/P2/akallits/plots_trigger"
     show        = False
-    # config_file = "vmm_config_scan_5kHz.csv"
-    config_file = "vmm_config_scan_15kHz.csv"
+    config_file = "vmm_config_scan_5kHz.csv"
+    # config_file = "vmm_config_scan_15kHz.csv"
     rate_tag    = config_file.replace("vmm_config_scan_", "").replace(".csv", "")
+
+    test_run = 67
+    # test_run = 149
+    # test_run = 158
+
+    # ── Step 0: channel diagnostics (hits per channel) ──────
+    # Aggregate hits over a few files from the test run.
+    # Plots one figure per detector group so you can spot dead
+    # (firebrick) or noisy (orange) channels before the main analysis.
+    all_vmm_ids = trigger_vmms + detector_vmms
+    ch_counts = collect_channel_hit_counts(
+        data_dir, [test_run], all_vmm_ids,
+        n_files=3, file_start=1
+    )
+    ch_outliers = identify_outlier_channels(
+        ch_counts,
+        trigger_vmm_ids=trigger_vmms,
+        dead_frac=0.1,
+        noisy_factor=5.0
+    )
+    plot_hits_per_channel_all_vmms(
+        ch_counts, ch_outliers,
+        dead_frac=0.1, noisy_factor=5.0,
+        out_dir=out_dir, show=True, rate_tag=rate_tag
+    )
+
+    # ── Step 0b: per-channel on/off rate for problematic runs ──
+    # Shows spill-on and spill-off rate per channel separately.
+    # A channel with elevated OFF rate is genuinely noisy.
+    # A channel with elevated ON rate only is a beam-hit pad — not noise.
+    # Results are stored so Step 0c can reuse them without extra file reads.
+    diagnostic_runs = [
+        (158, 3.0,  50),
+        (152, 4.5, 200),
+        (155, 6.0, 200),
+    ]
+    per_ch_all_runs  = []
+    per_ch_by_run    = {}
+    for run_no, sg, snt in diagnostic_runs:
+        print(f"\n── Per-channel on/off rate: run {run_no} "
+              f"(sg={sg} snt={snt}) ──")
+        per_ch = compute_per_channel_spill_rates(
+            data_dir, run_no, all_vmm_ids,
+            trigger_ref_channels=trigger_ref_channels,
+            n_files=5, file_start=1,
+            spill_threshold_khz=1.0,
+            max_gap_s=2.0,
+        )
+        if per_ch is not None:
+            per_ch_all_runs.append(per_ch)
+            per_ch_by_run[run_no] = (sg, snt, per_ch)
+
+    # ── Step 0c: build good-channel mask ───────────────────────
+    # Noisy = off-spill rate > 3 × median off-spill rate across
+    # the diagnostic runs (max rate per channel, so a channel
+    # flagged noisy at high gain is excluded everywhere).
+    # Dead  = total-hit count < 10% × median (from Step 0 counts).
+    if per_ch_all_runs:
+        noisy_off   = identify_noisy_from_off_spill(
+            per_ch_all_runs, noisy_factor=3.0
+        )
+        good_channels = build_good_channels(ch_outliers, noisy_off)
+    else:
+        noisy_off     = None
+        good_channels = build_good_channels(ch_outliers)
+
+    print("\n── Good channels per detector VMM ──")
+    for vmm_id in detector_vmms:
+        if vmm_id not in good_channels:
+            continue
+        chs = good_channels[vmm_id]
+        print(f"  VMM {vmm_id}: {len(chs)} good channels  "
+              f"{sorted(chs.tolist())}")
+
+    # Now plot per-channel rates with masking overlay
+    for run_no, (sg, snt, per_ch) in per_ch_by_run.items():
+        plot_rate_per_channel_on_off(
+            per_ch, run_no, sg, snt,
+            good_channels=good_channels,
+            ch_outliers=ch_outliers,
+            noisy_off_spill=noisy_off,
+            out_dir=out_dir, show=True,
+            rate_tag=rate_tag
+        )
 
     # ── Step 1: trigger rate time series on one run ─────────
     # Plot 1 ms binned trigger rate to see the spill structure.
     # Confirm beam-on / beam-off periods are clearly visible
     # before applying any threshold or looping over configs.
-    # test_run = 67
-    test_run = 149
-
     print(f"Loading run {test_run}...")
     df_hits = load_sorted_hits(
         data_dir, test_run,
@@ -123,6 +204,7 @@ def main():
         trigger_ch=trigger_ref_channels[0],
         spill_threshold_khz=1.0,
         bin_width_ms=1.0,
+        max_gap_s=2.0,
         out_dir=out_dir, show=show, rate_tag=rate_tag,
     )
 
@@ -141,6 +223,8 @@ def main():
         bin_width_s          = 0.001,
         n_files              = 1,
         spill_threshold_khz  = 1.0,
+        max_gap_s            = 2.0,
+        good_channels        = good_channels,
         file_start           = 1,
     )
 
@@ -162,10 +246,12 @@ def main():
         bin_width_s          = 0.001,
         n_files              = 1,
         spill_threshold_khz  = 1.0,
+        max_gap_s            = 2.0,
+        good_channels        = good_channels,
     )
 
-    # df_spill.to_csv("vmm_spill_rates_5kHz.csv", index=False)
-    df_spill.to_csv("vmm_spill_rates_15kHz.csv", index=False)
+    df_spill.to_csv("vmm_spill_rates_5kHz.csv", index=False)
+    # df_spill.to_csv("vmm_spill_rates_15kHz.csv", index=False)
     print("\n=== Step 4: spill rates — all configs ===")
     print(df_spill.to_string(index=False))
 
@@ -398,6 +484,571 @@ def inspect_inter_event_per_channel(df_hits, vmm_id, run_no,
     _finish_fig(fig,
                 f"inter_event_per_ch_vmm{vmm_id}_run{run_no}",
                 out_dir, show, rate_tag)
+
+def compute_per_channel_spill_rates(data_dir, run_no, all_vmm_ids,
+                                     trigger_ref_channels,
+                                     bin_width_s=0.001,
+                                     n_files=5, file_start=1,
+                                     spill_threshold_khz=1.0,
+                                     min_spill_s=1.0,
+                                     max_gap_s=0.0,
+                                     max_time_ticks=2e12):
+    """
+    For every connected channel on each VMM compute the hit rate
+    separately during spill-on and spill-off periods.
+
+    Three-pass strategy (memory-safe):
+      Pass 1 — time range only (time column).
+      Pass 2 — trigger-channel histogram → spill mask.
+      Pass 3 — per-channel hit classification using the mask.
+
+    Returns
+    -------
+    dict {vmm_id: {
+        'rate_on_hz' : np.ndarray shape (64,),
+        'rate_off_hz': np.ndarray shape (64,),
+        't_on_s'     : float,
+        't_off_s'    : float,
+    }}
+    """
+    from vmm_io import get_connected_channels
+
+    trig_vmm = list(trigger_ref_channels.keys())[0]
+    trig_ch  = trigger_ref_channels[trig_vmm]
+    run_dir  = get_run_dir(data_dir, run_no)
+
+    # ── Pass 1: time range ─────────────────────────────────
+    t_start, t_end = _get_run_time_range(run_dir, n_files,
+                                          file_start=file_start)
+    if t_start is None:
+        print(f"  Run {run_no}: no valid timestamps")
+        return None
+
+    bins   = np.arange(t_start, t_end + bin_width_s, bin_width_s)
+    n_bins = len(bins) - 1
+
+    # ── Pass 2: trigger histogram → spill mask ─────────────
+    trig_counts = np.zeros(n_bins, dtype=np.int64)
+    for df in iter_hits_files(run_dir, n_files=n_files,
+                               branches=["time", "vmm", "ch"],
+                               file_start=file_start):
+        if df is None or df.empty:
+            continue
+        df = df[df["time"] < max_time_ticks].copy()
+        t_s    = df["time"].values * S_PER_TICK
+        m_trig = (df["vmm"] == trig_vmm) & (df["ch"] == trig_ch)
+        c, _   = np.histogram(t_s[m_trig.values], bins=bins)
+        trig_counts += c
+        del df
+
+    trig_rate_khz  = trig_counts / bin_width_s / 1e3
+    min_spill_bins = max(1, int(min_spill_s / bin_width_s))
+    max_gap_bins   = max(0, int(max_gap_s   / bin_width_s))
+    on_mask, off_mask = compute_spill_masks(
+        trig_rate_khz, spill_threshold_khz, min_spill_bins, max_gap_bins
+    )
+    t_on_s  = on_mask.sum()  * bin_width_s
+    t_off_s = off_mask.sum() * bin_width_s
+
+    print(f"  Run {run_no}: spill-on {t_on_s:.0f}s  "
+          f"spill-off {t_off_s:.0f}s  "
+          f"trig_on {trig_rate_khz[on_mask].mean():.1f} kHz")
+
+    # ── Pass 3: per-channel on/off counts ──────────────────
+    ch_on  = {v: np.zeros(64, dtype=np.int64) for v in all_vmm_ids}
+    ch_off = {v: np.zeros(64, dtype=np.int64) for v in all_vmm_ids}
+
+    for df in iter_hits_files(run_dir, n_files=n_files,
+                               branches=["time", "vmm", "ch"],
+                               file_start=file_start):
+        if df is None or df.empty:
+            continue
+        df  = df[df["time"] < max_time_ticks].copy()
+        df.reset_index(drop=True, inplace=True)   # 0-based positions
+        t_s = df["time"].values * S_PER_TICK
+
+        # Bin index for each hit → spill classification
+        bidx   = np.clip(np.searchsorted(bins[1:], t_s, side="left"),
+                         0, n_bins - 1)
+        is_on  = on_mask[bidx]
+
+        for vmm_id in all_vmm_ids:
+            connected = get_connected_channels(vmm_id)
+            df_v  = df[df["vmm"] == vmm_id]
+            if df_v.empty:
+                continue
+
+            ch_arr   = df_v["ch"].values
+            on_arr   = is_on[df_v.index]   # index is 0-based after reset
+
+            if connected is not None:
+                valid = np.isin(ch_arr, connected)
+            else:
+                valid = (ch_arr >= 0) & (ch_arr < 64)
+
+            ch_v  = ch_arr[valid]
+            on_v  = on_arr[valid]
+            off_v = ~on_v
+
+            np.add.at(ch_on[vmm_id],  ch_v[on_v  & (ch_v < 64)], 1)
+            np.add.at(ch_off[vmm_id], ch_v[off_v & (ch_v < 64)], 1)
+
+        del df
+
+    # ── Convert counts to rates ────────────────────────────
+    result = {}
+    for vmm_id in all_vmm_ids:
+        result[vmm_id] = {
+            "rate_on_hz" : ch_on[vmm_id]  / t_on_s  if t_on_s  > 0
+                           else np.zeros(64),
+            "rate_off_hz": ch_off[vmm_id] / t_off_s if t_off_s > 0
+                           else np.zeros(64),
+            "t_on_s"     : t_on_s,
+            "t_off_s"    : t_off_s,
+        }
+    return result
+
+
+def plot_rate_per_channel_on_off(per_ch_rates, run_no, sg, snt,
+                                  good_channels=None,
+                                  ch_outliers=None,
+                                  noisy_off_spill=None,
+                                  out_dir=None, show=True, rate_tag=""):
+    """
+    Per-channel spill-on vs spill-off rate for every detector VMM.
+
+    One figure per detector group, two panels per VMM:
+      Left  : spill-off rate per channel (Hz, log) — noise floor.
+      Right : spill-on  rate per channel (Hz, log) — beam signal.
+
+    Bar colours encode channel status:
+      firebrick  (off) / steelblue (on) : good channel, used in analysis
+      darkorange                         : masked as noisy (off-spill rate)
+      lightgrey                          : masked as dead (low total hits)
+
+    Parameters
+    ----------
+    good_channels : dict {vmm_id: array} or None
+        Output of build_good_channels().
+    ch_outliers : dict or None
+        Output of identify_outlier_channels() — provides dead flags.
+    noisy_off_spill : dict or None
+        Output of identify_noisy_from_off_spill() — provides noisy flags.
+    """
+    from vmm_io import get_connected_channels
+
+    for key, cfg in vmm_mapping.items():
+        if key == "trigger":
+            continue
+        group_vmm_ids = [v for v in cfg["vmm_ids"] if v in per_ch_rates]
+        if not group_vmm_ids:
+            continue
+        group_name = cfg.get("name", key)
+
+        n   = len(group_vmm_ids)
+        fig, axes = plt.subplots(n, 2, figsize=(18, 3.5 * n),
+                                  squeeze=False)
+
+        for row_idx, vmm_id in enumerate(group_vmm_ids):
+            connected   = get_connected_channels(vmm_id)
+            display_chs = np.array(connected if connected is not None
+                                   else list(range(64)))
+
+            r_off = per_ch_rates[vmm_id]["rate_off_hz"][display_chs]
+            r_on  = per_ch_rates[vmm_id]["rate_on_hz"][display_chs]
+
+            # ── Per-channel colour: good / noisy / dead ────────
+            dead_set  = set()
+            noisy_set = set()
+            if ch_outliers is not None and vmm_id in ch_outliers:
+                dead_set = set(ch_outliers[vmm_id]["dead"])
+            if noisy_off_spill is not None and vmm_id in noisy_off_spill:
+                noisy_set = set(noisy_off_spill[vmm_id]["noisy"])
+
+            ax_off, ax_on = axes[row_idx]
+
+            for ax, rates, good_color, panel_label in [
+                (ax_off, r_off, "firebrick",  "Spill-OFF rate (noise floor)"),
+                (ax_on,  r_on,  "steelblue",  "Spill-ON rate  (beam signal)"),
+            ]:
+                plot_r = np.where(rates == 0, 0.01, rates)
+
+                bar_colors = []
+                for ch in display_chs:
+                    if ch in noisy_set:
+                        bar_colors.append("darkorange")
+                    elif ch in dead_set:
+                        bar_colors.append("lightgrey")
+                    else:
+                        bar_colors.append(good_color)
+
+                ax.bar(display_chs, plot_r, color=bar_colors,
+                       alpha=0.85, width=0.8)
+
+                # Median line over good channels only
+                good_mask = np.array([ch not in dead_set and ch not in noisy_set
+                                      for ch in display_chs])
+                good_rates = rates[good_mask]
+                med = (float(np.median(good_rates[good_rates > 0]))
+                       if (good_rates > 0).any() else 0)
+                if med > 0:
+                    ax.axhline(med, color="k", ls=":", lw=1,
+                               label=f"median (good) = {med:.2f} Hz")
+
+                ax.set_yscale("log")
+                ax.set_xlim(display_chs[0] - 0.5, display_chs[-1] + 0.5)
+                ax.set_xlabel("Channel")
+                ax.set_ylabel("Rate (Hz, log)")
+                ax.set_title(f"VMM {vmm_id} — {panel_label}")
+                ax.grid(True, alpha=0.3, axis="y")
+
+                # Legend: colour patches for each category
+                from matplotlib.patches import Patch
+                legend_items = [Patch(color=good_color, label="good channel")]
+                if noisy_set:
+                    legend_items.append(
+                        Patch(color="darkorange", label="masked: noisy (off-spill)")
+                    )
+                if dead_set:
+                    legend_items.append(
+                        Patch(color="lightgrey", label="masked: dead")
+                    )
+                if med > 0:
+                    import matplotlib.lines as mlines
+                    legend_items.append(
+                        mlines.Line2D([], [], color="k", ls=":",
+                                      label=f"median (good) = {med:.2f} Hz")
+                    )
+                ax.legend(handles=legend_items, fontsize=8, loc="upper right")
+
+        fig.suptitle(
+            f"{group_name} — per-channel rate  |  "
+            f"run {run_no}  sg={sg}  snt={snt}",
+            fontweight="bold"
+        )
+        plt.tight_layout()
+        _finish_fig(fig,
+                    f"rate_per_channel_{key}_run{run_no}",
+                    out_dir, show, rate_tag)
+
+
+def collect_channel_hit_counts(data_dir, run_nos, all_vmm_ids,
+                               n_files=3, file_start=1,
+                               max_time_ticks=2e12):
+    """
+    Aggregate hit counts per channel (0–63) for each VMM across runs.
+
+    Returns
+    -------
+    dict {vmm_id: np.ndarray of shape (64,)}
+    """
+    counts = {v: np.zeros(64, dtype=np.int64) for v in all_vmm_ids}
+    for run_no in run_nos:
+        run_dir = get_run_dir(data_dir, run_no)
+        for df in iter_hits_files(run_dir, n_files=n_files,
+                                   branches=["time", "vmm", "ch"],
+                                   file_start=file_start):
+            if df is None or df.empty:
+                continue
+            df = df[df["time"] < max_time_ticks].copy()
+            for vmm_id in all_vmm_ids:
+                df_v = df[df["vmm"] == vmm_id]
+                if df_v.empty:
+                    continue
+                ch_idx = df_v["ch"].values
+                valid  = (ch_idx >= 0) & (ch_idx < 64)
+                np.add.at(counts[vmm_id], ch_idx[valid], 1)
+            del df
+    return counts
+
+
+def identify_outlier_channels(counts, trigger_vmm_ids=None,
+                               dead_frac=0.1, noisy_factor=5.0):
+    """
+    Flag dead and noisy channels per detector VMM.
+
+    Thresholds are computed only over physically connected channels
+    (get_connected_channels). Trigger VMMs are skipped entirely.
+
+    dead_frac    : channel below dead_frac × median(nonzero) → dead
+    noisy_factor : channel above noisy_factor × median(nonzero) → noisy
+
+    Returns
+    -------
+    dict {vmm_id: {'dead': [...], 'noisy': [...], 'median': float}}
+    """
+    from vmm_io import get_connected_channels
+
+    trigger_vmm_ids = set(trigger_vmm_ids or [])
+    result = {}
+    for vmm_id, ch_counts in counts.items():
+        if vmm_id in trigger_vmm_ids:
+            result[vmm_id] = {"dead": [], "noisy": [], "median": np.nan}
+            continue
+        connected    = get_connected_channels(vmm_id)
+        display_chs  = connected if connected is not None else list(range(64))
+        subset       = ch_counts[np.array(display_chs)]
+        nonzero      = subset[subset > 0]
+        if len(nonzero) == 0:
+            result[vmm_id] = {"dead": list(display_chs), "noisy": [],
+                              "median": 0.0}
+            continue
+        median    = float(np.median(nonzero))
+        dead_thr  = dead_frac    * median
+        noisy_thr = noisy_factor * median
+        dead  = [ch for ch in display_chs if ch_counts[ch] <  dead_thr]
+        noisy = [ch for ch in display_chs if ch_counts[ch] >  noisy_thr]
+        result[vmm_id] = {"dead": dead, "noisy": noisy, "median": median}
+    return result
+
+
+def identify_noisy_from_off_spill(per_ch_rates_list, noisy_factor=3.0):
+    """
+    Flag noisy channels using spill-off (noise floor) rate.
+
+    A channel is noisy if its off-spill rate exceeds noisy_factor × median
+    off-spill rate among connected channels. Self-triggering channels appear
+    here but not (or much less) in the spill-on rate.
+
+    Parameters
+    ----------
+    per_ch_rates_list : dict or list of dicts
+        One or more outputs of compute_per_channel_spill_rates.
+        When multiple dicts are given the per-channel max off-spill rate
+        is used — a channel flagged noisy in any run is excluded everywhere.
+    noisy_factor : float
+        Threshold multiplier on the median off-spill rate. Default 3.0.
+
+    Returns
+    -------
+    dict {vmm_id: {'noisy': [ch, ...], 'median_off_hz': float}}
+    """
+    from vmm_io import get_connected_channels
+
+    if isinstance(per_ch_rates_list, dict):
+        per_ch_rates_list = [per_ch_rates_list]
+
+    # Merge across runs: take element-wise max off-spill rate per channel
+    all_vmm_ids = set(v for pc in per_ch_rates_list for v in pc)
+    merged = {}
+    for vmm_id in all_vmm_ids:
+        arrays = [pc[vmm_id]["rate_off_hz"]
+                  for pc in per_ch_rates_list if vmm_id in pc]
+        merged[vmm_id] = np.maximum.reduce(arrays)  # shape (64,)
+
+    result = {}
+    for vmm_id, r_off_all in merged.items():
+        connected = get_connected_channels(vmm_id)
+        if connected is None:
+            connected = list(range(64))
+        r_off = r_off_all[np.array(connected)]
+        nonzero = r_off[r_off > 0]
+        if len(nonzero) == 0:
+            result[vmm_id] = {"noisy": [], "median_off_hz": 0.0}
+            continue
+        median = float(np.median(nonzero))
+        noisy  = [ch for ch, r in zip(connected, r_off)
+                  if r > noisy_factor * median]
+        result[vmm_id] = {"noisy": noisy, "median_off_hz": median}
+    return result
+
+
+def build_good_channels(ch_outliers, noisy_off_spill=None):
+    """
+    Build the set of good channels per VMM: connected − dead − noisy.
+
+    Parameters
+    ----------
+    ch_outliers : dict
+        Output of identify_outlier_channels (dead flags from total hits).
+    noisy_off_spill : dict or None
+        Output of identify_noisy_from_off_spill.
+        If None, falls back to the noisy flags already in ch_outliers.
+
+    Returns
+    -------
+    dict {vmm_id: np.ndarray of good channel indices (sorted)}
+    """
+    from vmm_io import get_connected_channels
+
+    good = {}
+    for vmm_id, info in ch_outliers.items():
+        connected = get_connected_channels(vmm_id)
+        if connected is None:
+            connected = list(range(64))
+
+        bad = set(info["dead"])
+        if noisy_off_spill is not None and vmm_id in noisy_off_spill:
+            bad |= set(noisy_off_spill[vmm_id]["noisy"])
+        else:
+            bad |= set(info["noisy"])
+
+        good[vmm_id] = np.array(sorted(ch for ch in connected
+                                        if ch not in bad))
+    return good
+
+
+def plot_hits_per_channel_all_vmms(counts, outliers,
+                                    dead_frac=0.1, noisy_factor=5.0,
+                                    out_dir=None, show=True, rate_tag=""):
+    """
+    Diagnostic plots restricted to physically connected channels only.
+
+    Detector VMMs (all 64 ch connected) — two panels per VMM:
+      Left  : hits per channel (bar, channel-number order).
+      Right : rank plot — channels sorted lowest→highest hit count.
+              Natural gaps between dead / normal / noisy clusters
+              are immediately visible as vertical jumps.
+
+    Trigger VMMs (few known channels) — single bar panel per VMM;
+      channels not listed in vmm_mapping are excluded entirely.
+
+    Colour coding (detector VMMs)
+    -------------
+    steelblue  : normal
+    firebrick  : dead  (< dead_frac × median of nonzero channels)
+    darkorange : noisy (> noisy_factor × median)
+    """
+    from vmm_io import get_connected_channels
+
+    for key, cfg in vmm_mapping.items():
+        group_vmm_ids = [v for v in cfg["vmm_ids"] if v in counts]
+        if not group_vmm_ids:
+            continue
+        group_name     = cfg.get("name", key)
+        is_trigger_grp = (key == "trigger")
+
+        # Trigger groups: 1 column (bar only); detectors: 2 columns
+        n_cols       = 1 if is_trigger_grp else 2
+        width_ratios = None if is_trigger_grp else [2, 1]
+        n            = len(group_vmm_ids)
+        fig_h        = 3.5 * n
+        fig_w        = 10 if is_trigger_grp else 18
+
+        gs_kw = {"width_ratios": width_ratios} if width_ratios else {}
+        fig, axes = plt.subplots(n, n_cols,
+                                  figsize=(fig_w, fig_h),
+                                  squeeze=False,
+                                  gridspec_kw=gs_kw)
+
+        for row_idx, vmm_id in enumerate(group_vmm_ids):
+            # ── connected channels for this VMM ────────────────
+            connected   = get_connected_channels(vmm_id)
+            display_chs = np.array(connected if connected is not None
+                                   else list(range(64)))
+            ch_subset   = counts[vmm_id][display_chs].astype(float)
+
+            info   = outliers[vmm_id]
+            dead   = set(info["dead"])
+            noisy  = set(info["noisy"])
+            median = info["median"]
+
+            bar_colors = []
+            for ch in display_chs:
+                if ch in noisy:
+                    bar_colors.append("darkorange")
+                elif ch in dead:
+                    bar_colors.append("firebrick")
+                else:
+                    bar_colors.append("steelblue")
+
+            plot_subset = np.where(ch_subset == 0, 0.5, ch_subset)
+
+            # ── LEFT / ONLY panel: bar chart ───────────────────
+            ax_bar = axes[row_idx, 0]
+
+            if is_trigger_grp:
+                # Sparse x-axis: actual channel numbers, not dense 0-63
+                bar_width = min(3.0, 0.6 * (display_chs[-1] - display_chs[0])
+                                / max(len(display_chs) - 1, 1))
+                ax_bar.bar(display_chs, plot_subset,
+                           color=bar_colors, alpha=0.8, width=bar_width)
+                ax_bar.set_xlim(display_chs[0] - 5, display_chs[-1] + 5)
+                ax_bar.set_xticks(display_chs)
+                ax_bar.set_xticklabels([f"ch {c}" for c in display_chs],
+                                       fontsize=9)
+                ax_bar.set_title(
+                    f"VMM {vmm_id}  (trigger — "
+                    f"connected: {list(display_chs)})"
+                )
+            else:
+                ax_bar.bar(display_chs, plot_subset,
+                           color=bar_colors, alpha=0.8, width=0.8)
+                ax_bar.set_xlim(-0.5, 63.5)
+                ax_bar.set_xlabel("Channel")
+                ax_bar.set_title(
+                    f"VMM {vmm_id}  |  dead={sorted(dead)}  "
+                    f"noisy={sorted(noisy)}"
+                )
+
+                if not np.isnan(median) and median > 0:
+                    ax_bar.axhline(dead_frac * median, color="firebrick",
+                                   ls="--", lw=1.2,
+                                   label=f"dead < {dead_frac:.0%}·med")
+                    ax_bar.axhline(noisy_factor * median, color="darkorange",
+                                   ls="--", lw=1.2,
+                                   label=f"noisy > {noisy_factor:.0f}×med")
+                    ax_bar.axhline(median, color="limegreen", ls=":", lw=1,
+                                   label=f"median = {median:.0f}")
+
+            ax_bar.set_yscale("log")
+            ax_bar.set_ylabel("Hits (log)")
+            ax_bar.legend(fontsize=8, loc="upper right")
+            ax_bar.grid(True, alpha=0.3, axis="y")
+
+            # ── RIGHT panel: rank plot (detector VMMs only) ────
+            if not is_trigger_grp:
+                ax_rank = axes[row_idx, 1]
+
+                sort_idx    = np.argsort(ch_subset)
+                sorted_cnts = ch_subset[sort_idx]
+                rank_colors = [bar_colors[i] for i in sort_idx]
+                rank_plot   = np.where(sorted_cnts == 0, 0.5, sorted_cnts)
+                n_disp      = len(display_chs)
+
+                ax_rank.barh(np.arange(n_disp), rank_plot,
+                             color=rank_colors, alpha=0.8, height=0.8)
+
+                if not np.isnan(median) and median > 0:
+                    ax_rank.axvline(dead_frac * median, color="firebrick",
+                                    ls="--", lw=1.2)
+                    ax_rank.axvline(noisy_factor * median, color="darkorange",
+                                    ls="--", lw=1.2)
+                    ax_rank.axvline(median, color="limegreen", ls=":", lw=1)
+
+                ax_rank.set_xscale("log")
+                ax_rank.set_xlabel("Hits (log)")
+                ax_rank.set_ylabel("Channel rank (sorted)")
+                ax_rank.set_title("Sorted by hit count")
+                ax_rank.set_ylim(-0.5, n_disp - 0.5)
+                ax_rank.grid(True, alpha=0.3, axis="x")
+
+                # Annotate flagged channels by name on the rank plot
+                for rank, i in enumerate(sort_idx):
+                    ch = display_chs[i]
+                    if ch in dead or ch in noisy:
+                        ax_rank.text(rank_plot[rank] * 1.15, rank,
+                                     f"ch{ch}", fontsize=6, va="center")
+
+        fig.suptitle(f"{group_name} — hits per connected channel  "
+                     f"[dead < {dead_frac:.0%}·med  |  "
+                     f"noisy > {noisy_factor:.0f}×med]",
+                     fontweight="bold")
+        plt.tight_layout()
+        _finish_fig(fig, f"hits_per_channel_{key}", out_dir, show, rate_tag)
+
+        print(f"\n{'='*50}")
+        print(f"Group: {group_name}")
+        for vmm_id in group_vmm_ids:
+            info = outliers[vmm_id]
+            connected = get_connected_channels(vmm_id)
+            if is_trigger_grp:
+                print(f"  VMM {vmm_id}: connected = {connected}")
+            else:
+                print(f"  VMM {vmm_id}: dead={info['dead']}  "
+                      f"noisy={info['noisy']}  "
+                      f"median={info['median']:.0f} hits")
+
 
 def compute_run_duration(df_hits):
     """
@@ -1187,7 +1838,8 @@ def plot_rate_overlay_with_trigger(df_hits, run_no, vmm_groups,
         _finish_fig(fig, stem, out_dir, show, rate_tag)
 
 
-def compute_spill_masks(rates_khz, threshold_khz, min_spill_bins=0):
+def compute_spill_masks(rates_khz, threshold_khz,
+                         min_spill_bins=0, max_gap_bins=0):
     """
     Derive spill-on / spill-off boolean masks from a binned rate array.
 
@@ -1198,19 +1850,34 @@ def compute_spill_masks(rates_khz, threshold_khz, min_spill_bins=0):
     threshold_khz : float
         Bins above this value are classified as spill-on.
     min_spill_bins : int
-        Minimum number of consecutive on-bins required to keep an
-        on-region. Shorter regions (e.g. startup artifacts) are
-        reclassified as off. 0 disables this filter.
+        Minimum consecutive on-bins to keep an on-region. Shorter
+        regions (e.g. startup artifacts) are reclassified as off.
+        0 disables.
+    max_gap_bins : int
+        Maximum consecutive off-bins between two on-regions that will
+        be reclassified as on (hole-filling). This handles bins that
+        dip below threshold mid-spill due to SPS bunch microstructure
+        at low beam intensity. 0 disables.
 
     Returns
     -------
-    on_mask : np.ndarray of bool
-        True for spill-on bins.
-    off_mask : np.ndarray of bool
-        True for spill-off bins.
+    on_mask, off_mask : np.ndarray of bool
     """
     on_mask = rates_khz > threshold_khz
 
+    # ── Hole-filling: bridge short off-gaps within spills ──────
+    if max_gap_bins > 0:
+        padded    = np.concatenate(([False], on_mask, [False]))
+        on_starts = np.where(~padded[:-1] &  padded[1:])[0]  # F→T: on-region starts
+        on_ends   = np.where( padded[:-1] & ~padded[1:])[0]  # T→F: on-region ends
+        # Fill gaps between consecutive on-regions that are short enough.
+        # on_mask[on_ends[i] : on_starts[i+1]] is the off-gap between region i and i+1.
+        for i in range(len(on_starts) - 1):
+            gap_len = on_starts[i + 1] - on_ends[i]
+            if gap_len <= max_gap_bins:
+                on_mask[on_ends[i] : on_starts[i + 1]] = True
+
+    # ── Remove short on-regions (startup artifacts, noise spikes) ──
     if min_spill_bins > 1:
         padded = np.concatenate(([False], on_mask, [False]))
         starts = np.where(~padded[:-1] &  padded[1:])[0]
@@ -1228,6 +1895,7 @@ def plot_spill_mask_diagnostic(df_hits, run_no,
                                spill_threshold_khz=1.0,
                                bin_width_ms=1.0,
                                min_spill_s=1.0,
+                               max_gap_s=0.0,
                                out_dir=None, show=True, rate_tag=""):
     """
     Step 1 validation: plot 1 ms trigger rate with spill-on/off
@@ -1258,8 +1926,9 @@ def plot_spill_mask_diagnostic(df_hits, run_no,
     rate_khz       = counts / bin_width_s / 1e3
 
     min_spill_bins = max(1, int(min_spill_s / bin_width_s))
+    max_gap_bins   = max(0, int(max_gap_s   / bin_width_s))
     on_mask, off_mask = compute_spill_masks(
-        rate_khz, spill_threshold_khz, min_spill_bins
+        rate_khz, spill_threshold_khz, min_spill_bins, max_gap_bins
     )
     n_on  = on_mask.sum()
     n_off = off_mask.sum()
@@ -1343,12 +2012,19 @@ def _get_run_time_range(run_dir, n_files, max_time_ticks=2e12,
 
 def _accumulate_run_histograms(run_dir, trig_vmm, trig_ch,
                                 detector_vmms, bins, n_files,
+                                good_channels=None,
                                 max_time_ticks=2e12, file_start=0):
     """
     Iterate over all files in a run one at a time, accumulating
     hit counts into pre-defined histogram bins.
     Each file's DataFrame is deleted immediately after histogramming
     to keep peak memory to a single file at a time.
+
+    Parameters
+    ----------
+    good_channels : dict {vmm_id: array-like of channel indices} or None
+        If provided, only hits on these channels are counted per VMM.
+        Falls back to get_connected_channels when None.
     """
     from vmm_io import get_connected_channels
 
@@ -1374,12 +2050,15 @@ def _accumulate_run_histograms(run_dir, trig_vmm, trig_ch,
         c, _   = np.histogram(t_s[m_trig.values], bins=bins)
         trig_counts += c
 
-        # Detector counts — connected channels only
+        # Detector counts — good channels only
         for vmm_id in detector_vmms:
-            channels = get_connected_channels(vmm_id)
+            if good_channels is not None and vmm_id in good_channels:
+                chs = good_channels[vmm_id]
+            else:
+                chs = get_connected_channels(vmm_id)
             m = df["vmm"] == vmm_id
-            if channels is not None:
-                m &= df["ch"].isin(channels)
+            if chs is not None and len(chs) > 0:
+                m &= df["ch"].isin(chs)
             c, _ = np.histogram(t_s[m.values], bins=bins)
             det_counts[vmm_id] += c
 
@@ -1395,6 +2074,9 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
                                   n_files=99,
                                   spill_threshold_khz=1.0,
                                   min_spill_s=1.0,
+                                  max_gap_s=0.0,
+                                  good_channels=None,
+                                  normalize_per_channel=True,
                                   file_start=0):
     """
     For each run compute the mean hit rate during spill-on and spill-off
@@ -1418,13 +2100,25 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
         Minimum duration (seconds) of a contiguous above-threshold region
         to be counted as a real spill. Shorter bursts (e.g. startup
         artifacts at t≈0) are reclassified as spill-off. Default 1.0 s.
+    max_gap_s : float
+        Maximum gap (seconds) between two on-regions that will be filled
+        in (hole-filling). Handles bins that dip below threshold mid-spill
+        due to SPS bunch microstructure at low beam intensity. 0 disables.
+    good_channels : dict {vmm_id: array-like} or None
+        Pre-built set of good (connected, non-dead, non-noisy) channels
+        per VMM. Built by build_good_channels(). If None, falls back to
+        all connected channels.
+    normalize_per_channel : bool
+        If True (default), divide the VMM rate by the number of good
+        channels so rates are expressed per channel — making VMMs with
+        different numbers of connected pads directly comparable.
 
     Returns
     -------
     DataFrame with columns:
         run_no, sg, snt, vmm_id,
-        rate_on_khz, rate_off_khz,
-        trig_rate_on_khz, n_on_bins, n_off_bins
+        rate_on_khz, rate_off_khz,   (per good channel if normalize_per_channel)
+        trig_rate_on_khz, n_on_bins, n_off_bins, n_good_channels
     """
     trig_vmm = list(trigger_ref_channels.keys())[0]
     trig_ch  = trigger_ref_channels[trig_vmm]
@@ -1460,13 +2154,15 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
         trig_counts, det_counts = _accumulate_run_histograms(
             run_dir, trig_vmm, trig_ch,
             detector_vmms, bins, n_load,
+            good_channels=good_channels,
             file_start=file_start
         )
 
         trig_rate_khz  = trig_counts / bin_width_s / 1e3
         min_spill_bins = max(1, int(min_spill_s / bin_width_s))
+        max_gap_bins   = max(0, int(max_gap_s   / bin_width_s))
         on_mask, off_mask = compute_spill_masks(
-            trig_rate_khz, spill_threshold_khz, min_spill_bins
+            trig_rate_khz, spill_threshold_khz, min_spill_bins, max_gap_bins
         )
         n_on  = on_mask.sum()
         n_off = off_mask.sum()
@@ -1483,6 +2179,18 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
             rate_on  = det_rate_khz[on_mask].mean()
             rate_off = (det_rate_khz[off_mask].mean()
                         if n_off > 0 else np.nan)
+
+            if good_channels is not None and vmm_id in good_channels:
+                n_good = max(1, len(good_channels[vmm_id]))
+            else:
+                from vmm_io import get_connected_channels
+                chs = get_connected_channels(vmm_id)
+                n_good = 64 if chs is None else len(chs)
+
+            if normalize_per_channel:
+                rate_on  = rate_on  / n_good
+                rate_off = rate_off / n_good
+
             records.append({
                 "run_no"           : run_no,
                 "sg"               : sg,
@@ -1493,6 +2201,7 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
                 "trig_rate_on_khz" : trig_rate_on,
                 "n_on_bins"        : n_on,
                 "n_off_bins"       : n_off,
+                "n_good_channels"  : n_good,
             })
 
         print(f"    on={n_on} bins  off={n_off} bins  "
