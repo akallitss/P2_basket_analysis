@@ -1,0 +1,403 @@
+================================================================================
+  P2 BASKET DETECTOR — BAKING BUCKLING PROBLEM
+  What we are trying to understand, what we know, and what we are missing
+================================================================================
+
+Last updated: May 2026
+Contact: P2 basket analysis team
+
+
+--------------------------------------------------------------------------------
+1. WHAT IS THE DETECTOR AND WHAT ARE WE TRYING TO UNDERSTAND?
+--------------------------------------------------------------------------------
+
+We are building a Bulk Micromegas particle detector called the "P2 basket".
+The core part of this detector is a very thin stainless steel wire mesh
+(like a fine metallic fabric) that is stretched flat over a printed circuit
+board (PCB). The mesh must stay perfectly flat and taut to work correctly —
+any waves or wrinkles in the mesh ruin the detector performance.
+
+One step in the manufacturing process is BAKING: we heat the detector to
+146 degrees Celsius for a period of time. This step is necessary for the
+detector to function correctly (it cures the adhesive that holds things in
+place).
+
+THE PROBLEM: After baking, we sometimes see that the mesh has developed small
+waves or wrinkles. This is called "buckling". We want to understand:
+
+  (a) WHY does the mesh buckle during baking?
+  (b) WHEN exactly does it happen (at what temperature, at what mesh tension)?
+  (c) How can we PREVENT it from happening?
+
+
+--------------------------------------------------------------------------------
+2. WHAT HOLDS THE MESH IN PLACE? (THE STRUCTURE)
+--------------------------------------------------------------------------------
+
+The mesh is not just floating — it is bonded to the PCB at many points:
+
+  - WALL FRAME: The edges of the mesh are glued to the outer frame of the PCB
+    all around the perimeter. This is a 1 mm wide border.
+
+  - PILLARS: Inside the detector, there are small columns of adhesive
+    (called "Dynamask photoresist pillars") that stick up from the PCB and
+    are bonded to the underside of the mesh. These pillars are arranged in a
+    regular grid with 3 mm spacing between them. They hold the mesh at a
+    controlled distance from the PCB surface.
+
+The mesh is stretched (pre-tensioned) before being bonded. This tension is
+what keeps it flat — like the skin of a drum.
+
+
+--------------------------------------------------------------------------------
+3. WHY DOES BAKING CAUSE BUCKLING? (THE PHYSICAL MECHANISM)
+--------------------------------------------------------------------------------
+
+All materials expand when heated. The key issue here is that the stainless
+steel mesh and the PCB DO NOT EXPAND BY THE SAME AMOUNT.
+
+When you heat something by 1 degree Celsius:
+  - Stainless steel (SS316L) expands by 16 millionths of its length per degree
+  - FR4 / PCB material expands by approximately 14 millionths of its length
+    per degree (this number is UNCERTAIN — see Section 5)
+
+This difference in expansion rate is small (only 2 millionths per degree) but
+over 121 degrees of baking (from 25°C to 146°C) it adds up.
+
+Here is what happens step by step:
+
+  Step 1 — Before baking:
+    The mesh is stretched flat. It is under tension (like a drum skin pulled
+    tight). This tension is what keeps it flat.
+
+  Step 2 — Heating begins:
+    Both the mesh and the PCB start to expand. BUT the PCB expands slightly
+    LESS than the mesh would like to.
+
+  Step 3 — The PCB drags the mesh:
+    Because the mesh is BONDED to the PCB at the pillars and the wall frame,
+    the PCB pulls the mesh inward. The PCB is contracting relative to the
+    mesh's natural size. This creates a COMPRESSIVE force inside the mesh
+    (a force that pushes inward from all sides, trying to squeeze the mesh).
+
+  Step 4 — Two forces compete:
+    - PRE-TENSION: pulls the mesh outward (keeps it flat)
+    - BAKING COMPRESSION: pushes the mesh inward (tries to crumple it)
+
+  Step 5 — Buckling:
+    If the baking compression grows larger than the pre-tension, the mesh
+    loses its ability to stay flat and collapses into waves. This is called
+    buckling.
+
+The temperature at which buckling starts depends on how strong the pre-tension
+is. Higher tension = can resist more compression = can survive higher
+temperatures.
+
+
+--------------------------------------------------------------------------------
+4. THE SIMPLE FORMULA (HOW WE CALCULATE THIS)
+--------------------------------------------------------------------------------
+
+We describe the competition between pre-tension and baking compression using
+a single number called LAMBDA (λ):
+
+    λ  =  Pre-tension force  /  Baking compression force
+
+    λ > 1  →  pre-tension wins  →  mesh survives baking flat
+    λ = 1  →  balanced exactly  →  mesh buckles at exactly 146°C
+    λ < 1  →  compression wins  →  mesh buckles BEFORE end of baking
+
+If λ < 1, we can also calculate at what temperature buckling first appears:
+
+    Temperature at buckling  ≈  25°C  +  λ × 121°C
+
+Example: if λ = 0.5, buckling starts at 25 + 0.5 × 121 = 85°C.
+
+The baking compression force (per unit width of mesh) is:
+
+    Compression  =  (Mesh stiffness)  ×  (CTE difference)  ×  (Temperature rise)
+
+Where:
+  - Mesh stiffness   = how strongly the mesh resists being squeezed
+                       (depends on wire material, wire size, and weave geometry)
+  - CTE difference   = how much more the SS expands than the PCB per degree
+                       (CTE = Coefficient of Thermal Expansion)
+  - Temperature rise = 146°C − 25°C = 121°C
+
+
+--------------------------------------------------------------------------------
+5. WHAT WE KNOW
+--------------------------------------------------------------------------------
+
+5.1  THE MESH
+----------
+  Material:       Stainless steel SS316L
+  Wire diameter:  18 micrometres (0.018 mm)
+  Wire pitch:     45 micrometres (0.045 mm) — centre-to-centre spacing
+  CTE of SS316L:  16 × 10⁻⁶ per degree Celsius
+                  (this means: 16 millionths of its length per °C)
+                  THIS VALUE IS WELL KNOWN AND RELIABLE.
+
+5.2  THE BAKING PROCESS
+-------------------
+  Starting temperature:  25°C  (room temperature)
+  Baking temperature:    146°C
+  Temperature rise:      121°C
+
+5.3  THE MESH PRE-TENSIONS WE HAVE TESTED
+--------------------------------------
+  We have tested four different mesh tensions:
+    300 N/m  (= 3 N/cm)
+    500 N/m  (= 5 N/cm)
+    700 N/m  (= 7 N/cm)
+   1000 N/m  (= 10 N/cm)
+
+  (N/m = Newtons per metre, a standard unit for force per unit width.
+   Think of it as: how hard you are pulling the mesh per centimetre of width.)
+
+5.4  THE PILLAR STRUCTURE
+---------------------
+  Pillar material:  Dynamask photoresist (a UV-cured adhesive)
+  Pillar pitch:     3 mm (distance between adjacent pillars)
+  Wall frame:       1 mm wide glued border around the perimeter
+
+5.5  WHAT WE HAVE OBSERVED EXPERIMENTALLY
+--------------------------------------
+  - At 7 N/cm: very narrow waves appear after baking
+  - At tensions below approximately 10 N/cm: waves appear after baking
+  - At tensions at or above 10 N/cm: no visible waves after baking
+  - At LOW tensions: waves start appearing during baking at temperatures
+    as low as 60°C (not just at the end of the bake)
+  - The waves are "narrow" — this suggests they appear between the pillars
+    (the pillar spacing of 3 mm sets the scale of the wrinkles)
+
+
+--------------------------------------------------------------------------------
+6. WHAT WE DO NOT KNOW (THE MISSING INFORMATION)
+--------------------------------------------------------------------------------
+
+There are two critical unknowns that prevent us from making a reliable
+prediction. These are the things we need help finding.
+
+
+6.1  THE CTE OF THE PCB MATERIAL  [MOST IMPORTANT — HIGH PRIORITY]
+--------------------------------------------------------------
+  The PCB is made from Shengyi S1000-2M, which is a special high-performance
+  FR4-type material. Its exact thermal expansion coefficient has NOT been
+  published by the manufacturer.
+
+  Why this matters so much:
+    The DIFFERENCE between the CTE of the SS mesh and the CTE of the PCB is
+    what drives the buckling. Even a small change in the PCB CTE makes a big
+    difference to the result.
+
+    Example:
+      If PCB CTE = 14 × 10⁻⁶ /°C  →  difference = 2 × 10⁻⁶ /°C
+      If PCB CTE = 12 × 10⁻⁶ /°C  →  difference = 4 × 10⁻⁶ /°C  (DOUBLES the compression!)
+      If PCB CTE = 10 × 10⁻⁶ /°C  →  difference = 6 × 10⁻⁶ /°C  (TRIPLES the compression!)
+
+  What we need:
+    The in-plane CTE of Shengyi S1000-2M, ideally in the X-Y direction
+    (the direction parallel to the PCB surface — NOT the Z direction through
+    the thickness, which is a different number and less relevant here).
+
+  How to get it:
+    Option A — Ask Shengyi directly. They may have a datasheet value they
+               have not published, or they can measure it.
+    Option B — Find a colleague who has measured CTE of similar PCB materials
+               and can provide a reference or measurement.
+    Option C — Measure it: heat a PCB sample of known length and measure
+               how much it expands (dilatometry or strain gauge measurement).
+
+  Standard FR4 in-plane CTE is typically between 14 and 18 × 10⁻⁶ /°C.
+  High-performance laminates like S1000-2M often have LOWER in-plane CTE
+  (sometimes as low as 10–12 × 10⁻⁶ /°C), which would make buckling WORSE
+  because the difference with SS increases.
+
+
+6.2  THE EFFECTIVE STIFFNESS OF THE WOVEN SS MESH
+---------------------------------------------
+  The mesh is a woven fabric of SS wires. Its resistance to being compressed
+  in its own plane is not simply the stiffness of solid stainless steel —
+  it depends on the wire weave geometry, wire diameter, and wire pitch.
+
+  For a woven mesh, the effective stiffness can range quite widely depending
+  on how tight the weave is and how much the wires are pre-tensioned (which
+  can straighten out the natural crimping of the wires).
+
+  Why this matters:
+    The compression force the mesh experiences during baking depends directly
+    on how stiff the mesh is. A stiffer mesh means more compression force for
+    the same thermal mismatch.
+
+  What we need:
+    The effective in-plane membrane stiffness of the mesh, expressed as
+    E × t  (Young's modulus × effective thickness, in N/m or MN/m).
+
+  How to get it:
+    The most reliable method for a pre-tensioned wire mesh is the
+    VIBRATION METHOD:
+      - Stretch the mesh to a known tension T (in N/m)
+      - Measure the resonant (natural) frequency f of the mesh vibrating
+        like a drum skin
+      - The stiffness can be extracted from the formula:
+          f = (1 / 2L) × sqrt(T / ρ_surface)
+        where L is the side length and ρ_surface is the mesh mass per unit area.
+    This is a well-established technique in Micromegas detector construction.
+    Some detector groups (CERN, CEA Saclay) have done this routinely.
+
+  Alternative:
+    If someone has already characterised the stiffness of this exact mesh
+    (45 μm pitch, 18 μm wire, SS316L) under similar pre-tension, that
+    value can be used directly.
+
+
+6.3  BEHAVIOUR OF THE DYNAMASK ADHESIVE DURING BAKING  [SECONDARY]
+-------------------------------------------------------------
+  The pillars that hold the mesh are made of Dynamask photoresist. This
+  is a UV-cured adhesive. We do not know how its mechanical properties
+  change at baking temperatures (does it soften? does it partially release
+  the bond?).
+
+  If Dynamask softens significantly at 60–146°C, the pillar bonds could
+  partially release, which would reduce the effective pre-tension during
+  the hottest part of the bake — making buckling worse.
+
+  What we need:
+    The glass transition temperature (Tg) of cured Dynamask photoresist.
+    If Tg > 146°C, softening is not an issue.
+    If Tg < 146°C, the adhesive softens during baking and this is a
+    contributing factor.
+
+  How to get it:
+    Contact the Dynamask manufacturer (MRC / Riston / DuPont depending on
+    which product is used) and ask for the Tg of their cured film.
+
+
+--------------------------------------------------------------------------------
+7. WHAT THE EXPERIMENT ALREADY TELLS US (EVEN WITHOUT THE MISSING DATA)
+--------------------------------------------------------------------------------
+
+Even without knowing the individual values of PCB CTE and mesh stiffness,
+the experimental observations constrain their COMBINED effect:
+
+  From the observation that 10 N/cm (1000 N/m) is approximately the
+  threshold tension for buckling at 146°C, we can calculate the combined
+  compression force at full bake:
+
+    Compression at 146°C  ≈  1000 N/m  (≈ 10 N/cm)
+
+  And for lower tensions where waves appear at 60°C (ΔT = 35°C from room):
+    Compression at 60°C  ≈  T_buckle × (35/121)
+
+  This tells us the combined product (mesh stiffness × CTE difference):
+    Combined factor  ≈  1000 / 121  ≈  8.3  N/m per degree Celsius
+
+  Once we know the PCB CTE (and therefore the CTE difference), we can
+  calculate what the mesh stiffness must be, and vice versa.
+
+
+--------------------------------------------------------------------------------
+8. HOW TO PREVENT BUCKLING — OPTIONS TO CONSIDER
+--------------------------------------------------------------------------------
+
+Based on the physics, there are four ways to prevent the mesh from buckling:
+
+  OPTION 1 — INCREASE PRE-TENSION
+    Use a higher mesh tension (above the buckling threshold).
+    From experiment, this threshold is around 10 N/cm at 146°C.
+    Going to 12–15 N/cm would give a safety margin.
+    Constraint: higher tension is mechanically harder to achieve and
+    maintain during the gluing process, and may affect detector performance.
+
+  OPTION 2 — REDUCE BAKING TEMPERATURE
+    If the process allows, bake at a lower temperature (e.g. 120°C instead
+    of 146°C). This reduces the temperature rise ΔT and therefore the
+    compression force. The required tension to survive is proportionally lower.
+    Constraint: the baking temperature may be required for the Dynamask
+    cure or other detector specifications.
+
+  OPTION 3 — CHOOSE A PCB MATERIAL WITH HIGHER CTE
+    If the PCB material expanded at the SAME rate as SS (CTE = 16 × 10⁻⁶),
+    there would be zero differential expansion and zero buckling compression.
+    Using a PCB laminate with CTE closer to 16 × 10⁻⁶ (rather than the
+    current ~14 × 10⁻⁶ or lower) would reduce or eliminate the problem.
+    Constraint: other PCB properties (dielectric constant, dimensional
+    stability, radiation tolerance) may be the primary selection criteria.
+
+  OPTION 4 — REDUCE PILLAR SPACING
+    The waves we observe are narrow, approximately matching the 3 mm pillar
+    pitch. Reducing pillar spacing (e.g. to 2 mm or 1.5 mm) would increase
+    the local buckling resistance of each inter-pillar cell.
+    Constraint: detector physics requirements may limit pillar density
+    (pillars block or disturb the electric field in the gas gap).
+
+
+--------------------------------------------------------------------------------
+9. SUMMARY OF QUESTIONS FOR COLLEAGUES
+--------------------------------------------------------------------------------
+
+These are the specific questions where external input would help most:
+
+  Q1.  Do you know the in-plane CTE (X-Y direction) of Shengyi S1000-2M PCB
+       laminate, or of a similar high-performance FR4 material?
+       (We are looking for a number like X × 10⁻⁶ per degree Celsius, measured
+       parallel to the board surface, at temperatures between 25°C and 150°C.)
+
+  Q2.  Has the effective membrane stiffness (E × t, or equivalently the
+       Young's modulus × effective thickness) of a woven SS wire mesh with
+       45 μm pitch and 18 μm wire diameter been measured anywhere?
+       (The vibration method on a pre-tensioned mesh panel would give this.)
+
+  Q3.  Has anyone studied or modelled baking-induced buckling of pre-tensioned
+       Micromegas meshes bonded with Dynamask pillars? Are there published
+       results or internal CERN/detector group notes on this?
+
+  Q4.  What is the glass transition temperature (Tg) of fully cured Dynamask
+       photoresist film? Does it soften noticeably below 146°C?
+
+
+--------------------------------------------------------------------------------
+10. WHAT WE HAVE TRIED SO FAR (SIMULATION WORK)
+--------------------------------------------------------------------------------
+
+We have set up a finite element model of the mesh using FreeCAD and CalculiX.
+The mesh geometry has approximately 100,000 nodes.
+
+We ran two types of simulations:
+
+  GLUE STIFFNESS SWEEP (completed):
+    We varied the stiffness of the pillar bond (from very soft to very rigid)
+    and looked at how this changes the buckling behaviour. Results showed
+    that when pillar stiffness is too high, artificial numerical modes appear
+    in the simulation and make the results unreliable. Physically realistic
+    stiffness values give cleaner results.
+
+  BAKING BUCKLING SIMULATION (attempted, then replaced by analytical formula):
+    We tried to simulate the exact baking scenario in CalculiX. We discovered
+    that the version of CalculiX included with FreeCAD 0.20 does NOT support
+    thermal loads as the reference load in a buckling analysis step. We
+    therefore calculated the buckling threshold using a simple analytical
+    formula instead.
+
+  ANALYTICAL RESULT (current best estimate):
+    The formula for the buckling safety factor is:
+
+        λ  =  T_pre  /  (K_mesh × Δα × ΔT)
+
+    Where:
+        T_pre   = mesh pre-tension [N/m]
+        K_mesh  = effective mesh stiffness [N/m] — UNKNOWN, see Section 6.2
+        Δα      = CTE difference between SS and PCB [per °C] — UNCERTAIN,
+                  see Section 6.1
+        ΔT      = 121°C (baking temperature rise)
+
+    This formula is physically exact for a uniform pre-tensioned membrane.
+    Its accuracy depends entirely on knowing Δα and K_mesh correctly.
+    Right now we are using estimated values for both, which is why the
+    predicted threshold does not precisely match the experimental one.
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================
