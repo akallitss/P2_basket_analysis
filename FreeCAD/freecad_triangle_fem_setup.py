@@ -224,10 +224,10 @@ def create_triangle_fcstd(save_path, log):
     mesh_obj.Part = solid_obj
     mesh_obj.CharacteristicLengthMin = 2.0
     mesh_obj.CharacteristicLengthMax = 5.0
-    mesh_obj.ElementOrder = "1st"
+    mesh_obj.ElementOrder = "2nd"
     doc.recompute()
 
-    info(log, "  Running Gmsh (char. length 2–5 mm) ...")
+    info(log, "  Running Gmsh (char. length 2–5 mm, C3D10) ...")
     gmsh_tool = gmshtools.GmshTools(mesh_obj)
     gmsh_msg  = gmsh_tool.create_mesh()
     if gmsh_msg:
@@ -413,16 +413,23 @@ def write_inp(work_dir, mesh_nodes, mesh_elements,
             f.write("{}, {:.6f}, {:.6f}, {:.6f}\n".format(nid, x, y, z))
 
         # Elements
-        # FreeCAD/Gmsh returns tet nodes in left-handed order; CalculiX C3D4
-        # expects right-handed.  Swapping nodes at positions 1 and 2 reverses
-        # the winding (same fix that importCcxInpMesh.py applies internally).
+        # FreeCAD/Gmsh returns tet nodes in left-handed order; CalculiX expects
+        # right-handed.  Swapping corner positions 1 and 2 reverses the winding.
+        # For C3D10, the six midside nodes must be remapped consistently so each
+        # midside stays on its correct edge after the corner swap:
+        #   Gmsh:     corners (0,1,2,3), midsides (01,12,02,03,13,23)
+        #   After swap 1↔2: corners (0,2,1,3), midsides must become (02,12,01,03,23,13)
+        #   i.e. output positions [4..9] = old [6,5,4,7,9,8]
         f.write("*ELEMENT, TYPE={}, ELSET=EALL\n".format(etype))
         for eid, enodes in sorted(mesh_elements.items()):
-            if len(enodes) == 4:
-                out = (enodes[0], enodes[2], enodes[1], enodes[3])
+            n = enodes
+            if len(n) == 4:
+                out = (n[0], n[2], n[1], n[3])
+            elif len(n) == 10:
+                out = (n[0], n[2], n[1], n[3], n[6], n[5], n[4], n[7], n[9], n[8])
             else:
-                out = enodes
-            f.write("{}, {}\n".format(eid, ", ".join(str(n) for n in out)))
+                out = n
+            f.write("{}, {}\n".format(eid, ", ".join(str(x) for x in out)))
 
         # Material (E in MPa for CalculiX when geometry is in mm)
         f.write("*MATERIAL, NAME=TRIANGLEMESH\n")
@@ -666,8 +673,8 @@ def run_sweep():
         return
 
     # Open or create the triangle document.
-    # If the saved FCStd has a C3D10 mesh (quadratic — ill-shaped Jacobian risk),
-    # delete it and regenerate with C3D4 (first-order, no mid-edge nodes).
+    # If the saved FCStd has a C3D4 mesh (from a previous run), delete it so
+    # Gmsh regenerates the C3D10 (2nd-order) mesh.
     def _mesh_order(doc_obj):
         for obj in doc_obj.Objects:
             if hasattr(obj, "FemMesh"):
@@ -680,8 +687,8 @@ def run_sweep():
         info(log, "\nOpening: " + FCSTD_PATH)
         doc = FreeCAD.openDocument(FCSTD_PATH)
         order = _mesh_order(doc)
-        if order > 4:
-            info(log, "  Mesh is {}-node (C3D10) — regenerating as C3D4 ...".format(order))
+        if order == 4:
+            info(log, "  Mesh is C3D4 (old) — regenerating as C3D10 ...")
             FreeCAD.closeDocument(doc.Name)
             try:
                 os.remove(FCSTD_PATH)
@@ -691,7 +698,7 @@ def run_sweep():
                 return
             doc = None
         else:
-            info(log, "  Mesh is C3D4 — OK")
+            info(log, "  Mesh is {}-node (C3D10) — OK".format(order))
     else:
         doc = None
 

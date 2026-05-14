@@ -1,0 +1,62 @@
+============================================================
+P2 basket — Gmsh re-mesh tension sweep
+Tensions : [300, 700, 1000] N/m  ([3, 7, 10] N/cm)
+Gmsh     : CharacteristicLength 2.0-5.0 mm, C3D10
+============================================================
+CalculiX: C:\Program Files\FreeCAD 0.20\bin\ccx.exe
+
+Creating Gmsh basket mesh ...
+  Opening original basket FCStd: C:\Temp\fc_v4_open.FCStd
+  Found solid body: 'fr4' (1 solids)
+  Running Gmsh (char. length 2.0-5.0 mm, C3D10) ...
+  Mesh: 137652 nodes, 68144 volume elements
+  Saved: C:\Temp\basket_gmsh_fem.FCStd
+
+Mesh object: 'FEMMeshGmsh' (137652 nodes)
+
+Extracting mesh data ...
+  Element vol sign: 0 positive, 68144 negative — majority sign = -1
+  Mesh nodes: 137652  Volume elements: 68144
+  Element type: C3D10 (10-node)
+
+Building basket BC node sets ...
+  Hull: 15 outer vertices → 15 inner vertices
+  Wall BC nodes: 2136
+  Pillar BC nodes: 18354
+
+--- T = 300 N/m  (3 N/cm) ---
+  T=300 N/m  →  ΔT=12.00 K  →  T_applied=288.00 K
+  Running CalculiX: C:\Users\alexa\AppData\Local\Temp\bask_T300_h0ul3imw\basket.inp
+  Parsing FRD: C:\Users\alexa\AppData\Local\Temp\bask_T300_h0ul3imw\basket.frd
+  FRD: 137652 nodes, 137652 disp, 137652 stress
+  Extracted 137652 result nodes
+  Saved: C:\Users\alexa\PycharmProjects\P2_basket_analysis\FreeCAD\results\basket_gmsh_simulation\basket_gmsh_T0300Nm.csv
+  max|Uz| = 0.0005 mm  (0.5 µm)
+  max vonMises = 1.4999 MPa
+
+--- T = 700 N/m  (7 N/cm) ---
+  T=700 N/m  →  ΔT=28.00 K  →  T_applied=272.00 K
+  Running CalculiX: C:\Users\alexa\AppData\Local\Temp\bask_T700_yqbnkiha\basket.inp
+  Parsing FRD: C:\Users\alexa\AppData\Local\Temp\bask_T700_yqbnkiha\basket.frd
+  FRD: 137652 nodes, 137652 disp, 137652 stress
+  Extracted 137652 result nodes
+  Saved: C:\Users\alexa\PycharmProjects\P2_basket_analysis\FreeCAD\results\basket_gmsh_simulation\basket_gmsh_T0700Nm.csv
+  max|Uz| = 0.0012 mm  (1.2 µm)
+  max vonMises = 3.4997 MPa
+
+--- T = 1000 N/m  (10 N/cm) ---
+  T=1000 N/m  →  ΔT=40.00 K  →  T_applied=260.00 K
+  Running CalculiX: C:\Users\alexa\AppData\Local\Temp\bask_T1000_2f42pb7v\basket.inp
+  Parsing FRD: C:\Users\alexa\AppData\Local\Temp\bask_T1000_2f42pb7v\basket.frd
+  FRD: 137652 nodes, 137652 disp, 137652 stress
+  Extracted 137652 result nodes
+  Saved: C:\Users\alexa\PycharmProjects\P2_basket_analysis\FreeCAD\results\basket_gmsh_simulation\basket_gmsh_T1000Nm.csv
+  max|Uz| = 0.0017 mm  (1.7 µm)
+  max vonMises = 4.9995 MPa
+
+Summary saved: C:\Users\alexa\PycharmProjects\P2_basket_analysis\FreeCAD\results\basket_gmsh_simulation\basket_gmsh_summary.csv
+
+============================================================
+All 3 steps completed.
+Results: C:\Users\alexa\PycharmProjects\P2_basket_analysis\FreeCAD\results\basket_gmsh_simulation
+============================================================
