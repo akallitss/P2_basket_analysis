@@ -77,12 +77,12 @@ def main():
     root_file_index = 2
     out_dir     = "/drf/projets/clas12/P2/akallits/plots_trigger"
     show        = False
-    config_file = "vmm_config_scan_5kHz.csv"
-    # config_file = "vmm_config_scan_15kHz.csv"
+    # config_file = "vmm_config_scan_5kHz.csv"
+    config_file = "vmm_config_scan_15kHz.csv"
     rate_tag    = config_file.replace("vmm_config_scan_", "").replace(".csv", "")
 
-    test_run = 67
-    # test_run = 149
+    # test_run = 82
+    test_run = 149
     # test_run = 158
 
     # ── Step 0: channel diagnostics (hits per channel) ──────
@@ -111,11 +111,23 @@ def main():
     # A channel with elevated OFF rate is genuinely noisy.
     # A channel with elevated ON rate only is a beam-hit pad — not noise.
     # Results are stored so Step 0c can reuse them without extra file reads.
+    # diagnostic_runs = [
+    #     (67, 3.0, 200),
+    #     (70, 3.0, 100),
+    #     (73, 3.0, 50),
+    #     (97, 4.5, 50),
+    #     (78, 4.5, 200),
+    #     (82, 4.5, 100),
+    #     (99, 6.0, 200),
+    # ] # for the 5kHz
+
     diagnostic_runs = [
-        (158, 3.0,  50),
+        (149, 3.0, 200),
+        (156, 3.0, 100),
+        (158, 3.0, 50),
         (152, 4.5, 200),
         (155, 6.0, 200),
-    ]
+    ] # runs for the 15kHz
     per_ch_all_runs  = []
     per_ch_by_run    = {}
     for run_no, sg, snt in diagnostic_runs:
@@ -250,8 +262,8 @@ def main():
         good_channels        = good_channels,
     )
 
-    df_spill.to_csv("vmm_spill_rates_5kHz.csv", index=False)
-    # df_spill.to_csv("vmm_spill_rates_15kHz.csv", index=False)
+    # df_spill.to_csv("vmm_spill_rates_5kHz.csv", index=False)
+    df_spill.to_csv("vmm_spill_rates_15kHz.csv", index=False)
     print("\n=== Step 4: spill rates — all configs ===")
     print(df_spill.to_string(index=False))
 
@@ -2067,6 +2079,70 @@ def _accumulate_run_histograms(run_dir, trig_vmm, trig_ch,
     return trig_counts, det_counts
 
 
+def _accumulate_per_channel_on_off(run_dir, detector_vmms, good_channels,
+                                   bins, on_mask, off_mask,
+                                   n_files, file_start=0,
+                                   max_time_ticks=2e12):
+    """
+    Third pass: per-channel hit counts split by spill-on / spill-off mask.
+    Returns {vmm_id: {"channels": array, "on": array[n_ch], "off": array[n_ch]}}
+    where on/off are total hit counts per good channel.
+    """
+    from vmm_io import get_connected_channels
+
+    chs_per_vmm = {}
+    ch_on  = {}
+    ch_off = {}
+    for vmm_id in detector_vmms:
+        if good_channels is not None and vmm_id in good_channels:
+            chs = np.array(good_channels[vmm_id])
+        else:
+            c = get_connected_channels(vmm_id)
+            chs = np.arange(64) if c is None else np.array(c)
+        chs_per_vmm[vmm_id] = chs
+        ch_on[vmm_id]  = np.zeros(len(chs), dtype=np.int64)
+        ch_off[vmm_id] = np.zeros(len(chs), dtype=np.int64)
+
+    for df in iter_hits_files(run_dir, n_files=n_files,
+                               branches=["time", "vmm", "ch"],
+                               file_start=file_start):
+        if df is None or df.empty:
+            continue
+        df = df[df["time"] < max_time_ticks]
+        if df.empty:
+            del df
+            continue
+
+        t_s     = df["time"].values * S_PER_TICK
+        bin_idx = np.searchsorted(bins, t_s, side="right").astype(np.intp) - 1
+        valid   = (bin_idx >= 0) & (bin_idx < len(on_mask))
+        is_on   = np.zeros(len(df), dtype=bool)
+        is_on[valid]  = on_mask[bin_idx[valid]]
+        is_off  = np.zeros(len(df), dtype=bool)
+        is_off[valid] = off_mask[bin_idx[valid]]
+
+        vmm_arr = df["vmm"].values
+        ch_arr  = df["ch"].values
+
+        for vmm_id in detector_vmms:
+            m_vmm = vmm_arr == vmm_id
+            if not m_vmm.any():
+                continue
+            ch_vals  = ch_arr[m_vmm]
+            is_on_v  = is_on[m_vmm]
+            is_off_v = is_off[m_vmm]
+            for i, ch in enumerate(chs_per_vmm[vmm_id]):
+                m_ch = ch_vals == ch
+                ch_on[vmm_id][i]  += (is_on_v  & m_ch).sum()
+                ch_off[vmm_id][i] += (is_off_v & m_ch).sum()
+        del df
+
+    return {vmm_id: {"channels": chs_per_vmm[vmm_id],
+                     "on":  ch_on[vmm_id],
+                     "off": ch_off[vmm_id]}
+            for vmm_id in detector_vmms}
+
+
 def compute_spill_rates_all_runs(df_run_scan, data_dir,
                                   sng0_runs, trigger_ref_channels,
                                   detector_vmms,
@@ -2117,7 +2193,8 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
     -------
     DataFrame with columns:
         run_no, sg, snt, vmm_id,
-        rate_on_khz, rate_off_khz,   (per good channel if normalize_per_channel)
+        rate_on_khz, rate_off_khz,         (per good channel if normalize_per_channel)
+        rate_on_std_khz, rate_off_std_khz, (std across good channels)
         trig_rate_on_khz, n_on_bins, n_off_bins, n_good_channels
     """
     trig_vmm = list(trigger_ref_channels.keys())[0]
@@ -2174,6 +2251,14 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
 
         trig_rate_on = trig_rate_khz[on_mask].mean()
 
+        # Per-channel counts for std-across-channels computation
+        t_on_s  = n_on  * bin_width_s
+        t_off_s = n_off * bin_width_s
+        per_ch_counts = _accumulate_per_channel_on_off(
+            run_dir, detector_vmms, good_channels,
+            bins, on_mask, off_mask, n_load, file_start
+        )
+
         for vmm_id in detector_vmms:
             det_rate_khz = det_counts[vmm_id] / bin_width_s / 1e3
             rate_on  = det_rate_khz[on_mask].mean()
@@ -2191,17 +2276,26 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
                 rate_on  = rate_on  / n_good
                 rate_off = rate_off / n_good
 
+            # Std across good channels
+            pc = per_ch_counts[vmm_id]
+            r_on_ch  = pc["on"]  / t_on_s  / 1e3 if t_on_s  > 0 else np.zeros(len(pc["on"]))
+            r_off_ch = pc["off"] / t_off_s / 1e3 if t_off_s > 0 else np.zeros(len(pc["off"]))
+            std_on  = float(r_on_ch.std())  if len(r_on_ch)  > 1 else 0.0
+            std_off = float(r_off_ch.std()) if len(r_off_ch) > 1 else 0.0
+
             records.append({
-                "run_no"           : run_no,
-                "sg"               : sg,
-                "snt"              : snt,
-                "vmm_id"           : vmm_id,
-                "rate_on_khz"      : rate_on,
-                "rate_off_khz"     : rate_off,
-                "trig_rate_on_khz" : trig_rate_on,
-                "n_on_bins"        : n_on,
-                "n_off_bins"       : n_off,
-                "n_good_channels"  : n_good,
+                "run_no"            : run_no,
+                "sg"                : sg,
+                "snt"               : snt,
+                "vmm_id"            : vmm_id,
+                "rate_on_khz"       : rate_on,
+                "rate_off_khz"      : rate_off,
+                "rate_on_std_khz"   : std_on,
+                "rate_off_std_khz"  : std_off,
+                "trig_rate_on_khz"  : trig_rate_on,
+                "n_on_bins"         : n_on,
+                "n_off_bins"        : n_off,
+                "n_good_channels"   : n_good,
             })
 
         print(f"    on={n_on} bins  off={n_off} bins  "
@@ -2356,7 +2450,8 @@ def plot_spill_on_all_vmms(df_spill, vmm_groups, trigger_ref_vmm=0,
 
     is_off    = rate_col == "rate_off_khz"
     tag       = "spill-off (noise floor)" if is_off else "spill-on"
-    ylabel    = f"Detector rate — {tag} (kHz)"
+    std_col   = rate_col.replace("_khz", "_std_khz")
+    ylabel    = f"Avg. rate per channel — {tag} (kHz)"
 
     configs = (
         df_spill[["sg", "snt"]]
@@ -2381,18 +2476,26 @@ def plot_spill_on_all_vmms(df_spill, vmm_groups, trigger_ref_vmm=0,
         for color, vmm_id in zip(colors, vmm_ids):
             det_name = vmm_to_detector.get(vmm_id, "")
             sub_vmm  = df_spill[df_spill["vmm_id"] == vmm_id]
+            has_std  = std_col in df_spill.columns
 
             rates = []
+            stds  = []
             for _, cfg_row in configs.iterrows():
                 sub = sub_vmm[
                     (sub_vmm["sg"]  == cfg_row["sg"]) &
                     (sub_vmm["snt"] == cfg_row["snt"])
                 ]
-                rates.append(sub[rate_col].mean()
-                             if not sub.empty else np.nan)
+                rates.append(sub[rate_col].mean() if not sub.empty else np.nan)
+                stds.append(sub[std_col].mean()   if (has_std and not sub.empty) else 0.0)
+
+            rates = np.array(rates)
+            stds  = np.array(stds)
 
             ax.plot(x, rates, "o-", color=color, linewidth=1.5,
                     label=f"VMM {vmm_id} — {det_name}")
+            if has_std:
+                ax.fill_between(x, np.maximum(0, rates - stds), rates + stds,
+                                alpha=0.15, color=color, linewidth=0)
 
         # Trigger reference on secondary y-axis
         trig_on = []
@@ -2424,7 +2527,8 @@ def plot_spill_on_all_vmms(df_spill, vmm_groups, trigger_ref_vmm=0,
         ax.grid(True, alpha=0.3)
 
         fig.suptitle(
-            f"{group_label} — {tag} rate per VMM vs configuration",
+            f"{group_label} — avg. {tag} rate per channel vs configuration  "
+            f"(shaded band = ±1σ across channels)",
             fontweight="bold"
         )
         plt.tight_layout()
