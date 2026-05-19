@@ -1,0 +1,20 @@
+# Build directory
+build/
+
+# IDE
+.idea/
+
+# Compiled libraries and executables
+*.so
+*.a
+*.o
+*.out
+
+# ROOT generated files
+*.root
+*.pcm
+*.rootmap
+*.d
+
+# Data files
+*.pcapng
