@@ -1,0 +1,20 @@
+G04 #@! TF.FileFunction,NonPlated,1,1,NPTH*
+G04 #@! TF.FilePolarity,Positive*
+G04 #@! TF.SameCoordinates,tov5NBzOuLjLKJ3u1y1mtdWK4NcwDON*
+G04 #@! TF.CreationDate,2023-05-25T08:52:33+0200*
+G04 #@! TF.GenerationSoftware,Ucamco,UcamX,v2022.09-221024*
+%FSLAX26Y26*%
+%MOIN*%
+%SRX1Y1I0.000000J0.000000*%
+G04 layer name: Activearea*
+%LPD*%
+G04 #@! TO.N, 0*
+G36*
+X-9842520Y-7874016D02*
+X9842520D01*
+Y7874016D01*
+X-9842520D01*
+Y-7874016D01*
+G37*
+%LPD*%
+M02*

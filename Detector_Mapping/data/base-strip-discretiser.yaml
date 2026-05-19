@@ -1,0 +1,10 @@
+areas:
+  1: # Matches the "Pad_area" value in your JSON
+    axis: "x"     # Tells the code to use Pad_pos_x to calculate the index
+    start: 75.176  # Position of the first strip (index 0)
+    pitch: 1.2   # Spacing between strips
+  2:
+    axis: "y"     # Tells the code to use Pad_pos_y
+    start: 91.631
+    pitch: 1.2
+

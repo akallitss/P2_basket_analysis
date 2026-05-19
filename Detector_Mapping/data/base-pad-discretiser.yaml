@@ -1,0 +1,7 @@
+#Position of first pad
+PAD_X0: 0
+PAD_Y0: 0
+
+#Pad spacing
+DEL_X: 0
+DEL_Y: 0

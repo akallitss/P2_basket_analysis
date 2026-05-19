@@ -1,0 +1,7 @@
+# Track Settings
+MAX_TRACK_WIDTH_MM: 0.18
+MAX_MERGE_DIST_MM: 0.1
+
+#Pin dimensions in mm (assuming standard rectangle)
+MAX_PIN_L1: 0.55
+MAX_PIN_L2: 2.5
