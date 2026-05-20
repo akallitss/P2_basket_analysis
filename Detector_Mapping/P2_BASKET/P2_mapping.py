@@ -6,6 +6,7 @@ Signal path:
   RotRect SMDPad (connector signal pin, F_Cu) — carries TO.P (J<n>, pin, pinname)
                                                       and TO.N (/Sector<n>/Sig<m>)
     → F_Cu trace → ViaPad (0.8 mm, carries same TO.N) → B_Cu trace → strip endpoint
+    → FPC connector → K59V adapter card (Fx2Mec8.net) → MEC8 connector + pin → VMM
 
 Strategy (net-name guided, exact):
   1. Read F_Cu RotRect connector pads with TO.P / TO.N attributes
@@ -14,10 +15,12 @@ Strategy (net-name guided, exact):
   3. Read B_Cu conductor polylines; for each long polyline find the endpoint
      nearest to a known via → net → strip endpoint
   4. Join connector pad ↔ via ↔ strip endpoint by net name (exact, no geometry guessing)
+  5. (Optional) parse K59V adapter netlist → strip → MEC8 connector + pin
 
 Output CSV:
   pad_number, x, y, connector_number, connector_pin, pin_name,
-  sector, strip, channel_id, pin_x, pin_y
+  sector, strip, channel_id, pin_x, pin_y, pad_angle,
+  mec8_connector, mec8_pin          ← only when --k59v netlist is provided
 """
 
 import re, csv, argparse
@@ -278,18 +281,75 @@ def find_strip_endpoints(bcu_path, net_to_via, min_span_mm=5.0, via_threshold=0.
     return {net: (x, y) for net, (x, y, _) in net_to_strip_raw.items()}
 
 
+# ── K59V adapter card netlist parser ──────────────────────────────────────────
+
+def parse_k59v_netlist(filepath):
+    """
+    Parse the Fx2Mec8 KiCad netlist (KiCad format E) to extract the
+    strip → MEC8 connector + pin mapping.
+
+    The netlist lists 128 signal nets (/Sig1 … /Sig128).  Each net has two
+    nodes:
+      - J2  (FPC socket):  pinfunction "S<strip>_<fpc_pin>" encodes the strip
+      - JM_1 or JM_2 (MEC8 connectors): pin gives the MEC8 pin number
+
+    Returns
+    -------
+    strip_to_mec8 : dict  {strip_number: (mec8_connector_idx, mec8_pin)}
+        strip_number      : int 1–128
+        mec8_connector_idx: 0 for JM_1, 1 for JM_2
+        mec8_pin          : int (MEC8 physical pin number)
+    """
+    text = open(filepath).read()
+
+    # Extract all signal net blocks
+    net_blocks = re.findall(
+        r'\(net\s+\(code "[^"]+"\)\s+\(name "(/Sig\d+)"\)(.*?)\n\t\t\)',
+        text, re.DOTALL)
+
+    strip_to_mec8 = {}
+    for name, body in net_blocks:
+        nodes = re.findall(
+            r'\(node\s+\(ref "([^"]+)"\)\s+\(pin "([^"]+)"\)'
+            r'\s+\(pinfunction "([^"]+)"\)',
+            body)
+        strip = mec8_idx = mec8_pin = None
+        for ref, pin, pfunc in nodes:
+            if ref == 'J2':
+                m = re.match(r'S(\d+)_\d+', pfunc)
+                if m:
+                    strip = int(m.group(1))
+            elif ref.startswith('JM_'):
+                mec8_idx = int(ref.split('_')[1]) - 1   # JM_1 → 0, JM_2 → 1
+                mec8_pin = int(pin)
+        if strip is not None and mec8_idx is not None:
+            strip_to_mec8[strip] = (mec8_idx, mec8_pin)
+
+    print(f"INFO: K59V netlist — {len(strip_to_mec8)} strips mapped to MEC8 pins")
+    jm_counts = [0, 0]
+    for idx, _ in strip_to_mec8.values():
+        jm_counts[idx] += 1
+    print(f"  JM_1 (connector 0): {jm_counts[0]} strips")
+    print(f"  JM_2 (connector 1): {jm_counts[1]} strips")
+    return strip_to_mec8
+
+
 # ── Main pipeline ──────────────────────────────────────────────────────────────
 
-def build_mapping(fcu_path, bcu_path, min_span_mm=5.0, via_threshold=0.5):
+def build_mapping(fcu_path, bcu_path, k59v_netlist=None,
+                  min_span_mm=5.0, via_threshold=0.5):
     """
-    Full pipeline: Gerber files → list of mapping row dicts.
+    Full pipeline: Gerber files (+ optional K59V netlist) → list of mapping row dicts.
 
-    Row keys:
+    Row keys (always present):
       pad_number, x, y, connector_number, connector_pin, pin_name,
-      sector, strip, channel_id, pin_x, pin_y
+      sector, strip, channel_id, pin_x, pin_y, pad_angle
 
-    channel_id = sector * 128 + (strip - 1), giving a unique 0-based index
-    for all 1280 signal channels.
+    Additional keys when k59v_netlist is provided:
+      mec8_connector  — 0 (JM_1) or 1 (JM_2)
+      mec8_pin        — physical MEC8 pin number (3–68)
+
+    channel_id = sector * 128 + (strip - 1), unique 0-based index 0–1279.
     """
     print("INFO: Parsing F_Cu pad attributes …")
     signal_pads, net_to_via = parse_fcu_attributes(fcu_path)
@@ -301,6 +361,11 @@ def build_mapping(fcu_path, bcu_path, min_span_mm=5.0, via_threshold=0.5):
                                         min_span_mm=min_span_mm,
                                         via_threshold=via_threshold)
 
+    strip_to_mec8 = {}
+    if k59v_netlist:
+        print("INFO: Parsing K59V adapter netlist …")
+        strip_to_mec8 = parse_k59v_netlist(k59v_netlist)
+
     # Sort: connector J0…J9, then physical pin number ascending
     signal_pads.sort(key=lambda p: (int(p['ref'][1:]), p['pin']))
 
@@ -311,7 +376,7 @@ def build_mapping(fcu_path, bcu_path, min_span_mm=5.0, via_threshold=0.5):
         sx = round(strip_pt[0], 4) if strip_pt else ''
         sy = round(strip_pt[1], 4) if strip_pt else ''
 
-        rows.append({
+        row = {
             'pad_number':       pad_number,
             'x':                sx,
             'y':                sy,
@@ -324,7 +389,14 @@ def build_mapping(fcu_path, bcu_path, min_span_mm=5.0, via_threshold=0.5):
             'pin_x':            round(pad['x'], 4),
             'pin_y':            round(pad['y'], 4),
             'pad_angle':        pad['angle'],
-        })
+        }
+
+        if strip_to_mec8:
+            mec8 = strip_to_mec8.get(pad['strip'])
+            row['mec8_connector'] = mec8[0] if mec8 else ''
+            row['mec8_pin']       = mec8[1] if mec8 else ''
+
+        rows.append(row)
 
     matched = sum(1 for r in rows if r['x'] != '')
     print(f"INFO: {matched}/{len(rows)} channels have valid strip coordinates")
@@ -340,6 +412,9 @@ def main():
                         help='Path to P2_BASKET-F_Cu.gbr')
     parser.add_argument('--bcu', required=True,
                         help='Path to P2_BASKET-B_Cu.gbr')
+    parser.add_argument('--k59v', default=None,
+                        help='Path to Fx2Mec8.net (K59V adapter card netlist); '
+                             'adds mec8_connector and mec8_pin columns')
     parser.add_argument('--out', default='P2_BASKET_mapping.csv',
                         help='Output CSV (default: P2_BASKET_mapping.csv)')
     parser.add_argument('--min_span_mm', type=float, default=5.0,
@@ -353,6 +428,7 @@ def main():
     rows = build_mapping(
         fcu_path=args.fcu,
         bcu_path=args.bcu,
+        k59v_netlist=args.k59v,
         min_span_mm=args.min_span_mm,
         via_threshold=args.via_threshold,
     )
@@ -361,6 +437,9 @@ def main():
                   'connector_number', 'connector_pin', 'pin_name',
                   'sector', 'strip', 'channel_id',
                   'pin_x', 'pin_y', 'pad_angle']
+    if args.k59v:
+        fieldnames += ['mec8_connector', 'mec8_pin']
+
     with open(args.out, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
