@@ -34,7 +34,9 @@ def load_csv(path):
     has_mec8 = False
     with open(path) as f:
         reader = csv.DictReader(f)
-        has_mec8 = 'mec8_connector' in reader.fieldnames
+        fnames  = reader.fieldnames or []
+        has_mec8   = 'mec8_connector' in fnames
+        has_polar  = 'radius' in fnames
         for r in reader:
             row = {
                 'pad_number':       int(r['pad_number']),
@@ -50,6 +52,10 @@ def load_csv(path):
                 'pin_y':            float(r['pin_y']),
                 'pad_angle':        float(r['pad_angle']),
             }
+            if has_polar and r.get('radius', '') not in ('', None):
+                row['radius']    = float(r['radius'])
+                row['phi']       = float(r['phi'])
+                row['delta_phi'] = float(r['delta_phi'])
             if has_mec8:
                 row['mec8_connector'] = int(r['mec8_connector'])
                 row['mec8_pin']       = int(r['mec8_pin'])

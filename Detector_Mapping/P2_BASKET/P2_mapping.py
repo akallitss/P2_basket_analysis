@@ -20,6 +20,7 @@ Strategy (net-name guided, exact):
 Output CSV:
   pad_number, x, y, connector_number, connector_pin, pin_name,
   sector, strip, channel_id, pin_x, pin_y, pad_angle,
+  radius, phi, delta_phi,            ← polar coords relative to fan apex
   mec8_connector, mec8_pin          ← only when --k59v netlist is provided
 """
 
@@ -334,6 +335,72 @@ def parse_k59v_netlist(filepath):
     return strip_to_mec8
 
 
+# ── Fan-apex finder ───────────────────────────────────────────────────────────
+
+def apex_from_strips(rows):
+    """
+    Find the convergence point (apex) of the radial strip fan using least-squares
+    line intersection.
+
+    Each strip defines a line through its connector-pad centre (pin_x, pin_y)
+    and strip endpoint (x, y).  The apex is the point minimising the sum of
+    squared perpendicular distances to all these lines.
+
+    Parameters
+    ----------
+    rows : list of dicts with keys 'x', 'y', 'pin_x', 'pin_y'
+
+    Returns
+    -------
+    apex : np.ndarray shape (2,)  — (x_apex, y_apex) in mm
+    """
+    valid = [r for r in rows if r['x'] != '' and r['x'] is not None]
+    M = np.zeros((2, 2))
+    b = np.zeros(2)
+    for r in valid:
+        p  = np.array([float(r['pin_x']), float(r['pin_y'])])
+        q  = np.array([float(r['x']),     float(r['y'])])
+        d  = q - p
+        dn = np.linalg.norm(d)
+        if dn < 1e-6:
+            continue
+        d = d / dn
+        # projection matrix onto line normal: I - d d^T
+        P = np.eye(2) - np.outer(d, d)
+        M += P
+        b += P @ p
+    apex, _, _, _ = np.linalg.lstsq(M, b, rcond=None)
+    return apex
+
+
+def add_polar_coords(rows, apex):
+    """
+    Append radius, phi (radians), delta_phi (radians) to each row in-place.
+    delta_phi = phi[strip_n] - phi[strip_{n-1}] within each connector
+    (sorted by strip number); strip 1 gets delta_phi = 0.
+    """
+    for r in rows:
+        if r['x'] == '' or r['x'] is None:
+            r['radius'] = r['phi'] = r['delta_phi'] = ''
+            continue
+        dx = float(r['x']) - apex[0]
+        dy = float(r['y']) - apex[1]
+        r['radius'] = round(np.hypot(dx, dy), 4)
+        r['phi']    = round(np.arctan2(dy, dx), 8)
+
+    # delta_phi per connector, sorted by strip number
+    from itertools import groupby
+    key = lambda r: r['connector_number']
+    for conn, grp in groupby(sorted(rows, key=key), key=key):
+        strips = sorted([r for r in grp if r['phi'] != ''],
+                        key=lambda r: r['strip'])
+        for i, r in enumerate(strips):
+            if i == 0:
+                r['delta_phi'] = 0.0
+            else:
+                r['delta_phi'] = round(r['phi'] - strips[i - 1]['phi'], 8)
+
+
 # ── Main pipeline ──────────────────────────────────────────────────────────────
 
 def build_mapping(fcu_path, bcu_path, k59v_netlist=None,
@@ -400,6 +467,12 @@ def build_mapping(fcu_path, bcu_path, k59v_netlist=None,
 
     matched = sum(1 for r in rows if r['x'] != '')
     print(f"INFO: {matched}/{len(rows)} channels have valid strip coordinates")
+
+    print("INFO: Computing fan apex and polar coordinates …")
+    apex = apex_from_strips(rows)
+    print(f"  Apex: ({apex[0]:.3f}, {apex[1]:.3f}) mm")
+    add_polar_coords(rows, apex)
+
     return rows
 
 
@@ -436,7 +509,8 @@ def main():
     fieldnames = ['pad_number', 'x', 'y',
                   'connector_number', 'connector_pin', 'pin_name',
                   'sector', 'strip', 'channel_id',
-                  'pin_x', 'pin_y', 'pad_angle']
+                  'pin_x', 'pin_y', 'pad_angle',
+                  'radius', 'phi', 'delta_phi']
     if args.k59v:
         fieldnames += ['mec8_connector', 'mec8_pin']
 
