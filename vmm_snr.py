@@ -30,6 +30,14 @@ from vmm_signal import get_clean_signal, estimate_mpv, estimate_mpv_from_hist
 from vmm_mapping import vmm_mapping
 
 
+def _hist_mean(hist, lo, hi=1022):
+    """Charge-weighted mean of ADC histogram in [lo, hi], saturation excluded."""
+    adc = np.arange(1024, dtype=np.float64)
+    m   = (adc >= lo) & (adc <= hi)   # hi=1022 excludes saturated ADC=1023
+    n   = int(hist[m].sum())
+    return float((adc[m] * hist[m]).sum()) / n if n > 0 else np.nan
+
+
 def compute_adc_stats(df_run_scan, vmm_ids, run_list, data_dir,
                        adc_cut=100, n_files=1,
                        use_over_threshold=True):
@@ -240,6 +248,7 @@ def compute_snr(data_dir, pairs, detector_vmms,
             noise_sigma   = noise_row["robust_sigma"].iloc[0]
             noise_cut     = noise_row["noise_cut"].iloc[0]
             noise_quality = noise_row["quality"].iloc[0]
+            mean_noise    = noise_row["mean_adc"].iloc[0]
 
             if signal_hists[vmm_id].sum() < 100:
                 continue
@@ -250,6 +259,11 @@ def compute_snr(data_dir, pairs, detector_vmms,
             if np.isnan(mpv):
                 continue
             snr = mpv / noise_sigma if noise_sigma > 0 else np.nan
+
+            mean_signal = _hist_mean(signal_hists[vmm_id], lo=noise_cut, hi=1022)
+            snr_mean    = (mean_signal / noise_sigma
+                           if (not np.isnan(mean_signal) and noise_sigma > 0)
+                           else np.nan)
 
             results.append({
                 "sg"           : sg,
@@ -262,6 +276,9 @@ def compute_snr(data_dir, pairs, detector_vmms,
                 "noise_quality": noise_quality,
                 "mpv"          : mpv,
                 "snr"          : snr,
+                "mean_signal"  : mean_signal,
+                "mean_noise"   : mean_noise,
+                "snr_mean"     : snr_mean,
             })
 
         del signal_hists, df_noise_baseline
@@ -269,7 +286,8 @@ def compute_snr(data_dir, pairs, detector_vmms,
     if not results:
         return pd.DataFrame(columns=[
             "sg", "snt", "run_sng0", "run_sng1", "vmm_id",
-            "noise_sigma", "noise_cut", "noise_quality", "mpv", "snr",
+            "noise_sigma", "noise_cut", "noise_quality",
+            "mpv", "snr", "mean_signal", "mean_noise", "snr_mean",
         ])
     return pd.DataFrame(results)
 
@@ -471,6 +489,11 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
                     n_sig += 1
                     continue
 
+                mean_signal_ch = _hist_mean(sig_hist, lo=vmm_noise_cut, hi=1022)
+                snr_mean_ch    = (mean_signal_ch / noise_sigma
+                                  if (not np.isnan(mean_signal_ch) and noise_sigma > 0)
+                                  else np.nan)
+
                 mpv, _, _, _ = estimate_mpv_from_hist(
                     sig_hist,
                     adc_min=vmm_noise_cut,
@@ -478,10 +501,11 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
                 )
                 if np.isnan(mpv) or not (mpv_min <= mpv <= mpv_max):
                     n_mpv += 1
-                    continue
-
-                snr  = mpv / noise_sigma
-                n_ok += 1
+                    mpv = np.nan
+                    snr = np.nan
+                else:
+                    snr  = mpv / noise_sigma
+                    n_ok += 1
 
                 results.append({
                     "sg"               : sg,
@@ -495,6 +519,8 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
                     "vmm_noise_quality": vmm_noise_quality,
                     "mpv_ch"           : mpv,
                     "snr_ch"           : snr,
+                    "mean_signal_ch"   : mean_signal_ch,
+                    "snr_mean_ch"      : snr_mean_ch,
                     "n_signal"         : n_signal_ch,
                     "n_noise"          : n_noise_ch,
                 })
@@ -509,8 +535,9 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
     if not results:
         return pd.DataFrame(columns=[
             "sg", "snt", "run_sng0", "run_sng1", "vmm_id", "ch",
-            "noise_sigma", "noise_cut", "vmm_noise_quality",
-            "mpv_ch", "snr_ch", "n_signal", "n_noise",
+            "noise_sigma_ch", "vmm_noise_cut", "vmm_noise_quality",
+            "mpv_ch", "snr_ch", "mean_signal_ch", "snr_mean_ch",
+            "n_signal", "n_noise",
         ])
     return pd.DataFrame(results)
 
@@ -555,7 +582,7 @@ def summarise_best_config(df_snr, df_snr_ch, detector_vmms):
 
         df_v = df_snr[
             (df_snr["vmm_id"]        == vmm_id) &
-            (df_snr["noise_quality"] == "ok")
+            (df_snr["noise_quality"] != "ok")
         ]
         if df_v.empty:
             continue
@@ -594,6 +621,11 @@ def summarise_best_config(df_snr, df_snr_ch, detector_vmms):
 
     print("="*75)
     print("\nOVERALL RECOMMENDATION:")
+
+    if df_summary.empty:
+        print("  No valid configurations found (all pairs lacked a noise baseline).")
+        print("="*75)
+        return df_summary
 
     vmm_votes = df_summary["vmm_best_config"].value_counts()
     ch_votes  = df_summary["ch_best_config"].value_counts()

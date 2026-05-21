@@ -115,7 +115,7 @@ Separating on-spill from off-spill time is fundamental. The spill-on rate captur
 
 #### Method
 
-Hit counts are aggregated over 3 ROOT files per diagnostic run for all channels (0–63) of each VMM. Channels are then classified relative to the median hit count of connected channels:
+Hit counts are aggregated over 3 ROOT files per run across **all diagnostic runs** for all channels (0–63) of each VMM. Channels are then classified relative to the median hit count of connected channels:
 
 - **Dead**: count `< 10%` × median — disconnected or broken pad
 - **Noisy (total-hit criterion)**: count `> 5×` median — excessively self-triggering at total hit level
@@ -127,8 +127,8 @@ The connected channel range per VMM is defined from the detector geometry (e.g. 
 **Connected channel range**
 Defined in `vmm_mapping.py` from knowledge of the detector geometry — which detector pads are physically wire-bonded to which VMM channel indices. For the small detectors, connector 0 maps to VMM channels 0–31 and connector 1 maps to channels 14–63 (with channels 14–31 shared between connectors). Unconnected channels are excluded from all threshold computations and rate averages. To verify the mapping, check the hit-count plot: connected channels show consistent non-zero counts; unconnected channels either show near-zero counts (floating input at low gain) or anomalously high counts (floating input at high gain, where the open input self-triggers).
 
-**Dead threshold — 10% of median**
-A channel is dead if its total hit count is below 10% of the median hit count among connected channels of the same VMM. This value is standard for hit-based dead channel detection. It can be tightened to 20% if a stricter cut is needed, or relaxed to 5% for short runs with large statistical fluctuations. Channels flagged as dead are visible as firebrick-red bars in the hit-count plot that fall clearly below the median line.
+**Dead threshold — 10% of median, over all diagnostic runs**
+A channel is dead if its total hit count is below 10% of the median hit count among connected channels of the same VMM. Hit counts are aggregated across all diagnostic runs (not only the test run) so that a channel at the beam edge — which may receive fewer hits at a specific gain setting — is not incorrectly flagged as dead. Only channels with consistently low hit counts across all configurations are classified as dead. Channels flagged as dead are visible as firebrick-red bars in the hit-count plot that fall clearly below the median line.
 
 **Noisy threshold for total hits — 5× median**
 Conservative value used for visual diagnostic labeling only. It flags only the most extreme outliers in the total hit count. This threshold is intentionally permissive because total hit count cannot distinguish a beam-hit pad from a genuinely noisy channel — that distinction is handled by the off-spill rate criterion in Step 3b. Channels above 5× median appear as orange bars in the hit-count plot.
@@ -158,11 +158,17 @@ Noisy threshold: off-spill rate `> 3×` median off-spill rate among connected ch
 
 #### Parameter Selection
 
-**Noisy threshold for off-spill rate — 3× median**
-Tighter than the total-hit threshold because the off-spill rate distribution should be narrow: without beam, all connected channels in a well-behaved VMM see similar electronics noise. A channel at 3× the median is already anomalously noisy. The value was chosen empirically: at 5× median, known self-triggering channels were missed; at 2× median, beam-hit pads near the spill boundary (where residual charge briefly elevates the rate in the first ~1 ms after spill end) were incorrectly flagged. The 3× threshold correctly identifies genuine self-triggering while avoiding false positives. In the per-channel rate plots (Step 3b), flagged channels appear as orange bars in the spill-off panel; they should have elevated off-rate but may have any on-rate.
+**Noisy threshold for off-spill rate — 3× median of active channels**
+Tighter than the total-hit threshold because the off-spill rate distribution should be narrow: without beam, all connected channels in a well-behaved VMM see similar electronics noise. A channel at 3× the median is already anomalously noisy. The value was chosen empirically: at 5× median, known self-triggering channels were missed; at 2× median, beam-hit pads near the spill boundary (where residual charge briefly elevates the rate in the first ~1 ms after spill end) were incorrectly flagged. The 3× threshold correctly identifies genuine self-triggering while avoiding false positives.
 
-**Multi-run maximum for noisy detection**
-The off-spill rate is computed for each diagnostic run independently, and the element-wise maximum across all runs is taken per channel. This ensures that a channel noisy only at high gain (e.g. sg=6.0) is also excluded from lower-gain runs where its off-rate happens to fall below threshold. Without this, the same noisy channel could pass the cut at low gain and contaminate those rate measurements.
+The median is computed exclusively over **non-dead connected channels**. Including dead channels (which have near-zero off-spill rates) would pull the median down artificially, placing the `3× median` threshold too low and causing channels with similar off-spill rates to be classified inconsistently — some just above the deflated threshold, some just below. By restricting the median to active channels, the threshold is anchored to the true electronics noise floor of well-functioning pads.
+
+The per-channel rate plots show a dashed orange line at the noisy threshold on the spill-off panel, so the classification boundary is directly visible. All channels with bars above this line are masked as noisy; all bars below are retained.
+
+**Per-configuration masking**
+Diagnostic runs are grouped by `(sg, snt)`. For each configuration, the off-spill rate is computed only from the diagnostic run(s) that share that gain/peaking-time setting. A channel is only excluded for the configuration in which its off-spill rate is elevated — not globally across all configurations. This avoids penalising a channel that is noisy at high gain but performs correctly at low gain, which would suppress signal in configurations where that channel is clean.
+
+If multiple diagnostic runs share the same `(sg, snt)`, their per-channel off-spill rates are merged by element-wise maximum before thresholding (the most conservative estimate within that configuration). Configurations in the scan that have no matching diagnostic run fall back to the global mask (element-wise maximum across all diagnostic runs).
 
 **Number of diagnostic files per run — 5 files, starting from file 1**
 Five files provide sufficient statistics for per-channel rate estimation (typically 10–50 spills depending on the run). File 0 is skipped (`file_start=1`) because in some runs the first file contains corrupted timestamps at the very start of acquisition. For the config-scan rate computation itself (Step 4), only 1 file per run is used to keep I/O manageable; the per-channel noisy detection uses more files for robustness.
@@ -195,7 +201,7 @@ Normalization by `n_good_channels` makes VMMs with different numbers of active p
 ### Parameter Selection
 
 **Good channel mask**
-Built from the union of dead channels (Step 3a) and noisy channels (Step 3b). Only hits from channels in this mask are counted when computing the VMM rates. The mask is computed once from the diagnostic runs and applied uniformly to all 7 (or 5) configurations — it is not recomputed per configuration.
+Built from the union of dead channels (Step 3a) and noisy channels (Step 3b). Only hits from channels in this mask are counted when computing the VMM rates. The mask is computed **per `(sg, snt)` configuration** using the diagnostic run(s) matching that setting (see Step 3b). Each run in the config scan therefore uses only the noisy-channel flags derived from its own gain/peaking-time conditions, so a channel that self-triggers only at high gain is not penalised at lower gains. Dead channels (from total hit counts) are applied globally across all configurations, since a dead channel is hardware-level and does not depend on VMM settings.
 
 **Normalization by n_good_channels**
 The raw VMM hit rate (total hits from all good channels ÷ time) is divided by the number of good channels to obtain a per-channel rate. This normalization is essential for comparing VMMs with different numbers of connected pads (e.g. VMM 10 with 32 channels vs. VMM 12 with 63 channels). Without it, a VMM with more channels would always appear to have a higher total rate regardless of per-pad performance.
@@ -318,4 +324,11 @@ The 15 kHz summary plot shows a qualitative difference from 5 kHz: the on-spill 
 
 5. **The ±1σ band across channels is always wide on the spill-on rate**, confirming the beam does not illuminate all pads uniformly. It is narrow on the spill-off rate for VMM 12/13 (uniform noise floor) but wide for VMM 14/15 at high gain, indicating lingering channel-to-channel noise variation even after masking.
 
-6. **Configuration recommendation (preliminary)**: Based on these trigger-level metrics, sg=4.5 with snt=200 offers the best signal rate with a low noise floor at 5 kHz, giving on/off ratios of 36 (VMM 12) and 54 (VMM 14). At 15 kHz, the same configuration becomes noisier (VMM 14 drops to on/off ~20), suggesting sg=3.0 with snt=200 may be preferable at higher beam intensity from a noise perspective, despite its lower absolute signal rate. The optimal configuration will be confirmed by the full SNR analysis from the configuration scan pipeline.
+6. **Per-configuration channel masking avoids cross-config bias**: the good-channel mask is built separately for each `(sg, snt)` configuration from the diagnostic run matching that setting. Channels noisy only at high gain are not excluded from low-gain configurations where they are clean.
+
+7. **Three masking bugs were identified and corrected**:
+   - *Dead detection used only the test run*: a channel at the beam edge with fewer hits at one gain was incorrectly flagged as dead. Fixed by aggregating hit counts across all diagnostic runs.
+   - *Dead channels contaminated the noisy threshold*: their near-zero off-spill rates pulled the median down, placing the `3× median` cutoff too low and causing channels with nearly identical rates to be classified differently. Fixed by computing the median over non-dead active channels only.
+   - *Diagnostic plots showed the global mask instead of the per-config mask*: a channel noisy at `sg=6.0` appeared masked in the `sg=3.0` diagnostic plot even though its off-spill rate there was indistinguishable from unmasked neighbours. Fixed by passing the per-config `(sg, snt)` mask to each plot. A threshold line is now drawn on the spill-off panel to make the classification boundary directly visible.
+
+8. **Configuration recommendation (preliminary)**: Based on these trigger-level metrics, sg=4.5 with snt=200 offers the best signal rate with a low noise floor at 5 kHz, giving on/off ratios of 36 (VMM 12) and 54 (VMM 14). At 15 kHz, the same configuration becomes noisier (VMM 14 drops to on/off ~20), suggesting sg=3.0 with snt=200 may be preferable at higher beam intensity from a noise perspective, despite its lower absolute signal rate. The optimal configuration will be confirmed by the full SNR analysis from the configuration scan pipeline.

@@ -31,8 +31,8 @@ All analysis logic lives in dedicated modules:
     vmm_plots.py   — all plotting functions
     vmm_mapping.py — detector geometry and VMM groupings
 """
-# from vmm_mapping import vmm_mapping
-from vmm_mapping_lab import vmm_mapping
+from vmm_mapping import vmm_mapping
+# from vmm_mapping_lab import vmm_mapping
 
 from vmm_io import (load_run_table, get_run_groups,
                     get_run_dir, load_hits_run,
@@ -69,7 +69,8 @@ from vmm_plots import (plot_adc_histograms_for_runs,
                        plot_adc_heatmap,
                        plot_snr_channel_heatmap_per_vmm,
                        plot_snr_channel_heatmap_all_configs,
-                       plot_snr_channel_uniformity)
+                       plot_snr_channel_uniformity,
+                       plot_snr_method_comparison)
 
 from vmm_snr import compute_adc_stats
 
@@ -108,6 +109,7 @@ PLOTS = {
     "snr_channel_heatmap_per_vmm": True,
     "snr_channel_heatmap_all_configs": True,
     "snr_channel_uniformity"    : True,
+    "snr_method_comparison"     : True,
 }
 
 
@@ -124,8 +126,8 @@ def main():
     # --- Paths ---
     cnfg_dir = "/drf/projets/clas12/P2/akallits/"
     # cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
-    # data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
-    data_dir = "/drf/projets/clas12/P2/vmm_config_scan_lab/"
+    data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+    # data_dir = "/drf/projets/clas12/P2/vmm_config_scan_lab/"
     # data_dir = "/drf/projets/clas12/P2/vmm_config_scan_15kHz/"
     # data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
 
@@ -145,28 +147,32 @@ def main():
     # Run to use for over_threshold split and signal distribution QA.
     # Should be a well-behaved sng=1 run at your preferred config.
     # qa_run_signal = 79 (CERN delay module trigger), 1 (lab), 149 (CERN direct trigger) beam test sps sng = 1
-    qa_run_signal = 3 # lab
+    # qa_run_signal = 3 # lab
+    qa_run_signal = 149
 
     # Run to use for channel noise and ADC=16 artifact QA.
     # Should be the most problematic run (short peaking time).
     # qa_run_noisy  = 98, 2, 150 beam test sps
-    qa_run_noisy  = 4 #lab
+    qa_run_noisy  = 150 #lab
 
     # Runs to check in noise quality check QA.
     # Include one run per peaking time to see the full picture.
     # qa_runs_quality_check = [79, 96, 98], [2,4] beam test sps sng=1
-    qa_runs_quality_check = [2,4]
+    # qa_runs_quality_check = [2,4]
+    qa_runs_quality_check = [149, 150]
 
     # Pair to diagnose when compute_snr warns "no noise baseline".
     # Set to the (noise=sng1, signal=sng0) run numbers from the warning.
     # e.g. "noise=run 157 | signal=run 156" → (157, 156)
-    qa_noise_diag_noise  = 8 # lab config
-    qa_noise_diag_signal = 7 # lab config
+    # qa_noise_diag_noise  = 8 # lab config
+    # qa_noise_diag_signal = 7 # lab config
+    qa_noise_diag_noise  = 157 # 15kHz
+    qa_noise_diag_signal = 156 # 15kHz
 
     # --- Plot output ---
     # Directory where all plots are saved as PDF and PNG.
-    plot_dir   = f"{cnfg_dir}plots_lab_test/"
-    # plot_dir   = f"{cnfg_dir}plots_15kHz/"
+    # plot_dir   = f"{cnfg_dir}plots_lab_test/"
+    plot_dir   = f"{cnfg_dir}plots_15kHz/"
     # Set True to also display each figure interactively while running.
     show_plots = False
 
@@ -175,9 +181,9 @@ def main():
     # ════════════════════════════════════════════════════════════
 
     # ── Run metadata ───────────────────────────────────────────
-    df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan_lab.csv")
+    # df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan_lab.csv")
     # df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan_5kHz.csv")
-    # df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan_15kHz.csv")
+    df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan_15kHz.csv")
     run_groups  = get_run_groups(df_run_scan)
 
     sng1_runs = run_groups["sng1_runs"]
@@ -220,8 +226,8 @@ def main():
         n_files     = n_root_files
     )
     df_results.dropna(inplace=True)
-    # df_results.to_csv(f"{cnfg_dir}vmm_adc_analysis_15kHz.csv", index=False)
-    df_results.to_csv(f"{cnfg_dir}vmm_adc_analysis_lab.csv", index=False)
+    df_results.to_csv(f"{cnfg_dir}vmm_adc_analysis_15kHz.csv", index=False)
+    # df_results.to_csv(f"{cnfg_dir}vmm_adc_analysis_lab.csv", index=False)
 
     # ── VMM-level SNR ──────────────────────────────────────────
     df_snr = compute_snr(
@@ -230,8 +236,8 @@ def main():
         detector_vmms = detector_vmms,
         n_files       = n_root_files
     )
-    df_snr.to_csv(f"{cnfg_dir}vmm_snr_results_lab.csv", index=False)
-    # df_snr.to_csv(f"{cnfg_dir}vmm_snr_results_15kHz.csv", index=False)
+    # df_snr.to_csv(f"{cnfg_dir}vmm_snr_results_lab.csv", index=False)
+    df_snr.to_csv(f"{cnfg_dir}vmm_snr_results_15kHz.csv", index=False)
 
     print("\n=== SNR Summary (noise quality=ok only) ===")
     df_snr_clean = df_snr[df_snr["noise_quality"] == "ok"]
@@ -247,8 +253,8 @@ def main():
         detector_vmms = detector_vmms,
         n_files       = n_root_files
     )
-    df_snr_ch.to_csv(f"{cnfg_dir}vmm_snr_per_channel_lab.csv", index=False)
-    # df_snr_ch.to_csv(f"{cnfg_dir}vmm_snr_per_channel_15kHz.csv", index=False)
+    # df_snr_ch.to_csv(f"{cnfg_dir}vmm_snr_per_channel_lab.csv", index=False)
+    df_snr_ch.to_csv(f"{cnfg_dir}vmm_snr_per_channel_15kHz.csv", index=False)
 
     print(f"\nChannel-level SNR: {len(df_snr_ch)} entries")
     if not df_snr_ch.empty:
@@ -274,8 +280,8 @@ def main():
     df_summary = summarise_best_config(
         df_snr, df_snr_ch, detector_vmms
     )
-    df_summary.to_csv(f"{cnfg_dir}vmm_snr_summary_lab.csv", index=False)
-    # df_summary.to_csv(f"{cnfg_dir}vmm_snr_summary_15kHz.csv", index=False)
+    # df_summary.to_csv(f"{cnfg_dir}vmm_snr_summary_lab.csv", index=False)
+    df_summary.to_csv(f"{cnfg_dir}vmm_snr_summary_15kHz.csv", index=False)
 
     # ── QA investigations ──────────────────────────────────────
     if PLOTS["qa_noise_run_diagnostic"]:
@@ -425,19 +431,29 @@ def main():
     if PLOTS["snr_vs_peaking"]:
         plot_snr_vs_peaking(df_snr,
                             out_dir=plot_dir, show=show_plots)
+        plot_snr_vs_peaking(df_snr, snr_col="snr_mean",
+                            out_dir=plot_dir, show=show_plots)
 
     if PLOTS["snr_vs_gain"]:
         plot_snr_vs_gain(df_snr,
+                         out_dir=plot_dir, show=show_plots)
+        plot_snr_vs_gain(df_snr, snr_col="snr_mean",
                          out_dir=plot_dir, show=show_plots)
 
     if PLOTS["snr_heatmap"]:
         plot_snr_heatmap(df_snr,
                          out_dir=plot_dir, show=show_plots)
+        plot_snr_heatmap(df_snr, snr_col="snr_mean",
+                         out_dir=plot_dir, show=show_plots)
 
     if PLOTS["adc_heatmap"]:
         plot_adc_heatmap(df_snr, metric="mpv",
                          out_dir=plot_dir, show=show_plots)
+        plot_adc_heatmap(df_snr, metric="mean_signal",
+                         out_dir=plot_dir, show=show_plots)
         plot_adc_heatmap(df_snr, metric="noise_sigma",
+                         out_dir=plot_dir, show=show_plots)
+        plot_adc_heatmap(df_snr, metric="mean_noise",
                          out_dir=plot_dir, show=show_plots)
 
     if PLOTS["snr_channel_heatmap_per_vmm"]:
@@ -447,10 +463,20 @@ def main():
             show_quality_overlay=True,
             out_dir=plot_dir, show=show_plots
         )
+        plot_snr_channel_heatmap_per_vmm(
+            df_snr_ch_uncut,
+            detector_vmms,
+            snr_col="snr_mean_ch",
+            out_dir=plot_dir, show=show_plots
+        )
 
     if PLOTS["snr_channel_heatmap_all_configs"]:
         plot_snr_channel_heatmap_all_configs(
             df_snr_ch,
+            out_dir=plot_dir, show=show_plots
+        )
+        plot_snr_channel_heatmap_all_configs(
+            df_snr_ch, snr_col="snr_mean_ch",
             out_dir=plot_dir, show=show_plots
         )
 
@@ -459,6 +485,18 @@ def main():
             df_snr_ch, detector_vmms,
             out_dir=plot_dir, show=show_plots
         )
+        plot_snr_channel_uniformity(
+            df_snr_ch, detector_vmms,
+            snr_col="snr_mean_ch",
+            out_dir=plot_dir, show=show_plots
+        )
+
+    if PLOTS["snr_method_comparison"]:
+        plot_snr_method_comparison(
+            df_snr, df_snr_ch,
+            out_dir=plot_dir, show=show_plots
+        )
+
 
 if __name__ == "__main__":
     main()

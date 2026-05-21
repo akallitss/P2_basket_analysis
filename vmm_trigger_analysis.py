@@ -86,12 +86,30 @@ def main():
     # test_run = 158
 
     # ── Step 0: channel diagnostics (hits per channel) ──────
-    # Aggregate hits over a few files from the test run.
-    # Plots one figure per detector group so you can spot dead
-    # (firebrick) or noisy (orange) channels before the main analysis.
+    # Aggregate hits over a few files across ALL diagnostic runs so that
+    # a channel at the beam edge (low hits at one gain) is not wrongly
+    # flagged dead because it happened to be the test run.
     all_vmm_ids = trigger_vmms + detector_vmms
+    # diagnostic_runs = [
+    #     (67, 3.0, 200),
+    #     (70, 3.0, 100),
+    #     (73, 3.0, 50),
+    #     (97, 4.5, 50),
+    #     (78, 4.5, 200),
+    #     (82, 4.5, 100),
+    #     (99, 6.0, 200),
+    # ] # for the 5kHz
+    # #
+    diagnostic_runs = [
+        (149, 3.0, 200),
+        (156, 3.0, 100),
+        (158, 3.0, 50),
+        (152, 4.5, 200),
+        (155, 6.0, 200),
+    ] # runs for the 15kHz
+    diag_run_nos = [r for r, _, _ in diagnostic_runs]
     ch_counts = collect_channel_hit_counts(
-        data_dir, [test_run], all_vmm_ids,
+        data_dir, diag_run_nos, all_vmm_ids,
         n_files=3, file_start=1
     )
     ch_outliers = identify_outlier_channels(
@@ -111,23 +129,6 @@ def main():
     # A channel with elevated OFF rate is genuinely noisy.
     # A channel with elevated ON rate only is a beam-hit pad — not noise.
     # Results are stored so Step 0c can reuse them without extra file reads.
-    # diagnostic_runs = [
-    #     (67, 3.0, 200),
-    #     (70, 3.0, 100),
-    #     (73, 3.0, 50),
-    #     (97, 4.5, 50),
-    #     (78, 4.5, 200),
-    #     (82, 4.5, 100),
-    #     (99, 6.0, 200),
-    # ] # for the 5kHz
-
-    diagnostic_runs = [
-        (149, 3.0, 200),
-        (156, 3.0, 100),
-        (158, 3.0, 50),
-        (152, 4.5, 200),
-        (155, 6.0, 200),
-    ] # runs for the 15kHz
     per_ch_all_runs  = []
     per_ch_by_run    = {}
     for run_no, sg, snt in diagnostic_runs:
@@ -151,14 +152,14 @@ def main():
     # Dead  = total-hit count < 10% × median (from Step 0 counts).
     if per_ch_all_runs:
         noisy_off   = identify_noisy_from_off_spill(
-            per_ch_all_runs, noisy_factor=3.0
+            per_ch_all_runs, noisy_factor=3.0, ch_outliers=ch_outliers
         )
         good_channels = build_good_channels(ch_outliers, noisy_off)
     else:
         noisy_off     = None
         good_channels = build_good_channels(ch_outliers)
 
-    print("\n── Good channels per detector VMM ──")
+    print("\n── Good channels per detector VMM (global mask) ──")
     for vmm_id in detector_vmms:
         if vmm_id not in good_channels:
             continue
@@ -166,13 +167,25 @@ def main():
         print(f"  VMM {vmm_id}: {len(chs)} good channels  "
               f"{sorted(chs.tolist())}")
 
-    # Now plot per-channel rates with masking overlay
+    # Per-(sg, snt) masks: only flag a channel noisy for the config
+    # where its off-spill rate is elevated, not globally.
+    good_channels_by_config, noisy_off_by_config = build_good_channels_per_config(
+        per_ch_by_run, ch_outliers, noisy_factor=3.0
+    )
+    print("\n── Good channels per config (per-config mask) ──")
+    for (sg, snt), gc in sorted(good_channels_by_config.items()):
+        n_total = sum(len(v) for v in gc.values())
+        print(f"  sg={sg} snt={snt:.0f}: {n_total} total good channels")
+
+    # Now plot per-channel rates with masking overlay.
+    # Use the per-config mask so the colour coding matches exactly what
+    # the analysis uses for each (sg, snt) — not the global worst-case mask.
     for run_no, (sg, snt, per_ch) in per_ch_by_run.items():
         plot_rate_per_channel_on_off(
             per_ch, run_no, sg, snt,
-            good_channels=good_channels,
+            good_channels=good_channels_by_config.get((sg, snt), good_channels),
             ch_outliers=ch_outliers,
-            noisy_off_spill=noisy_off,
+            noisy_off_spill=noisy_off_by_config.get((sg, snt), noisy_off),
             out_dir=out_dir, show=True,
             rate_tag=rate_tag
         )
@@ -250,16 +263,17 @@ def main():
     run_groups = get_run_groups(df_run_scan)
 
     df_spill = compute_spill_rates_all_runs(
-        df_run_scan          = df_run_scan,
-        data_dir             = data_dir,
-        sng0_runs            = run_groups["sng0_runs"],
-        trigger_ref_channels = trigger_ref_channels,
-        detector_vmms        = detector_vmms,
-        bin_width_s          = 0.001,
-        n_files              = 1,
-        spill_threshold_khz  = 1.0,
-        max_gap_s            = 2.0,
-        good_channels        = good_channels,
+        df_run_scan              = df_run_scan,
+        data_dir                 = data_dir,
+        sng0_runs                = run_groups["sng0_runs"],
+        trigger_ref_channels     = trigger_ref_channels,
+        detector_vmms            = detector_vmms,
+        bin_width_s              = 0.001,
+        n_files                  = 1,
+        spill_threshold_khz      = 1.0,
+        max_gap_s                = 2.0,
+        good_channels            = good_channels,
+        good_channels_per_config = good_channels_by_config,
     )
 
     # df_spill.to_csv("vmm_spill_rates_5kHz.csv", index=False)
@@ -697,7 +711,7 @@ def plot_rate_per_channel_on_off(per_ch_rates, run_no, sg, snt,
                 ax.bar(display_chs, plot_r, color=bar_colors,
                        alpha=0.85, width=0.8)
 
-                # Median line over good channels only
+                # Median and threshold lines
                 good_mask = np.array([ch not in dead_set and ch not in noisy_set
                                       for ch in display_chs])
                 good_rates = rates[good_mask]
@@ -706,6 +720,15 @@ def plot_rate_per_channel_on_off(per_ch_rates, run_no, sg, snt,
                 if med > 0:
                     ax.axhline(med, color="k", ls=":", lw=1,
                                label=f"median (good) = {med:.2f} Hz")
+
+                # On the spill-off panel draw the noisy threshold so it is
+                # clear why some channels are masked and neighbours are not.
+                is_off_panel = "OFF" in panel_label
+                if is_off_panel and noisy_off_spill is not None and vmm_id in noisy_off_spill:
+                    thr = noisy_off_spill[vmm_id].get("threshold_off_hz", 0)
+                    if thr > 0:
+                        ax.axhline(thr, color="darkorange", ls="--", lw=1.3,
+                                   label=f"noisy thr = {thr:.2f} Hz")
 
                 ax.set_yscale("log")
                 ax.set_xlim(display_chs[0] - 0.5, display_chs[-1] + 0.5)
@@ -716,6 +739,7 @@ def plot_rate_per_channel_on_off(per_ch_rates, run_no, sg, snt,
 
                 # Legend: colour patches for each category
                 from matplotlib.patches import Patch
+                import matplotlib.lines as mlines
                 legend_items = [Patch(color=good_color, label="good channel")]
                 if noisy_set:
                     legend_items.append(
@@ -726,11 +750,17 @@ def plot_rate_per_channel_on_off(per_ch_rates, run_no, sg, snt,
                         Patch(color="lightgrey", label="masked: dead")
                     )
                 if med > 0:
-                    import matplotlib.lines as mlines
                     legend_items.append(
                         mlines.Line2D([], [], color="k", ls=":",
                                       label=f"median (good) = {med:.2f} Hz")
                     )
+                if is_off_panel and noisy_off_spill is not None and vmm_id in noisy_off_spill:
+                    thr = noisy_off_spill[vmm_id].get("threshold_off_hz", 0)
+                    if thr > 0:
+                        legend_items.append(
+                            mlines.Line2D([], [], color="darkorange", ls="--",
+                                          label=f"noisy thr = {thr:.2f} Hz")
+                        )
                 ax.legend(handles=legend_items, fontsize=8, loc="upper right")
 
         fig.suptitle(
@@ -814,26 +844,32 @@ def identify_outlier_channels(counts, trigger_vmm_ids=None,
     return result
 
 
-def identify_noisy_from_off_spill(per_ch_rates_list, noisy_factor=3.0):
+def identify_noisy_from_off_spill(per_ch_rates_list, noisy_factor=3.0,
+                                   ch_outliers=None):
     """
     Flag noisy channels using spill-off (noise floor) rate.
 
     A channel is noisy if its off-spill rate exceeds noisy_factor × median
-    off-spill rate among connected channels. Self-triggering channels appear
-    here but not (or much less) in the spill-on rate.
+    off-spill rate among connected, non-dead channels. Self-triggering
+    channels appear here but not (or much less) in the spill-on rate.
 
     Parameters
     ----------
     per_ch_rates_list : dict or list of dicts
         One or more outputs of compute_per_channel_spill_rates.
         When multiple dicts are given the per-channel max off-spill rate
-        is used — a channel flagged noisy in any run is excluded everywhere.
+        is used within this set.
     noisy_factor : float
         Threshold multiplier on the median off-spill rate. Default 3.0.
+    ch_outliers : dict or None
+        Output of identify_outlier_channels. Dead channels are excluded
+        from the median computation so their near-zero off-spill rates
+        do not pull the threshold down artificially.
 
     Returns
     -------
-    dict {vmm_id: {'noisy': [ch, ...], 'median_off_hz': float}}
+    dict {vmm_id: {'noisy': [ch, ...], 'median_off_hz': float,
+                   'threshold_off_hz': float}}
     """
     from vmm_io import get_connected_channels
 
@@ -853,15 +889,25 @@ def identify_noisy_from_off_spill(per_ch_rates_list, noisy_factor=3.0):
         connected = get_connected_channels(vmm_id)
         if connected is None:
             connected = list(range(64))
-        r_off = r_off_all[np.array(connected)]
+
+        # Exclude dead channels from median — their near-zero off-spill rates
+        # would otherwise pull the threshold down and cause inconsistent masking
+        # (two channels with similar rates, one masked one not).
+        dead = (set(ch_outliers[vmm_id]["dead"])
+                if ch_outliers and vmm_id in ch_outliers else set())
+        active = [ch for ch in connected if ch not in dead]
+
+        r_off   = r_off_all[np.array(active)]
         nonzero = r_off[r_off > 0]
         if len(nonzero) == 0:
-            result[vmm_id] = {"noisy": [], "median_off_hz": 0.0}
+            result[vmm_id] = {"noisy": [], "median_off_hz": 0.0,
+                              "threshold_off_hz": 0.0}
             continue
-        median = float(np.median(nonzero))
-        noisy  = [ch for ch, r in zip(connected, r_off)
-                  if r > noisy_factor * median]
-        result[vmm_id] = {"noisy": noisy, "median_off_hz": median}
+        median    = float(np.median(nonzero))
+        threshold = noisy_factor * median
+        noisy     = [ch for ch in active if r_off_all[ch] > threshold]
+        result[vmm_id] = {"noisy": noisy, "median_off_hz": median,
+                          "threshold_off_hz": threshold}
     return result
 
 
@@ -898,6 +944,45 @@ def build_good_channels(ch_outliers, noisy_off_spill=None):
         good[vmm_id] = np.array(sorted(ch for ch in connected
                                         if ch not in bad))
     return good
+
+
+def build_good_channels_per_config(per_ch_by_run, ch_outliers,
+                                    noisy_factor=3.0):
+    """
+    Build a per-(sg, snt) good-channel mask from diagnostic runs.
+
+    Diagnostic runs sharing the same (sg, snt) are merged by element-wise
+    max off-spill rate before thresholding, so a channel is only excluded
+    for the gain/peaking-time setting where it is actually noisy — not
+    globally across all configurations.
+
+    Parameters
+    ----------
+    per_ch_by_run : dict {run_no: (sg, snt, per_ch_dict)}
+        Output stored during the per-channel diagnostic loop in main().
+    ch_outliers : dict
+        Output of identify_outlier_channels() — dead flags from total hits.
+    noisy_factor : float
+        Threshold multiplier on the median off-spill rate. Default 3.0.
+
+    Returns
+    -------
+    good_by_config  : dict {(sg, snt): good_channels_dict}
+    noisy_by_config : dict {(sg, snt): noisy_off_spill_dict}
+    """
+    config_runs = {}
+    for run_no, (sg, snt, per_ch) in per_ch_by_run.items():
+        config_runs.setdefault((sg, snt), []).append(per_ch)
+
+    good_by_config  = {}
+    noisy_by_config = {}
+    for (sg, snt), per_ch_list in config_runs.items():
+        noisy_off = identify_noisy_from_off_spill(
+            per_ch_list, noisy_factor=noisy_factor, ch_outliers=ch_outliers
+        )
+        good_by_config[(sg, snt)]  = build_good_channels(ch_outliers, noisy_off)
+        noisy_by_config[(sg, snt)] = noisy_off
+    return good_by_config, noisy_by_config
 
 
 def plot_hits_per_channel_all_vmms(counts, outliers,
@@ -2152,6 +2237,7 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
                                   min_spill_s=1.0,
                                   max_gap_s=0.0,
                                   good_channels=None,
+                                  good_channels_per_config=None,
                                   normalize_per_channel=True,
                                   file_start=0):
     """
@@ -2181,9 +2267,15 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
         in (hole-filling). Handles bins that dip below threshold mid-spill
         due to SPS bunch microstructure at low beam intensity. 0 disables.
     good_channels : dict {vmm_id: array-like} or None
-        Pre-built set of good (connected, non-dead, non-noisy) channels
-        per VMM. Built by build_good_channels(). If None, falls back to
-        all connected channels.
+        Global fallback good-channel mask (from build_good_channels()).
+        Used when good_channels_per_config is None or has no entry for
+        a given (sg, snt). If both are None, falls back to all connected
+        channels.
+    good_channels_per_config : dict {(sg, snt): good_channels_dict} or None
+        Per-configuration good-channel masks built by
+        build_good_channels_per_config(). When provided, each run uses
+        the mask matching its own (sg, snt) so a channel noisy at one
+        gain setting is not excluded at others.
     normalize_per_channel : bool
         If True (default), divide the VMM rate by the number of good
         channels so rates are expressed per channel — making VMMs with
@@ -2209,6 +2301,10 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
         sg  = row["sg"].iloc[0]
         snt = row["snt"].iloc[0]
 
+        # Resolve per-config mask; fall back to global good_channels
+        gc = (good_channels_per_config.get((sg, snt), good_channels)
+              if good_channels_per_config is not None else good_channels)
+
         run_dir = get_run_dir(data_dir, run_no)
         n_avail = len(list_root_files(run_dir))
         if n_avail == 0:
@@ -2231,7 +2327,7 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
         trig_counts, det_counts = _accumulate_run_histograms(
             run_dir, trig_vmm, trig_ch,
             detector_vmms, bins, n_load,
-            good_channels=good_channels,
+            good_channels=gc,
             file_start=file_start
         )
 
@@ -2255,7 +2351,7 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
         t_on_s  = n_on  * bin_width_s
         t_off_s = n_off * bin_width_s
         per_ch_counts = _accumulate_per_channel_on_off(
-            run_dir, detector_vmms, good_channels,
+            run_dir, detector_vmms, gc,
             bins, on_mask, off_mask, n_load, file_start
         )
 
@@ -2265,8 +2361,8 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
             rate_off = (det_rate_khz[off_mask].mean()
                         if n_off > 0 else np.nan)
 
-            if good_channels is not None and vmm_id in good_channels:
-                n_good = max(1, len(good_channels[vmm_id]))
+            if gc is not None and vmm_id in gc:
+                n_good = max(1, len(gc[vmm_id]))
             else:
                 from vmm_io import get_connected_channels
                 chs = get_connected_channels(vmm_id)

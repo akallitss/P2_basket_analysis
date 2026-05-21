@@ -296,12 +296,13 @@ def _quality_legend(ax):
               fontsize=14, loc="lower right")
 
 
-def plot_snr_vs_peaking(df_snr, out_dir=None, show=True):
+def plot_snr_vs_peaking(df_snr, snr_col="snr", out_dir=None, show=True):
     """
     SNR vs peaking time per sg.
     Skips sg values with only one peaking time.
     Marks warn/bad points with different markers.
     """
+    method      = "mean" if "mean" in snr_col else "MPV"
     df          = df_snr.copy()
     sg_values   = sorted(df["sg"].unique())
     sg_to_plot  = [
@@ -330,27 +331,29 @@ def plot_snr_vs_peaking(df_snr, out_dir=None, show=True):
             ].sort_values("snt")
             if len(df_vmm) < 2:
                 continue
-            line = _quality_overlay(ax, df_vmm, "snt", "snr")
+            line = _quality_overlay(ax, df_vmm, "snt", snr_col)
             line.set_label(f"VMM {vmm_id}")
 
         ax.set_title(f"sg={sg_val}")
         ax.set_xlabel("Peaking time (snt)")
-        ax.set_ylabel("SNR (MPV / noise σ)")
+        ax.set_ylabel(f"SNR ({method} / noise σ)")
         ax.legend(fontsize=14)
         ax.grid(True, alpha=0.3)
         _quality_legend(ax)
 
-    plt.suptitle("SNR vs Peaking Time (all data)", fontweight="bold")
+    plt.suptitle(f"SNR vs Peaking Time — {method} method",
+                 fontweight="bold")
     plt.tight_layout(rect=[0, 0, 1, 0.94])
-    _finish_fig(fig, "snr_vs_peaking", out_dir, show)
+    _finish_fig(fig, f"snr_vs_peaking_{method.lower()}", out_dir, show)
 
 
-def plot_snr_vs_gain(df_snr, out_dir=None, show=True):
+def plot_snr_vs_gain(df_snr, snr_col="snr", out_dir=None, show=True):
     """
     SNR vs gain per snt.
     Skips snt values with only one gain setting.
     Marks warn/bad points with different markers.
     """
+    method       = "mean" if "mean" in snr_col else "MPV"
     df           = df_snr.copy()
     snt_values   = sorted(df["snt"].unique())
     snt_to_plot  = [
@@ -380,28 +383,29 @@ def plot_snr_vs_gain(df_snr, out_dir=None, show=True):
             ].sort_values("sg")
             if len(df_vmm) < 2:
                 continue
-            line = _quality_overlay(ax, df_vmm, "sg", "snr")
+            line = _quality_overlay(ax, df_vmm, "sg", snr_col)
             line.set_label(f"VMM {vmm_id}")
 
         ax.set_title(f"snt={snt_val:.0f}")
         ax.set_xlabel("Gain (sg)")
-        ax.set_ylabel("SNR (MPV / noise σ)")
+        ax.set_ylabel(f"SNR ({method} / noise σ)")
         ax.legend(fontsize=14)
         ax.grid(True, alpha=0.3)
         _quality_legend(ax)
 
-    plt.suptitle("SNR vs Gain (all data)", fontweight="bold")
+    plt.suptitle(f"SNR vs Gain — {method} method", fontweight="bold")
     plt.tight_layout(rect=[0, 0, 1, 0.94])
-    _finish_fig(fig, "snr_vs_gain", out_dir, show)
+    _finish_fig(fig, f"snr_vs_gain_{method.lower()}", out_dir, show)
 
 
-def plot_snr_heatmap(df_snr, out_dir=None, show=True):
+def plot_snr_heatmap(df_snr, snr_col="snr", out_dir=None, show=True):
     """
     Heatmap of SNR: rows=VMMs, columns=configurations.
     Shows all data — warn/bad cells annotated with quality label.
     Detector group labels on right axis from vmm_mapping.
     Fixed color scale across all cells for direct comparison.
     """
+    method = "mean" if "mean" in snr_col else "MPV"
     df = df_snr.copy()
 
     def config_label(row):
@@ -428,7 +432,7 @@ def plot_snr_heatmap(df_snr, out_dir=None, show=True):
                 (df["config"] == cfg)
             ]
             if not row.empty:
-                snr_matrix[i, j]     = row["snr"].iloc[0]
+                snr_matrix[i, j]     = row[snr_col].iloc[0]
                 quality_matrix[i, j] = row["noise_quality"].iloc[0]
 
     cell_w = 2.2
@@ -466,7 +470,7 @@ def plot_snr_heatmap(df_snr, out_dir=None, show=True):
     ax.set_xticklabels(configs, fontsize=12)
     ax.set_yticks(range(len(vmm_ids)))
     ax.set_yticklabels([f"VMM {v}" for v in vmm_ids], fontsize=12)
-    ax.set_title("SNR heatmap — VMM vs configuration\n"
+    ax.set_title(f"SNR heatmap ({method} method) — VMM vs configuration\n"
                  "(warn/bad cells show quality label)",
                  fontsize=14, pad=12)
 
@@ -486,8 +490,8 @@ def plot_snr_heatmap(df_snr, out_dir=None, show=True):
                  fontsize=13, clip_on=False)
 
     cbar_ax = fig.add_axes([0.88, 0.15, 0.02, 0.73])
-    fig.colorbar(im, cax=cbar_ax, label="SNR")
-    _finish_fig(fig, "snr_heatmap", out_dir, show)
+    fig.colorbar(im, cax=cbar_ax, label=f"SNR ({method})")
+    _finish_fig(fig, f"snr_heatmap_{method.lower()}", out_dir, show)
 
 
 def plot_adc_heatmap(df_snr, metric="mpv", out_dir=None, show=True):
@@ -500,8 +504,10 @@ def plot_adc_heatmap(df_snr, metric="mpv", out_dir=None, show=True):
         'mpv'         — signal most probable value (ADC units)
         'noise_sigma' — noise width (ADC units)
     """
-    if metric not in ("mpv", "noise_sigma"):
-        raise ValueError("metric must be 'mpv' or 'noise_sigma'")
+    if metric not in ("mpv", "noise_sigma", "mean_signal", "mean_noise"):
+        raise ValueError(
+            "metric must be 'mpv', 'noise_sigma', 'mean_signal', or 'mean_noise'"
+        )
 
     df = df_snr.copy()
 
@@ -541,7 +547,7 @@ def plot_adc_heatmap(df_snr, metric="mpv", out_dir=None, show=True):
     fig.subplots_adjust(left=0.07, right=0.62,
                         top=0.88, bottom=0.15)
 
-    cmap = (plt.cm.Blues.copy() if metric == "mpv"
+    cmap = (plt.cm.Blues.copy()   if metric in ("mpv", "mean_signal")
             else plt.cm.Oranges.copy())
     cmap.set_bad(color="lightgrey")
 
@@ -569,11 +575,18 @@ def plot_adc_heatmap(df_snr, metric="mpv", out_dir=None, show=True):
     ax.set_yticks(range(len(vmm_ids)))
     ax.set_yticklabels([f"VMM {v}" for v in vmm_ids], fontsize=12)
 
-    label_str = ("MPV [ADC]" if metric == "mpv"
-                 else "Noise σ [ADC]")
-    title_str = ("ADC MPV heatmap — VMM vs configuration"
-                 if metric == "mpv"
-                 else "Noise σ heatmap — VMM vs configuration")
+    label_str = {
+        "mpv"         : "MPV [ADC]",
+        "noise_sigma" : "Noise σ [ADC]",
+        "mean_signal" : "Mean signal [ADC]",
+        "mean_noise"  : "Mean noise [ADC]",
+    }[metric]
+    title_str = {
+        "mpv"         : "ADC MPV heatmap — VMM vs configuration",
+        "noise_sigma" : "Noise σ heatmap — VMM vs configuration",
+        "mean_signal" : "Mean signal heatmap — VMM vs configuration",
+        "mean_noise"  : "Mean noise heatmap — VMM vs configuration",
+    }[metric]
     ax.set_title(f"{title_str}\n(warn/bad cells show quality label)",
                  fontsize=14, pad=12)
 
@@ -598,6 +611,7 @@ def plot_adc_heatmap(df_snr, metric="mpv", out_dir=None, show=True):
 
 
 def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
+                                      snr_col="snr_ch",
                                       show_quality_overlay=False,
                                       min_noise_hits=50,
                                       min_sigma=2.0,
@@ -611,6 +625,7 @@ def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
     Consistent color scale across all VMMs for direct comparison.
     Gold border highlights the best configuration per VMM.
     """
+    method = "mean" if "mean" in snr_col else "MPV"
     df = df_snr_ch.copy()
 
     configs = (
@@ -654,7 +669,7 @@ def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
             ]
             for _, row in df_cfg.iterrows():
                 ch  = int(row["ch"])
-                snr = row["snr_ch"]
+                snr = row[snr_col]
                 matrix[ch, j] = np.clip(snr, vmin, vmax)
 
                 if show_quality_overlay:
@@ -704,7 +719,7 @@ def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
         )
         ax.set_title(
             f"VMM {vmm_id} — {detector_name}\n"
-            f"Per-channel SNR across configurations\n"
+            f"Per-channel SNR ({method}) across configurations\n"
             f"({quality_note}  |  color scale: {vmin}–{vmax})",
             fontsize=14
         )
@@ -723,16 +738,19 @@ def plot_snr_channel_heatmap_per_vmm(df_snr_ch, detector_vmms,
                 fontweight="bold")
 
         cbar_ax = fig.add_axes([0.82, 0.12, 0.02, 0.80])
-        fig.colorbar(im, cax=cbar_ax, label="SNR")
-        _finish_fig(fig, f"snr_channel_heatmap_vmm{vmm_id}", out_dir, show)
+        fig.colorbar(im, cax=cbar_ax, label=f"SNR ({method})")
+        _finish_fig(fig,
+                    f"snr_channel_heatmap_{method.lower()}_vmm{vmm_id}",
+                    out_dir, show)
 
 
-def plot_snr_channel_heatmap_all_configs(df_snr_ch,
+def plot_snr_channel_heatmap_all_configs(df_snr_ch, snr_col="snr_ch",
                                           out_dir=None, show=True):
     """
     One heatmap per configuration showing SNR per channel per VMM.
     Rows = channels (0-63), columns = VMMs.
     """
+    method = "mean" if "mean" in snr_col else "MPV"
     df = df_snr_ch.copy()
 
     configs = (
@@ -761,7 +779,7 @@ def plot_snr_channel_heatmap_all_configs(df_snr_ch,
         for j, vmm_id in enumerate(vmm_ids):
             df_vmm = df_cfg[df_cfg["vmm_id"] == vmm_id]
             for _, row in df_vmm.iterrows():
-                matrix[int(row["ch"]), j] = row["snr_ch"]
+                matrix[int(row["ch"]), j] = row[snr_col]
 
         fig, ax = plt.subplots(
             figsize=(len(vmm_ids) * 1.8 + 3, 14)
@@ -788,7 +806,7 @@ def plot_snr_channel_heatmap_all_configs(df_snr_ch,
         ax.set_ylabel("Channel", fontsize=13)
         ax.set_yticks(range(0, 64, 4))
         ax.set_title(
-            f"Per-channel SNR — sg={sg:.1f}  snt={snt:.0f}\n"
+            f"Per-channel SNR ({method}) — sg={sg:.1f}  snt={snt:.0f}\n"
             f"(grey = excluded  |  color scale: {vmin}–{vmax})",
             fontsize=14
         )
@@ -802,19 +820,21 @@ def plot_snr_channel_heatmap_all_configs(df_snr_ch,
         )
 
         cbar_ax = fig.add_axes([0.82, 0.08, 0.02, 0.84])
-        fig.colorbar(im, cax=cbar_ax, label="SNR")
+        fig.colorbar(im, cax=cbar_ax, label=f"SNR ({method})")
 
-        stem = (f"snr_channel_all_configs_"
+        stem = (f"snr_channel_all_configs_{method.lower()}_"
                 f"sg{sg:.1f}_snt{snt:.0f}".replace(".", "p"))
         _finish_fig(fig, stem, out_dir, show)
 
 
 def plot_snr_channel_uniformity(df_snr_ch, detector_vmms,
+                                 snr_col="snr_ch",
                                  out_dir=None, show=True):
     """
     One figure per VMM showing SNR distribution across channels
     per configuration as box plots.
     """
+    method = "mean" if "mean" in snr_col else "MPV"
     df = df_snr_ch.copy()
     df["config"] = df.apply(
         lambda r: f"sg={r['sg']:.1f}\nsnt={r['snt']:.0f}",
@@ -834,7 +854,7 @@ def plot_snr_channel_uniformity(df_snr_ch, detector_vmms,
         data   = []
         labels = []
         for cfg in config_order:
-            vals = df_vmm[df_vmm["config"] == cfg]["snr_ch"].values
+            vals = df_vmm[df_vmm["config"] == cfg][snr_col].values
             vals = vals[~np.isnan(vals)]
             if len(vals) > 0:
                 data.append(vals)
@@ -862,16 +882,96 @@ def plot_snr_channel_uniformity(df_snr_ch, detector_vmms,
             patch.set_alpha(0.7)
 
         ax.set_xlabel("Configuration")
-        ax.set_ylabel("SNR per channel")
+        ax.set_ylabel(f"SNR ({method}) per channel")
         ax.set_title(
-            f"VMM {vmm_id} — channel SNR distribution "
+            f"VMM {vmm_id} — channel SNR ({method}) distribution "
             f"per configuration\n"
             f"(box = IQR, line = median, dots = outliers)"
         )
         ax.grid(True, alpha=0.3, axis="y")
         plt.tight_layout()
-        _finish_fig(fig, f"snr_channel_uniformity_vmm{vmm_id}",
+        _finish_fig(fig,
+                    f"snr_channel_uniformity_{method.lower()}_vmm{vmm_id}",
                     out_dir, show)
+
+
+def plot_snr_method_comparison(df_snr, df_snr_ch,
+                                out_dir=None, show=True):
+    """
+    Two-panel comparison of MPV-based vs mean-charge SNR.
+
+    Top panel   : VMM-level scatter — SNR_MPV vs SNR_mean,
+                  one point per (VMM, config), colour = config.
+    Bottom panel: channel-level scatter — snr_ch vs snr_mean_ch,
+                  one point per (VMM, channel, config).
+    Identity line y=x on both panels for visual alignment check.
+    """
+    config_labels = (
+        df_snr[["sg", "snt"]]
+        .drop_duplicates()
+        .sort_values(["sg", "snt"])
+        .apply(lambda r: f"sg={r['sg']:.1f} snt={r['snt']:.0f}", axis=1)
+        .tolist()
+    )
+    palette = plt.cm.tab10(np.linspace(0, 1, len(config_labels)))
+    color_map = dict(zip(config_labels, palette))
+
+    def cfg_label(row):
+        return f"sg={row['sg']:.1f} snt={row['snt']:.0f}"
+
+    fig, (ax_vmm, ax_ch) = plt.subplots(1, 2, figsize=(14, 6))
+    fig.subplots_adjust(wspace=0.35)
+
+    # ── VMM level ──────────────────────────────────────────────
+    df_v = df_snr.dropna(subset=["snr", "snr_mean"]).copy()
+    df_v["cfg"] = df_v.apply(cfg_label, axis=1)
+
+    for cfg in config_labels:
+        sub = df_v[df_v["cfg"] == cfg]
+        if sub.empty:
+            continue
+        ax_vmm.scatter(sub["snr"], sub["snr_mean"],
+                       color=color_map[cfg], label=cfg,
+                       s=60, alpha=0.8, zorder=3)
+
+    lim_v = [0, max(df_v[["snr", "snr_mean"]].max()) * 1.1]
+    ax_vmm.plot(lim_v, lim_v, "k--", lw=1, alpha=0.4, label="y = x")
+    ax_vmm.set_xlim(lim_v)
+    ax_vmm.set_ylim(lim_v)
+    ax_vmm.set_xlabel("SNR  (MPV / noise σ)")
+    ax_vmm.set_ylabel("SNR  (mean charge / noise σ)")
+    ax_vmm.set_title("VMM-level SNR: MPV vs mean-charge")
+    ax_vmm.legend(fontsize=10, title="Config")
+    ax_vmm.grid(True, alpha=0.3)
+
+    # ── Channel level ───────────────────────────────────────────
+    df_c = df_snr_ch.dropna(subset=["snr_ch", "snr_mean_ch"]).copy()
+    df_c["cfg"] = df_c.apply(cfg_label, axis=1)
+
+    for cfg in config_labels:
+        sub = df_c[df_c["cfg"] == cfg]
+        if sub.empty:
+            continue
+        ax_ch.scatter(sub["snr_ch"], sub["snr_mean_ch"],
+                      color=color_map[cfg], label=cfg,
+                      s=8, alpha=0.3, zorder=3)
+
+    all_vals = df_c[["snr_ch", "snr_mean_ch"]].values
+    lim_c = [0, np.nanmax(all_vals) * 1.1]
+    ax_ch.plot(lim_c, lim_c, "k--", lw=1, alpha=0.4, label="y = x")
+    ax_ch.set_xlim(lim_c)
+    ax_ch.set_ylim(lim_c)
+    ax_ch.set_xlabel("SNR  (MPV / noise σ)")
+    ax_ch.set_ylabel("SNR  (mean charge / noise σ)")
+    ax_ch.set_title("Channel-level SNR: MPV vs mean-charge")
+    ax_ch.legend(fontsize=10, title="Config",
+                 markerscale=2)
+    ax_ch.grid(True, alpha=0.3)
+
+    plt.suptitle("MPV-based vs mean-charge SNR comparison",
+                 fontweight="bold")
+    plt.tight_layout(rect=[0, 0, 1, 0.94])
+    _finish_fig(fig, "snr_comparison_mpv_vs_mean", out_dir, show)
 
 
 def main():

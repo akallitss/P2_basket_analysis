@@ -76,9 +76,12 @@ def compute_noise_baseline_from_hists(noise_hists,
         else:
             quality = "ok"
 
+        mean_adc = float((adc_vals * hist).sum()) / total
+
         records.append({
             "vmm_id"       : vmm_id,
             "n_noise"      : total,
+            "mean_adc"     : mean_adc,
             "median_adc"   : median,
             "robust_sigma" : robust_sigma,
             "noise_cut"    : cut,
@@ -132,6 +135,7 @@ def compute_noise_baseline(df_hits, n_sigma=5,
         if len(noise) < 100:
             continue
 
+        mean_adc     = float(noise.mean())
         median       = np.median(noise)
         mad          = np.median(np.abs(noise - median))
         robust_sigma = 1.4826 * mad
@@ -150,6 +154,7 @@ def compute_noise_baseline(df_hits, n_sigma=5,
         records.append({
             "vmm_id"      : vmm_id,
             "n_noise"     : len(noise),
+            "mean_adc"    : mean_adc,
             "median_adc"  : median,
             "robust_sigma": robust_sigma,
             "noise_cut"   : cut,
