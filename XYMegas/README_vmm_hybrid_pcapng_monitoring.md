@@ -34,6 +34,26 @@ For every UDP packet from a detected FEC IP the script reads:
 | `over_threshold` | 1 bit | over-threshold flag |
 | `time` | 32 bits | frame counter at the packet header (proxy for time) |
 
+Each UDP payload has the following structure:
+
+```
+payload bytes
+ ├─ bytes  0– 3   frame counter (32-bit, used as time proxy)
+ ├─ bytes  4– 6   "VM3" magic word (packet skipped if absent)
+ ├─ bytes  7–15   header (skipped)
+ └─ bytes 16+     hits, 6 bytes each, packed at the bit level
+      ├─ d1  (bytes +0 to +3, 32 bits)
+      │    bits  5– 9  →  VMM ID  (0–31)
+      │    bits 10–19  →  ADC     (0–1023)
+      └─ d2  (bytes +4 to +5, 16 bits)
+           bit   0     →  valid flag  (hit ignored if 0)
+           bit   1     →  over-threshold flag
+           bits  2– 7  →  channel     (0–63)
+```
+
+One packet can carry many hits back-to-back; each valid hit becomes one row
+in the output DataFrame.
+
 Hits are accumulated in compact typed arrays (`array.array`) to minimise
 memory overhead before being converted to a pandas DataFrame at the end.
 
