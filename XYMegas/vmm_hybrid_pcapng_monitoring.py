@@ -2,6 +2,7 @@
 """
 VMM hybrid diagnostic script for irradiation measurements.
 Reads a pcapng file and produces per-VMM ADC and channel occupancy plots.
+@author: ak271430 Alexandra Kallitsopoulou (alexandra.kallitsopoulou@cea.fr)
 
 Usage:
     python3 vmm_hybrid_pcapng_monitoring.py <pcap_file>
@@ -161,6 +162,41 @@ for idx in range(n_vmm, nrows * ncols):
     axes_adc[idx // ncols][idx % ncols].set_visible(False)
 fig_adc.tight_layout()
 
+# --- ADC distribution split by over-threshold flag ---
+fig_adc_ot, axes_adc_ot = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows), squeeze=False)
+fig_adc_ot.suptitle("ADC distributions per VMM — split by over-threshold flag", fontsize=14)
+for idx, v in enumerate(vmm_ids):
+    ax      = axes_adc_ot[idx // ncols][idx % ncols]
+    vmm_hit = hits.loc[hits.vmm == v]
+    adc_off = vmm_hit.loc[~vmm_hit.over_threshold, 'adc']
+    adc_on  = vmm_hit.loc[ vmm_hit.over_threshold, 'adc']
+    ax.hist(adc_off, bins=100, range=(0, 1024), color='steelblue', alpha=0.6, label=f'Not OT ({len(adc_off):,})')
+    ax.hist(adc_on,  bins=100, range=(0, 1024), color='tomato',    alpha=0.6, label=f'OT ({len(adc_on):,})')
+    ax.set_title(f"VMM {v}")
+    ax.set_xlabel("ADC")
+    ax.set_ylabel("Counts")
+    ax.legend(fontsize=7)
+for idx in range(n_vmm, nrows * ncols):
+    axes_adc_ot[idx // ncols][idx % ncols].set_visible(False)
+fig_adc_ot.tight_layout()
+
+# --- Over-threshold flag distribution ---
+fig_ot, axes_ot = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows), squeeze=False)
+fig_ot.suptitle("Over-threshold flag distribution per VMM", fontsize=14)
+for idx, v in enumerate(vmm_ids):
+    ax    = axes_ot[idx // ncols][idx % ncols]
+    grp   = hits.loc[hits.vmm == v, 'over_threshold']
+    n_off = int((~grp).sum())
+    n_on  = int(grp.sum())
+    ax.bar([0, 1], [n_off, n_on], color=['steelblue', 'tomato'], alpha=0.8, width=0.6)
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels(['Not OT', 'OT'])
+    ax.set_title(f"VMM {v}  (OT frac: {n_on / max(n_off + n_on, 1):.2%})")
+    ax.set_ylabel("Counts")
+for idx in range(n_vmm, nrows * ncols):
+    axes_ot[idx // ncols][idx % ncols].set_visible(False)
+fig_ot.tight_layout()
+
 # --- Channel occupancy ---
 fig_ch, axes_ch = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows), squeeze=False)
 fig_ch.suptitle("Channel occupancy per VMM", fontsize=14)
@@ -207,7 +243,9 @@ os.makedirs(out_dir, exist_ok=True)
 
 saved = []
 
-fig_adc.savefig(os.path.join(out_dir, f"{base}_adc.png"),          dpi=150); saved.append("_adc.png")
+fig_adc.savefig(os.path.join(out_dir,    f"{base}_adc.png"),        dpi=150); saved.append("_adc.png")
+fig_adc_ot.savefig(os.path.join(out_dir, f"{base}_adc_ot.png"),    dpi=150); saved.append("_adc_ot.png")
+fig_ot.savefig(os.path.join(out_dir,    f"{base}_ot.png"),          dpi=150); saved.append("_ot.png")
 fig_ch.savefig(os.path.join(out_dir,  f"{base}_chno.png"),         dpi=150); saved.append("_chno.png")
 fig_sum.savefig(os.path.join(out_dir, f"{base}_hits_per_vmm.png"), dpi=150); saved.append("_hits_per_vmm.png")
 for v, fig_t in time_figs.items():
