@@ -4,103 +4,173 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VMM SNR Analysis — P2 Basket Detector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --blue: #1a4f8a;
-    --blue-light: #2e6fc1;
-    --accent: #c0392b;
-    --bg: #f5f7fa;
-    --card: #ffffff;
-    --border: #d1d9e0;
-    --text: #2c3e50;
-    --muted: #7f8c8d;
-    --code-bg: #ecf0f1;
-    font-size: 15px;
-  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+
   body {
-    font-family: 'Segoe UI', Arial, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.65;
+    font-family: 'Roboto', Arial, sans-serif;
+    font-size: 11pt;
+    background: #f1f3f4;
+    color: #202124;
+    line-height: 1.75;
   }
-  header {
-    background: var(--blue);
-    color: #fff;
-    padding: 2.5rem 3rem 2rem;
-    border-bottom: 4px solid var(--accent);
+
+  /* ── Document page ── */
+  .page {
+    max-width: 816px;       /* letter width at 96 dpi */
+    margin: 40px auto;
+    background: #ffffff;
+    padding: 72px 96px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08);
+    border-radius: 2px;
   }
-  header h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.4rem; }
-  header .subtitle { font-size: 1rem; opacity: 0.85; }
-  header .meta { font-size: 0.85rem; opacity: 0.7; margin-top: 0.6rem; }
-  .wrapper { max-width: 1100px; margin: 0 auto; padding: 2rem 2rem 4rem; }
-  h2.section-title {
-    font-size: 1.3rem;
-    color: var(--blue);
-    border-bottom: 2px solid var(--blue-light);
-    padding-bottom: 0.4rem;
-    margin-bottom: 1.2rem;
-    margin-top: 2rem;
+
+  /* ── Title block ── */
+  .doc-title {
+    margin-bottom: 2rem;
+    padding-bottom: 1.2rem;
+    border-bottom: 1px solid #e0e0e0;
   }
-  h3.sub-title {
-    font-size: 1.05rem;
-    color: var(--blue);
-    margin: 1.4rem 0 0.7rem;
+  .doc-title h1 {
+    font-size: 26pt;
+    font-weight: 700;
+    color: #202124;
+    line-height: 1.25;
+    margin-bottom: 0.4rem;
   }
-  h4 { margin: 1rem 0 0.5rem; color: var(--text); }
-  p { margin-bottom: 0.8rem; }
-  ul, ol { margin: 0.5rem 0 0.8rem 1.6rem; }
-  li { margin-bottom: 0.25rem; }
-  .table-wrap { overflow-x: auto; margin: 1rem 0; }
+  .doc-meta {
+    font-size: 9.5pt;
+    color: #5f6368;
+    margin-top: 0.5rem;
+  }
+  .doc-meta span { margin-right: 1.4rem; }
+
+  /* ── Headings ── */
+  h1 {
+    font-size: 20pt;
+    font-weight: 700;
+    color: #202124;
+    margin: 2rem 0 0.6rem;
+  }
+  h2 {
+    font-size: 14pt;
+    font-weight: 700;
+    color: #202124;
+    margin: 1.8rem 0 0.5rem;
+    padding-bottom: 3px;
+    border-bottom: 1px solid #e8eaed;
+  }
+  h3 {
+    font-size: 11.5pt;
+    font-weight: 700;
+    color: #202124;
+    margin: 1.4rem 0 0.4rem;
+  }
+  h4 {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #3c4043;
+    margin: 1rem 0 0.3rem;
+  }
+
+  /* ── Body text ── */
+  p { margin-bottom: 0.7rem; }
+  ul, ol { margin: 0.4rem 0 0.8rem 1.8rem; }
+  li { margin-bottom: 0.2rem; }
+  strong { font-weight: 700; }
+
+  /* ── Inline code ── */
+  code {
+    font-family: 'Roboto Mono', 'Courier New', monospace;
+    font-size: 9.5pt;
+    background: #f8f9fa;
+    border: 1px solid #e8eaed;
+    border-radius: 3px;
+    padding: 0.1em 0.35em;
+    color: #c0392b;
+  }
+
+  /* ── Code blocks ── */
+  pre.code-block {
+    font-family: 'Roboto Mono', 'Courier New', monospace;
+    font-size: 9pt;
+    background: #f8f9fa;
+    border: 1px solid #e8eaed;
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    overflow-x: auto;
+    margin: 0.8rem 0 1rem;
+    line-height: 1.55;
+    color: #202124;
+  }
+  pre.code-block code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: inherit;
+  }
+
+  /* ── Tables ── */
+  .table-wrap { overflow-x: auto; margin: 1rem 0 1.2rem; }
   table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.87rem;
+    font-size: 10pt;
   }
   thead th {
-    background: var(--blue);
-    color: #fff;
-    padding: 0.55rem 0.75rem;
+    background: #f8f9fa;
+    color: #202124;
+    font-weight: 700;
+    padding: 8px 12px;
     text-align: left;
+    border-top: 2px solid #dadce0;
+    border-bottom: 2px solid #dadce0;
     white-space: nowrap;
   }
   tbody td {
-    padding: 0.45rem 0.75rem;
-    border-bottom: 1px solid var(--border);
+    padding: 7px 12px;
+    border-bottom: 1px solid #e8eaed;
     text-align: left;
+    vertical-align: top;
   }
-  tbody tr:nth-child(even) { background: #f0f4f8; }
-  tbody tr:hover { background: #dce8f5; }
-  code {
-    background: var(--code-bg);
-    border-radius: 3px;
-    padding: 0.1em 0.4em;
-    font-size: 0.88em;
-    font-family: 'Courier New', monospace;
-  }
-  footer {
+  tbody tr:last-child td { border-bottom: 2px solid #dadce0; }
+  tbody tr:hover { background: #f8f9fa; }
+
+  /* ── Footer ── */
+  .doc-footer {
+    margin-top: 3rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid #e0e0e0;
+    font-size: 9pt;
+    color: #80868b;
     text-align: center;
-    font-size: 0.8rem;
-    color: var(--muted);
-    border-top: 1px solid var(--border);
-    padding: 1.5rem;
-    margin-top: 2rem;
+  }
+
+  @media (max-width: 900px) {
+    .page { margin: 0; padding: 2rem 1.5rem; box-shadow: none; border-radius: 0; }
+  }
+  @media print {
+    body { background: white; }
+    .page { margin: 0; padding: 1cm 2cm; box-shadow: none; }
   }
 </style>
 </head>
 <body>
 
-<header>
-  <h1>VMM Configuration Scan — SNR Analysis</h1>
-  <div class="subtitle">P2 Basket Detector &nbsp;|&nbsp; CERN SPS Beam Test, November 2025</div>
-  <div class="meta">
-    Author: Alexandra Kallitsopoulou &nbsp;|&nbsp;
-    Generated: June 2026 &nbsp;|&nbsp;
-    Source: README_snr_analysis.md
-  </div>
-</header>
+<div class="page">
 
-<div class="wrapper">
+  <div class="doc-title">
+    <h1>VMM Configuration Scan — SNR Analysis</h1>
+    <div class="doc-meta">
+      <span>P2 Basket Detector &nbsp;·&nbsp; CERN SPS Beam Test, November 2025</span>
+      <span>Author: Alexandra Kallitsopoulou</span>
+      <span>Generated: June 2026</span>
+    </div>
+  </div>
+
 <h1 id="vmm-configuration-scan-snr-analysis">VMM Configuration Scan SNR Analysis</h1>
 <p>Signal-to-Noise Ratio analysis for VMM3a ASIC configuration scans on P2 BASKET detector data from the CERN SPS beam test.</p>
 <h2 id="overview">Overview</h2>
@@ -134,7 +204,7 @@ that maximises SNR. Each configuration is represented by a pair of runs:</p>
 </ul>
 <p>Both levels use identical methodology and share a common noise baseline.</p>
 <h2 id="repository-structure">Repository Structure</h2>
-<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code>vmm_config_scan_analysis.py  — main entry point; orchestrates the full pipeline
+<pre class="code-block"><code>vmm_config_scan_analysis.py  — main entry point; orchestrates the full pipeline
 vmm_snr.py                   — SNR computation (VMM-level and channel-level)
 vmm_noise.py                 — noise baseline estimation (MAD-based)
 vmm_signal.py                — signal extraction and MPV estimation
@@ -181,19 +251,19 @@ test_snr_methods.py          — synthetic smoke test (no data files needed)
 <h2 id="running-the-analysis">Running the Analysis</h2>
 <h3 id="switching-datasets">Switching datasets</h3>
 <p>Set <strong>one line</strong> at the top of the user configuration block:</p>
-<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code class="language-python">dataset = &quot;15kHz&quot;   # &quot;15kHz&quot; | &quot;5kHz&quot; | &quot;lab&quot;
+<pre class="code-block"><code class="language-python">dataset = &quot;15kHz&quot;   # &quot;15kHz&quot; | &quot;5kHz&quot; | &quot;lab&quot;
 </code></pre>
 <p>All paths, run-table CSV, QA run numbers, plot subdirectory, and VMM mapping are
 loaded automatically from the <code>DATASETS</code> registry at the top of the file.
 To add a new campaign, add one entry there — nothing else changes.</p>
 <h3 id="run-mode">Run mode</h3>
-<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code class="language-python">mode = &quot;analysis&quot;   # save all plots to plot_dir, no interactive windows
+<pre class="code-block"><code class="language-python">mode = &quot;analysis&quot;   # save all plots to plot_dir, no interactive windows
 mode = &quot;debug&quot;      # show each plot interactively (close window to advance),
                     # nothing saved — use the PLOTS dict to select which to step through
 mode = &quot;both&quot;       # save AND show interactively
 </code></pre>
 <h3 id="files-per-run">Files per run</h3>
-<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code class="language-python">n_root_files = 10   # streaming analysis — safe at any N, memory is O(n_vmms × 1024)
+<pre class="code-block"><code class="language-python">n_root_files = 10   # streaming analysis — safe at any N, memory is O(n_vmms × 1024)
 n_qa_files   = 2    # QA / legacy plots — loaded fully into RAM, keep small
 </code></pre>
 <p>Runs with fewer files than <code>n_root_files</code> automatically use all available.</p>
@@ -201,7 +271,7 @@ n_qa_files   = 2    # QA / legacy plots — loaded fully into RAM, keep small
 <p>Toggle entries in the <code>PLOTS</code> dict at module level. Useful in <code>debug</code> mode to
 step through only the plots you care about.</p>
 <h3 id="running">Running</h3>
-<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code class="language-bash">python vmm_config_scan_analysis.py
+<pre class="code-block"><code class="language-bash">python vmm_config_scan_analysis.py
 </code></pre>
 <p>The run-table CSV (e.g. <code>vmm_config_scan_15kHz.csv</code>) must exist in <code>cnfg_dir</code>.</p>
 <h2 id="analysis-methodology">Analysis Methodology</h2>
@@ -210,7 +280,7 @@ step through only the plots you care about.</p>
 - <code>over_threshold == 0</code>
 - <code>adc &gt; 20</code> (removes the VMM3a ADC=16 digital floor artifact)</p>
 <p>The noise width is estimated via the <strong>Median Absolute Deviation (MAD)</strong>:</p>
-<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code>robust_sigma = 1.4826 × MAD
+<pre class="code-block"><code>robust_sigma = 1.4826 × MAD
 noise_cut    = median + 5 × robust_sigma
 </code></pre>
 <p>A histogram-based implementation is used for memory efficiency — peak memory scales
@@ -581,24 +651,24 @@ fraction of signal hits are lost to ADC=1023 clipping.</p>
 <h2 id="testing-without-data">Testing Without Data</h2>
 <p>A standalone smoke test runs all new metrics and plot functions on synthetic
 histograms — no ROOT files needed:</p>
-<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code class="language-bash"># Assertions only
+<pre class="code-block"><code class="language-bash"># Assertions only
 python test_snr_methods.py
 
 # Save plots to inspect visually
 python test_snr_methods.py --save /tmp/snr_test_plots/
 </code></pre>
 <h2 id="dependencies">Dependencies</h2>
-<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code>numpy
+<pre class="code-block"><code>numpy
 pandas
 scipy
 uproot      (ROOT file I/O)
 matplotlib
 </code></pre>
+
+  <div class="doc-footer">
+    VMM Configuration Scan SNR Analysis &mdash; P2 Basket Detector &mdash; CEA Saclay
+  </div>
+
 </div>
-
-<footer>
-  VMM Configuration Scan SNR Analysis &mdash; P2 Basket Detector &mdash; CEA Saclay
-</footer>
-
 </body>
 </html>
