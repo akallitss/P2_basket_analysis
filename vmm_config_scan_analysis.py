@@ -87,7 +87,7 @@ DATASETS = {
     "15kHz": {
         "cnfg_dir"             : "/drf/projets/clas12/P2/akallits/",
         "data_dir"             : "/drf/projets/clas12/cern_202511_p2_alinx/",
-        "run_table"            : "/drf/projets/clas12/P2/akallits/vmm_config_scan_15kHz.csv",
+        "run_table"            : "vmm_config_scan_15kHz.csv",
         "plot_subdir"          : "plots_15kHz/",
         "mapping_module"       : "vmm_mapping",
         "legacy_sg"            : 1.0,
@@ -101,7 +101,7 @@ DATASETS = {
     "5kHz": {
         "cnfg_dir"             : "/drf/projets/clas12/P2/akallits/",
         "data_dir"             : "/drf/projets/clas12/cern_202511_p2_alinx/",
-        "run_table"            : "/drf/projets/clas12/P2/akallits/vmm_config_scan_5kHz.csv",
+        "run_table"            : "vmm_config_scan_5kHz.csv",
         "plot_subdir"          : "plots_5kHz/",
         "mapping_module"       : "vmm_mapping",
         "legacy_sg"            : 4.5,
@@ -176,6 +176,20 @@ PLOTS = {
 # MAIN
 # ─────────────────────────────────────────────
 def main():
+    import time
+    _t0 = time.time()
+
+    def _hdr(title, width=57):
+        """Print a timestamped section header."""
+        t = time.time() - _t0
+        print(f"\n{'─'*width}")
+        print(f"  {title}  [{t:.0f}s]")
+        print(f"{'─'*width}")
+
+    def _done(msg=""):
+        t = time.time() - _t0
+        suffix = f"  {msg}" if msg else ""
+        print(f"  ✓ done{suffix}  [{t:.0f}s]")
 
     # ════════════════════════════════════════════════════════════
     # USER CONFIGURATION
@@ -236,24 +250,29 @@ def main():
     show_plots = mode in ("debug", "both")
     save_dir   = plot_dir if mode in ("analysis", "both") else None
 
-    print(f"\n{'='*55}")
-    print(f"  Dataset : {dataset}")
-    print(f"  Mode    : {mode}")
-    print(f"  data_dir: {data_dir}")
-    print(f"  plot_dir: {plot_dir if save_dir else '(not saving)'}")
-    print(f"{'='*55}\n")
+    W = 57   # banner width
+
+    print(f"\n{'='*W}")
+    print(f"  Dataset      : {dataset}")
+    print(f"  Mode         : {mode}")
+    print(f"  Mapping      : {_ds['mapping_module']}")
+    print(f"  data_dir     : {data_dir}")
+    print(f"  plot_dir     : {plot_dir if save_dir else '(not saving)'}")
+    print(f"  n_root_files : {n_root_files}   n_qa_files : {n_qa_files}")
+    print(f"{'='*W}")
 
     # ── Run metadata ───────────────────────────────────────────
+    _hdr("Loading run metadata")
     df_run_scan = load_run_table(f"{cnfg_dir}{_ds['run_table']}")
     run_groups  = get_run_groups(df_run_scan)
 
     sng1_runs = run_groups["sng1_runs"]
     pairs     = run_groups["pairs"]
 
-    print("\nRun pairs found:")
-    print(f"{'sg':>6} {'snt':>6} {'sng0':>8} {'sng1':>8}")
+    print(f"\n  {len(pairs)} config pair(s) found:")
+    print(f"  {'sg':>6} {'snt':>6} {'sng0':>8} {'sng1':>8}")
     for p in pairs:
-        print(f"{p['sg']:>6} {p['snt']:>6} "
+        print(f"  {p['sg']:>6} {p['snt']:>6} "
               f"{p['sng0']:>8} {p['sng1']:>8}")
 
     # ── VMM groupings from vmm_mapping ─────────────────────────
@@ -272,11 +291,15 @@ def main():
         {vid for cfg in vmm_mapping.values()
          for vid in cfg["vmm_ids"]}
     )
+    print(f"\n  Detector VMMs : {detector_vmms}")
 
     # ── Legacy ADC stats ───────────────────────────────────────
+    _hdr(f"[1/5] Legacy ADC stats  "
+         f"(sg={legacy_sg}, sng={legacy_sng})")
     run_num_sg_st_sng = filter_runs(
         df_run_scan, sg=legacy_sg, sng=legacy_sng
     )
+    print(f"  Runs: {run_num_sg_st_sng}")
 
     df_results = compute_adc_stats(
         df_run_scan = df_run_scan,
@@ -288,8 +311,11 @@ def main():
     )
     df_results.dropna(inplace=True)
     df_results.to_csv(f"{cnfg_dir}vmm_adc_analysis_{dataset}.csv", index=False)
+    _done(f"vmm_adc_analysis_{dataset}.csv  ({len(df_results)} rows)")
 
     # ── VMM-level SNR ──────────────────────────────────────────
+    _hdr(f"[2/5] VMM-level SNR  "
+         f"({len(pairs)} pairs, up to {n_root_files} files/run)")
     df_snr = compute_snr(
         data_dir      = data_dir,
         pairs         = pairs,
@@ -297,15 +323,17 @@ def main():
         n_files       = n_root_files
     )
     df_snr.to_csv(f"{cnfg_dir}vmm_snr_results_{dataset}.csv", index=False)
+    _done(f"vmm_snr_results_{dataset}.csv  ({len(df_snr)} rows)")
 
-    print("\n=== SNR Summary (noise quality=ok only) ===")
     df_snr_clean = df_snr[df_snr["noise_quality"] == "ok"]
+    print(f"\n  SNR summary (noise quality=ok only):")
     print(df_snr_clean[
-        ["sg", "snt", "vmm_id",
-         "noise_sigma", "mpv", "snr"]
+        ["sg", "snt", "vmm_id", "noise_sigma", "mpv", "snr"]
     ].to_string(index=False))
 
     # ── Channel-level SNR ──────────────────────────────────────
+    _hdr(f"[3/5] Channel-level SNR  "
+         f"({len(pairs)} pairs, up to {n_root_files} files/run)")
     df_snr_ch = compute_snr_per_channel(
         data_dir      = data_dir,
         pairs         = pairs,
@@ -313,35 +341,48 @@ def main():
         n_files       = n_root_files
     )
     df_snr_ch.to_csv(f"{cnfg_dir}vmm_snr_per_channel_{dataset}.csv", index=False)
-
-    print(f"\nChannel-level SNR: {len(df_snr_ch)} entries")
     if not df_snr_ch.empty:
-        print(f"SNR range : {df_snr_ch['snr_ch'].min():.1f} "
-              f"— {df_snr_ch['snr_ch'].max():.1f}")
-        print(f"Median SNR: {df_snr_ch['snr_ch'].median():.1f}")
+        _done(f"{len(df_snr_ch)} channels  |  "
+              f"SNR {df_snr_ch['snr_ch'].min():.1f}–"
+              f"{df_snr_ch['snr_ch'].max():.1f}  |  "
+              f"median {df_snr_ch['snr_ch'].median():.1f}")
+    else:
+        _done("0 channels (check noise quality flags)")
 
-    # Uncut version for overlay plots
+    print(f"\n  Re-running without quality cuts (for overlay plots)...")
     df_snr_ch_uncut = compute_snr_per_channel(
-        data_dir       = data_dir,
-        pairs          = pairs,
-        detector_vmms  = detector_vmms,
-        n_files        = n_root_files,
-        min_noise_hits = 5,
-        min_signal_hits   = 10,
-        min_sigma         = 0.0,
-        max_sigma         = 999.0,
-        mpv_min           = 0.0,
-        mpv_max           = 1023.0
+        data_dir        = data_dir,
+        pairs           = pairs,
+        detector_vmms   = detector_vmms,
+        n_files         = n_root_files,
+        min_noise_hits  = 5,
+        min_signal_hits = 10,
+        min_sigma       = 0.0,
+        max_sigma       = 999.0,
+        mpv_min         = 0.0,
+        mpv_max         = 1023.0
     )
+    print(f"  → {len(df_snr_ch_uncut)} channels (uncut)")
 
     # ── Best config summary ────────────────────────────────────
+    _hdr("[4/5] Best configuration summary")
     df_summary = summarise_best_config(
         df_snr, df_snr_ch, detector_vmms
     )
     df_summary.to_csv(f"{cnfg_dir}vmm_snr_summary_{dataset}.csv", index=False)
+    _done(f"vmm_snr_summary_{dataset}.csv")
 
     # ── QA investigations ──────────────────────────────────────
+    n_qa_enabled = sum(
+        1 for k in PLOTS if k.startswith("qa_") and PLOTS[k]
+    )
+    _hdr(f"[5/5] QA & plots  ({n_qa_enabled} QA + "
+         f"{sum(1 for k,v in PLOTS.items() if not k.startswith('qa_') and v)} plots enabled)")
+
     if PLOTS["qa_noise_run_diagnostic"]:
+        print(f"  → qa_noise_run_diagnostic  "
+              f"(noise=run {qa_noise_diag_noise}, "
+              f"signal=run {qa_noise_diag_signal})")
         qa_noise_run_diagnostic(
             data_dir,
             run_noise     = qa_noise_diag_noise,
@@ -353,6 +394,7 @@ def main():
         )
 
     if PLOTS["qa_over_threshold_split"]:
+        print(f"  → qa_over_threshold_split  (run {qa_run_signal})")
         run_dir = get_run_dir(data_dir, qa_run_signal)
         df_hits = load_hits_run(
             run_dir, n_files=n_qa_files,
@@ -365,12 +407,14 @@ def main():
         )
 
     if PLOTS["qa_noise_pedestal_stability"]:
+        print(f"  → qa_noise_pedestal_stability")
         qa_noise_pedestal_stability(
             df_run_scan, data_dir, sng1_runs, vmm_groups,
             out_dir=save_dir, show=show_plots
         )
 
     if PLOTS["qa_signal_distributions"]:
+        print(f"  → qa_signal_distributions  (run {qa_run_signal})")
         run_dir = get_run_dir(data_dir, qa_run_signal)
         df_hits = load_hits_run(
             run_dir, n_files=n_qa_files,
@@ -382,6 +426,8 @@ def main():
         )
 
     if PLOTS["qa_noise_quality_check"]:
+        print(f"  → qa_noise_quality_check  "
+              f"(runs {qa_runs_quality_check})")
         qa_noise_quality_check(
             df_run_scan, data_dir,
             runs_to_check=qa_runs_quality_check
@@ -403,18 +449,21 @@ def main():
             df_noise_qa = compute_noise_baseline(df_hits_qa)
 
             if PLOTS["qa_channel_noise"]:
+                print(f"  → qa_channel_noise  (run {qa_run_noisy})")
                 qa_channel_noise(
                     df_hits_qa, detector_vmms,
                     run_no=qa_run_noisy,
                     out_dir=save_dir, show=show_plots
                 )
             if PLOTS["qa_adc16_artifact"]:
+                print(f"  → qa_adc16_artifact  (run {qa_run_noisy})")
                 qa_adc16_artifact(
                     df_hits_qa, detector_vmms,
                     run_no=qa_run_noisy,
                     out_dir=save_dir, show=show_plots
                 )
             if PLOTS["qa_mpv_estimation"]:
+                print(f"  → qa_mpv_estimation  (run {qa_run_noisy})")
                 qa_mpv_estimation(
                     df_hits_qa, df_noise_qa,
                     detector_vmms, run_no=qa_run_noisy,
@@ -422,18 +471,21 @@ def main():
                 )
 
     if PLOTS["qa_noise_sigma_distribution"]:
+        print(f"  → qa_noise_sigma_distribution")
         qa_noise_sigma_distribution(
             df_run_scan, data_dir, sng1_runs,
             out_dir=save_dir, show=show_plots
         )
 
     if PLOTS["qa_robust_vs_std_comparison"]:
+        print(f"  → qa_robust_vs_std_comparison")
         qa_robust_vs_std_comparison(
             df_run_scan, data_dir, sng1_runs,
             out_dir=save_dir, show=show_plots
         )
 
     if PLOTS["qa_mpv_vs_median_comparison"]:
+        print(f"  → qa_mpv_vs_median_comparison")
         qa_mpv_vs_median_comparison(
             df_run_scan, data_dir, pairs, detector_vmms,
             out_dir=save_dir, show=show_plots
@@ -441,26 +493,31 @@ def main():
 
     # ── Legacy plots ───────────────────────────────────────────
     if PLOTS["adc_hist_per_run"]:
+        print(f"  → adc_hist_per_run")
         plot_adc_histograms_for_runs(
             run_num_sg_st_sng, data_dir,
             out_dir=save_dir, show=show_plots
         )
 
     if PLOTS["adc_hist_separate_vmm"]:
+        print(f"  → adc_hist_separate_vmm")
         plot_adc_by_vmm(
             vmm_ids, run_num_sg_st_sng, df_run_scan, data_dir,
             out_dir=save_dir, show=show_plots
         )
 
     if PLOTS["mean_vs_peaking"]:
+        print(f"  → mean_vs_peaking")
         plot_mean_vs_peaking(df_results, vmm_ids,
                              out_dir=save_dir, show=show_plots)
 
     if PLOTS["plot_std_vs_peaking"]:
+        print(f"  → std_vs_peaking")
         plot_std_vs_peaking(df_results, vmm_ids,
                             out_dir=save_dir, show=show_plots)
 
     if PLOTS["compare_full_vs_cut"]:
+        print(f"  → compare_full_vs_cut")
         for vmm_id in vmm_ids:
             for run_no in run_num_sg_st_sng:
                 run_dir = get_run_dir(data_dir, run_no)
@@ -477,33 +534,39 @@ def main():
                 )
 
     if PLOTS["removed_fraction"]:
+        print(f"  → removed_fraction")
         plot_removed_fraction(df_results, vmm_ids,
                               out_dir=save_dir, show=show_plots)
 
     if PLOTS["robust_stats"]:
+        print(f"  → robust_stats")
         plot_robust_vs_peaking(df_results, vmm_ids,
                                out_dir=save_dir, show=show_plots)
 
     # ── SNR comparison plots ───────────────────────────────────
     if PLOTS["snr_vs_peaking"]:
+        print(f"  → snr_vs_peaking  (MPV + mean)")
         plot_snr_vs_peaking(df_snr,
                             out_dir=save_dir, show=show_plots)
         plot_snr_vs_peaking(df_snr, snr_col="snr_mean",
                             out_dir=save_dir, show=show_plots)
 
     if PLOTS["snr_vs_gain"]:
+        print(f"  → snr_vs_gain  (MPV + mean)")
         plot_snr_vs_gain(df_snr,
                          out_dir=save_dir, show=show_plots)
         plot_snr_vs_gain(df_snr, snr_col="snr_mean",
                          out_dir=save_dir, show=show_plots)
 
     if PLOTS["snr_heatmap"]:
+        print(f"  → snr_heatmap  (MPV + mean)")
         plot_snr_heatmap(df_snr,
                          out_dir=save_dir, show=show_plots)
         plot_snr_heatmap(df_snr, snr_col="snr_mean",
                          out_dir=save_dir, show=show_plots)
 
     if PLOTS["adc_heatmap"]:
+        print(f"  → adc_heatmap  (mpv, mean_signal, noise_sigma, mean_noise)")
         plot_adc_heatmap(df_snr, metric="mpv",
                          out_dir=save_dir, show=show_plots)
         plot_adc_heatmap(df_snr, metric="mean_signal",
@@ -514,6 +577,7 @@ def main():
                          out_dir=save_dir, show=show_plots)
 
     if PLOTS["snr_channel_heatmap_per_vmm"]:
+        print(f"  → snr_channel_heatmap_per_vmm  (MPV + mean)")
         plot_snr_channel_heatmap_per_vmm(
             df_snr_ch_uncut,
             detector_vmms,
@@ -528,6 +592,7 @@ def main():
         )
 
     if PLOTS["snr_channel_heatmap_all_configs"]:
+        print(f"  → snr_channel_heatmap_all_configs  (MPV + mean)")
         plot_snr_channel_heatmap_all_configs(
             df_snr_ch,
             out_dir=save_dir, show=show_plots
@@ -538,6 +603,7 @@ def main():
         )
 
     if PLOTS["snr_channel_uniformity"]:
+        print(f"  → snr_channel_uniformity  (MPV + mean)")
         plot_snr_channel_uniformity(
             df_snr_ch, detector_vmms,
             out_dir=save_dir, show=show_plots
@@ -549,37 +615,48 @@ def main():
         )
 
     if PLOTS["snr_method_comparison"]:
+        print(f"  → snr_method_comparison")
         plot_snr_method_comparison(
             df_snr, df_snr_ch,
             out_dir=save_dir, show=show_plots
         )
 
     if PLOTS["snr_all_methods_heatmap"]:
+        print(f"  → snr_all_methods_heatmap  (4-panel)")
         plot_all_methods_heatmap(
             df_snr,
             out_dir=save_dir, show=show_plots
         )
 
     if PLOTS["tail_distributions"] or PLOTS["saturation_curves"]:
-        print("\nComputing tail curves for distribution plots...")
+        print(f"  → tail curves  (loading histograms...)")
         tail_data = compute_tail_curves(
             data_dir      = data_dir,
             pairs         = pairs,
             detector_vmms = detector_vmms,
             n_files       = n_root_files
         )
+        print(f"    {len(tail_data)} (config, VMM) entries loaded")
 
         if PLOTS["tail_distributions"]:
+            print(f"  → tail_distributions")
             plot_tail_distributions(
                 tail_data, detector_vmms,
                 out_dir=save_dir, show=show_plots
             )
 
         if PLOTS["saturation_curves"]:
+            print(f"  → saturation_curves")
             plot_saturation_curves(
                 tail_data, detector_vmms,
                 out_dir=save_dir, show=show_plots
             )
+
+    print(f"\n{'='*W}")
+    print(f"  Finished  [{time.time() - _t0:.0f}s total]")
+    if save_dir:
+        print(f"  Plots saved to: {save_dir}")
+    print(f"{'='*W}\n")
 
 
 if __name__ == "__main__":
