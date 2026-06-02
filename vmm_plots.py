@@ -77,10 +77,10 @@ def plot_adc_histograms_for_runs(run_list, data_dir,
 
     for run_no in run_list:
         run_dir    = get_run_dir(data_dir, run_no)
-        root_files = list_root_files(run_dir, n=2)
+        root_files = list_root_files(run_dir, n=1)
         if not root_files:
             continue
-        file_path = os.path.join(run_dir, root_files[1])
+        file_path = os.path.join(run_dir, root_files[0])
         df_hits   = load_hits_root(
             file_path,
             branches=["adc", "vmm", "ch", "time", "over_threshold"]
@@ -230,10 +230,10 @@ def plot_adc_by_vmm(vmm_ids, run_list, df_run_scan, data_dir,
         fig, ax = plt.subplots()
         for run_no in run_list:
             run_dir    = get_run_dir(data_dir, run_no)
-            root_files = list_root_files(run_dir, n=2)
+            root_files = list_root_files(run_dir, n=1)
             if not root_files:
                 continue
-            file_path = os.path.join(run_dir, root_files[1])
+            file_path = os.path.join(run_dir, root_files[0])
             df_hits   = load_hits_root(
                 file_path,
                 branches=["adc", "vmm", "ch",
