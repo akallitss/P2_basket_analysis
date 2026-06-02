@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VMM3a Analysis Report — P2 Basket Detector, SPS Beam Test Nov 2025</title>
+<title>VMM SNR Analysis — P2 Basket Detector</title>
 <style>
   :root {
     --blue: #1a4f8a;
@@ -24,7 +24,6 @@
     color: var(--text);
     line-height: 1.65;
   }
-  /* ── Header ─────────────────────────────────── */
   header {
     background: var(--blue);
     color: #fff;
@@ -34,79 +33,24 @@
   header h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.4rem; }
   header .subtitle { font-size: 1rem; opacity: 0.85; }
   header .meta { font-size: 0.85rem; opacity: 0.7; margin-top: 0.6rem; }
-  /* ── Layout ──────────────────────────────────── */
   .wrapper { max-width: 1100px; margin: 0 auto; padding: 2rem 2rem 4rem; }
-  /* ── TOC ─────────────────────────────────────── */
-  nav.toc {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-left: 4px solid var(--blue-light);
-    border-radius: 6px;
-    padding: 1.2rem 1.5rem;
-    margin-bottom: 2rem;
-  }
-  nav.toc h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.08em;
-               color: var(--muted); margin-bottom: 0.6rem; }
-  nav.toc ol { padding-left: 1.4rem; }
-  nav.toc li { margin-bottom: 0.25rem; }
-  nav.toc a { color: var(--blue-light); text-decoration: none; }
-  nav.toc a:hover { text-decoration: underline; }
-  /* ── Sections ────────────────────────────────── */
-  section { margin-bottom: 2.5rem; }
   h2.section-title {
     font-size: 1.3rem;
     color: var(--blue);
     border-bottom: 2px solid var(--blue-light);
     padding-bottom: 0.4rem;
     margin-bottom: 1.2rem;
-    margin-top: 0.5rem;
+    margin-top: 2rem;
   }
   h3.sub-title {
     font-size: 1.05rem;
     color: var(--blue);
     margin: 1.4rem 0 0.7rem;
   }
+  h4 { margin: 1rem 0 0.5rem; color: var(--text); }
   p { margin-bottom: 0.8rem; }
-  /* ── Cards ───────────────────────────────────── */
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1.2rem 1.5rem;
-    margin-bottom: 1.2rem;
-  }
-  /* ── Figure ──────────────────────────────────── */
-  figure {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1rem;
-    margin: 1.2rem 0;
-    text-align: center;
-  }
-  figure img {
-    max-width: 100%;
-    height: auto;
-    border-radius: 4px;
-  }
-  figcaption {
-    font-size: 0.85rem;
-    color: var(--muted);
-    margin-top: 0.6rem;
-    font-style: italic;
-    text-align: left;
-    padding: 0 0.5rem;
-  }
-  figcaption strong { color: var(--text); font-style: normal; }
-  /* ── Two-column figures ──────────────────────── */
-  .fig-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-    margin: 1.2rem 0;
-  }
-  @media (max-width: 720px) { .fig-row { grid-template-columns: 1fr; } }
-  /* ── Tables ──────────────────────────────────── */
+  ul, ol { margin: 0.5rem 0 0.8rem 1.6rem; }
+  li { margin-bottom: 0.25rem; }
   .table-wrap { overflow-x: auto; margin: 1rem 0; }
   table {
     width: 100%;
@@ -117,38 +61,16 @@
     background: var(--blue);
     color: #fff;
     padding: 0.55rem 0.75rem;
-    text-align: center;
+    text-align: left;
     white-space: nowrap;
   }
   tbody td {
     padding: 0.45rem 0.75rem;
     border-bottom: 1px solid var(--border);
-    text-align: center;
+    text-align: left;
   }
   tbody tr:nth-child(even) { background: #f0f4f8; }
   tbody tr:hover { background: #dce8f5; }
-  td.left { text-align: left; }
-  td.ok   { color: #27ae60; font-weight: 600; }
-  td.warn { color: #e67e22; font-weight: 600; }
-  td.bad  { color: var(--accent); font-weight: 600; }
-  td.best { background: #d5f0de; font-weight: 600; }
-  /* ── Highlight box ───────────────────────────── */
-  .highlight {
-    background: #eaf3ff;
-    border-left: 4px solid var(--blue-light);
-    border-radius: 0 6px 6px 0;
-    padding: 0.9rem 1.2rem;
-    margin: 1rem 0;
-  }
-  .highlight.warning {
-    background: #fff8e6;
-    border-left-color: #e6a817;
-  }
-  .highlight.result {
-    background: #eafaf1;
-    border-left-color: #27ae60;
-  }
-  /* ── Code ────────────────────────────────────── */
   code {
     background: var(--code-bg);
     border-radius: 3px;
@@ -156,18 +78,6 @@
     font-size: 0.88em;
     font-family: 'Courier New', monospace;
   }
-  /* ── Badge ───────────────────────────────────── */
-  .badge {
-    display: inline-block;
-    padding: 0.15em 0.55em;
-    border-radius: 12px;
-    font-size: 0.78rem;
-    font-weight: 600;
-  }
-  .badge-green  { background: #d5f0de; color: #1e8449; }
-  .badge-orange { background: #fef0d9; color: #b7770d; }
-  .badge-red    { background: #fde8e6; color: #a93226; }
-  /* ── Footer ──────────────────────────────────── */
   footer {
     text-align: center;
     font-size: 0.8rem;
@@ -181,824 +91,513 @@
 <body>
 
 <header>
-  <h1>VMM3a Configuration Scan &amp; Trigger Analysis Report</h1>
-  <div class="subtitle">P2 Basket Detector — CERN SPS Beam Test, November 2025</div>
+  <h1>VMM Configuration Scan — SNR Analysis</h1>
+  <div class="subtitle">P2 Basket Detector &nbsp;|&nbsp; CERN SPS Beam Test, November 2025</div>
   <div class="meta">
     Author: Alexandra Kallitsopoulou &nbsp;|&nbsp;
-    Generated: May 2026 &nbsp;|&nbsp;
-    Data: 5 kHz muon beam, direct-trigger runs
+    Generated: June 2026 &nbsp;|&nbsp;
+    Source: README_snr_analysis.md
   </div>
 </header>
 
 <div class="wrapper">
+<h1 id="vmm-configuration-scan-snr-analysis">VMM Configuration Scan SNR Analysis</h1>
+<p>Signal-to-Noise Ratio analysis for VMM3a ASIC configuration scans on P2 BASKET detector data from the CERN SPS beam test.</p>
+<h2 id="overview">Overview</h2>
+<p>The pipeline sweeps two VMM shaping parameters — <strong>gain</strong> (<code>sg</code>) and <strong>peaking time</strong> (<code>snt</code>) — and finds the configuration
+that maximises SNR. Each configuration is represented by a pair of runs:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Run type</th>
+<th>VMM setting</th>
+<th>Selects hits with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Signal run (<code>sng=0</code>)</td>
+<td>Neighbor triggering <strong>off</strong></td>
+<td><code>over_threshold == 1</code> (hardware discriminator fired)</td>
+</tr>
+<tr>
+<td>Noise run (<code>sng=1</code>)</td>
+<td>Neighbor triggering <strong>on</strong></td>
+<td><code>over_threshold == 0</code> (sub-threshold, noise-like)</td>
+</tr>
+</tbody>
+</table></div>
+<p>SNR is computed at two levels of granularity:</p>
+<ul>
+<li><strong>VMM level</strong> — one SNR value per VMM per configuration pair</li>
+<li><strong>Channel level</strong> — one SNR value per (VMM, channel) per configuration pair</li>
+</ul>
+<p>Both levels use identical methodology and share a common noise baseline.</p>
+<h2 id="repository-structure">Repository Structure</h2>
+<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code>vmm_config_scan_analysis.py  — main entry point; orchestrates the full pipeline
+vmm_snr.py                   — SNR computation (VMM-level and channel-level)
+vmm_noise.py                 — noise baseline estimation (MAD-based)
+vmm_signal.py                — signal extraction and MPV estimation
+vmm_io.py                    — data loading and run management (ROOT files)
+vmm_plots.py                 — all plotting functions
+vmm_mapping.py               — detector geometry for CERN/SPS data
+vmm_mapping_lab.py           — detector geometry for lab data
+vmm_qa.py                    — quality assurance investigations
+test_snr_methods.py          — synthetic smoke test (no data files needed)
+</code></pre>
+<h2 id="detector-layout">Detector Layout</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Detector</th>
+<th>VMM IDs (CERN)</th>
+<th>Channels</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P2 Large Detector</td>
+<td>12, 13, 14, 15</td>
+<td>0–63 per VMM</td>
+</tr>
+<tr>
+<td>P2 Small Detector 1</td>
+<td>10 (conn. 0), 11 (conn. 1)</td>
+<td>ch 0–31, ch 14–63</td>
+</tr>
+<tr>
+<td>P2 Small Detector 3</td>
+<td>8 (conn. 0), 9 (conn. 1)</td>
+<td>ch 0–31, ch 14–63</td>
+</tr>
+<tr>
+<td>Trigger (excluded)</td>
+<td>0, 1</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<p>Lab data uses <code>vmm_mapping_lab.py</code> (different VMM IDs, fewer detectors).</p>
+<h2 id="running-the-analysis">Running the Analysis</h2>
+<h3 id="switching-datasets">Switching datasets</h3>
+<p>Set <strong>one line</strong> at the top of the user configuration block:</p>
+<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code class="language-python">dataset = &quot;15kHz&quot;   # &quot;15kHz&quot; | &quot;5kHz&quot; | &quot;lab&quot;
+</code></pre>
+<p>All paths, run-table CSV, QA run numbers, plot subdirectory, and VMM mapping are
+loaded automatically from the <code>DATASETS</code> registry at the top of the file.
+To add a new campaign, add one entry there — nothing else changes.</p>
+<h3 id="run-mode">Run mode</h3>
+<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code class="language-python">mode = &quot;analysis&quot;   # save all plots to plot_dir, no interactive windows
+mode = &quot;debug&quot;      # show each plot interactively (close window to advance),
+                    # nothing saved — use the PLOTS dict to select which to step through
+mode = &quot;both&quot;       # save AND show interactively
+</code></pre>
+<h3 id="files-per-run">Files per run</h3>
+<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code class="language-python">n_root_files = 10   # streaming analysis — safe at any N, memory is O(n_vmms × 1024)
+n_qa_files   = 2    # QA / legacy plots — loaded fully into RAM, keep small
+</code></pre>
+<p>Runs with fewer files than <code>n_root_files</code> automatically use all available.</p>
+<h3 id="enabling-disabling-plots">Enabling / disabling plots</h3>
+<p>Toggle entries in the <code>PLOTS</code> dict at module level. Useful in <code>debug</code> mode to
+step through only the plots you care about.</p>
+<h3 id="running">Running</h3>
+<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code class="language-bash">python vmm_config_scan_analysis.py
+</code></pre>
+<p>The run-table CSV (e.g. <code>vmm_config_scan_15kHz.csv</code>) must exist in <code>cnfg_dir</code>.</p>
+<h2 id="analysis-methodology">Analysis Methodology</h2>
+<h3 id="1-noise-estimation-from-sng1-run">1. Noise Estimation (from <code>sng=1</code> run)</h3>
+<p>For each VMM (or channel), noise hits are selected with:
+- <code>over_threshold == 0</code>
+- <code>adc &gt; 20</code> (removes the VMM3a ADC=16 digital floor artifact)</p>
+<p>The noise width is estimated via the <strong>Median Absolute Deviation (MAD)</strong>:</p>
+<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code>robust_sigma = 1.4826 × MAD
+noise_cut    = median + 5 × robust_sigma
+</code></pre>
+<p>A histogram-based implementation is used for memory efficiency — peak memory scales
+as <code>O(n_vmms × 1024 bytes)</code> regardless of the number of ROOT files loaded.</p>
+<p>Noise quality flags:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Condition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ok</code></td>
+<td><code>robust_sigma &lt; 10</code> and <code>n_noise ≥ 500</code></td>
+</tr>
+<tr>
+<td><code>warn</code></td>
+<td><code>10 ≤ robust_sigma &lt; 13</code></td>
+</tr>
+<tr>
+<td><code>bad</code></td>
+<td><code>robust_sigma ≥ 13</code> or <code>n_noise &lt; 500</code></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="2-signal-extraction-and-mpv-estimation-from-sng0-run">2. Signal Extraction and MPV Estimation (from <code>sng=0</code> run)</h3>
+<p>Signal hits are selected with:
+- <code>over_threshold == 1</code>
+- <code>adc &lt; 1023</code> (removes saturated hits at the VMM3a 10-bit ceiling)</p>
+<p>The <strong>Most Probable Value (MPV)</strong> of the Landau-like charge distribution is found
+via a Gaussian-smoothed histogram peak finder:
+- Search window: <code>[noise_cut, 800]</code> ADC
+- Gaussian smoothing: <code>sigma = 2</code> bins
+- Resolution: 150 bins at VMM level, 80 bins at channel level</p>
+<h3 id="3-snr-metrics">3. SNR Metrics</h3>
+<p>Four metrics are computed at both VMM and channel level:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Definition</th>
+<th>Interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>snr</code></td>
+<td>MPV / noise_sigma</td>
+<td>primary; robust peak position relative to noise width</td>
+</tr>
+<tr>
+<td><code>snr_mean</code></td>
+<td>mean_signal / noise_sigma</td>
+<td>secondary cross-check using mean charge</td>
+</tr>
+<tr>
+<td><code>area_ratio</code></td>
+<td>signal counts / noise counts above <code>noise_cut</code></td>
+<td>how much signal dominates noise above threshold</td>
+</tr>
+<tr>
+<td><code>eer_value</code></td>
+<td>P at the crossing of P(noise&gt;x) and P(signal≤x)</td>
+<td>equal-error-rate; lower = better separation</td>
+</tr>
+</tbody>
+</table></div>
+<p>The <strong>EER (equal-error-rate) threshold</strong> is the ADC value where the fraction of
+noise hits above it equals the fraction of signal hits below it — the optimal
+discrimination threshold. In log scale the tails are nearly linear, making
+extrapolation stable. The saturation probability <code>p_saturation</code> reports what
+fraction of signal hits are lost to ADC=1023 clipping.</p>
+<h3 id="4-channel-level-quality-cuts">4. Channel-Level Quality Cuts</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Cut</th>
+<th>Parameter</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Minimum noise hits</td>
+<td><code>min_noise_hits</code></td>
+<td>50</td>
+<td>stable MAD estimate</td>
+</tr>
+<tr>
+<td>Minimum sigma</td>
+<td><code>min_sigma</code></td>
+<td>2.0 ADC</td>
+<td>removes stuck channels (MAD floor)</td>
+</tr>
+<tr>
+<td>Maximum sigma</td>
+<td><code>max_sigma</code></td>
+<td>20.0 ADC</td>
+<td>removes floating/noisy channels</td>
+</tr>
+<tr>
+<td>MPV range</td>
+<td><code>mpv_min</code>–<code>mpv_max</code></td>
+<td>100–300 ADC</td>
+<td>removes peak-finder artifacts</td>
+</tr>
+<tr>
+<td>Minimum signal hits</td>
+<td><code>min_signal_hits</code></td>
+<td>50</td>
+<td>reliable MPV estimation</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="5-best-configuration-selection">5. Best Configuration Selection</h3>
+<p><code>summarise_best_config()</code> compares all configurations per VMM:
+- <strong>VMM level</strong>: highest <code>snr</code> (excluding bad noise quality)
+- <strong>Channel level</strong>: highest median <code>snr_ch</code> across channels
+- Prints a side-by-side table with an agreement flag (<code>✓</code> / <code>✗</code>)
+- Reports an overall recommended configuration (plurality vote)</p>
+<h2 id="output-files">Output Files</h2>
+<p>CSV files written to <code>cnfg_dir</code>, named with the dataset tag:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>File</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vmm_snr_results_{dataset}.csv</code></td>
+<td>VMM-level SNR per configuration pair</td>
+</tr>
+<tr>
+<td><code>vmm_snr_per_channel_{dataset}.csv</code></td>
+<td>Channel-level SNR (quality-cut channels only)</td>
+</tr>
+<tr>
+<td><code>vmm_snr_per_channel_uncut_{dataset}.csv</code></td>
+<td>Channel-level SNR (all channels)</td>
+</tr>
+<tr>
+<td><code>vmm_snr_summary_{dataset}.csv</code></td>
+<td>Best configuration per VMM with agreement flag</td>
+</tr>
+<tr>
+<td><code>vmm_adc_analysis_{dataset}.csv</code></td>
+<td>Legacy ADC statistics</td>
+</tr>
+</tbody>
+</table></div>
+<p>Plots are saved as both PDF and PNG in <code>plot_dir</code>.</p>
+<h2 id="plots-reference">Plots Reference</h2>
+<h3 id="snr-comparison-plots">SNR comparison plots</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Plot key</th>
+<th>Function</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>snr_heatmap</code></td>
+<td><code>plot_snr_heatmap</code></td>
+<td>SNR (MPV or mean) — rows=VMMs, cols=configs</td>
+</tr>
+<tr>
+<td><code>adc_heatmap</code></td>
+<td><code>plot_adc_heatmap</code></td>
+<td>MPV / noise_sigma / mean_signal heatmaps</td>
+</tr>
+<tr>
+<td><code>snr_vs_peaking</code></td>
+<td><code>plot_snr_vs_peaking</code></td>
+<td>SNR vs peaking time per VMM</td>
+</tr>
+<tr>
+<td><code>snr_vs_gain</code></td>
+<td><code>plot_snr_vs_gain</code></td>
+<td>SNR vs gain per VMM</td>
+</tr>
+<tr>
+<td><code>snr_all_methods_heatmap</code></td>
+<td><code>plot_all_methods_heatmap</code></td>
+<td>4-panel: MPV-SNR, mean-SNR, area-ratio, EER side by side</td>
+</tr>
+<tr>
+<td><code>snr_method_comparison</code></td>
+<td><code>plot_snr_method_comparison</code></td>
+<td>MPV-based vs mean-charge SNR scatter</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="distribution-based-plots">Distribution-based plots</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Plot key</th>
+<th>Function</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tail_distributions</code></td>
+<td><code>plot_tail_distributions</code></td>
+<td>Per VMM, log-scale: P(noise&gt;x) dashed, P(signal≤x) solid, all configs overlaid; EER crossing marked with dot</td>
+</tr>
+<tr>
+<td><code>saturation_curves</code></td>
+<td><code>plot_saturation_curves</code></td>
+<td>Per VMM, P(signal&gt;x) for each config; red line at ADC=1022 shows saturation fraction</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="channel-level-plots">Channel-level plots</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Plot key</th>
+<th>Function</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>snr_channel_heatmap_per_vmm</code></td>
+<td><code>plot_snr_channel_heatmap_per_vmm</code></td>
+<td>Per-channel SNR heatmap per VMM</td>
+</tr>
+<tr>
+<td><code>snr_channel_heatmap_all_configs</code></td>
+<td><code>plot_snr_channel_heatmap_all_configs</code></td>
+<td>Per-channel SNR across all configs</td>
+</tr>
+<tr>
+<td><code>snr_channel_uniformity</code></td>
+<td><code>plot_snr_channel_uniformity</code></td>
+<td>Channel-to-channel SNR spread</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="key-output-columns">Key Output Columns</h2>
+<h3 id="vmm-level-vmm_snr_results_datasetcsv">VMM-level (<code>vmm_snr_results_{dataset}.csv</code>)</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sg</code></td>
+<td>Shaping gain</td>
+</tr>
+<tr>
+<td><code>snt</code></td>
+<td>Shaping time (peaking time, ns)</td>
+</tr>
+<tr>
+<td><code>vmm_id</code></td>
+<td>VMM identifier</td>
+</tr>
+<tr>
+<td><code>noise_sigma</code></td>
+<td>Robust noise width (1.4826 × MAD)</td>
+</tr>
+<tr>
+<td><code>noise_cut</code></td>
+<td>ADC threshold separating noise from signal</td>
+</tr>
+<tr>
+<td><code>noise_quality</code></td>
+<td><code>ok</code> / <code>warn</code> / <code>bad</code></td>
+</tr>
+<tr>
+<td><code>mpv</code></td>
+<td>Most Probable Value of signal distribution (ADC)</td>
+</tr>
+<tr>
+<td><code>snr</code></td>
+<td>MPV / noise_sigma</td>
+</tr>
+<tr>
+<td><code>snr_mean</code></td>
+<td>mean_signal / noise_sigma</td>
+</tr>
+<tr>
+<td><code>area_ratio</code></td>
+<td>signal counts / noise counts above noise_cut</td>
+</tr>
+<tr>
+<td><code>eer_threshold</code></td>
+<td>ADC at the equal-error-rate crossing</td>
+</tr>
+<tr>
+<td><code>eer_value</code></td>
+<td>Probability at the EER crossing (lower = better)</td>
+</tr>
+<tr>
+<td><code>p_saturation</code></td>
+<td>Fraction of signal hits at ADC saturation (1023)</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="channel-level-vmm_snr_per_channel_datasetcsv">Channel-level (<code>vmm_snr_per_channel_{dataset}.csv</code>)</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vmm_id</code>, <code>ch</code></td>
+<td>VMM and channel identifiers</td>
+</tr>
+<tr>
+<td><code>noise_sigma_ch</code></td>
+<td>Channel-level robust noise width</td>
+</tr>
+<tr>
+<td><code>vmm_noise_cut</code></td>
+<td>VMM-level noise cut (lower bound for MPV search)</td>
+</tr>
+<tr>
+<td><code>mpv_ch</code></td>
+<td>Channel-level MPV (ADC)</td>
+</tr>
+<tr>
+<td><code>snr_ch</code></td>
+<td>Channel-level MPV / noise_sigma</td>
+</tr>
+<tr>
+<td><code>snr_mean_ch</code></td>
+<td>Channel-level mean_signal / noise_sigma</td>
+</tr>
+<tr>
+<td><code>area_ratio_ch</code></td>
+<td>Channel-level area ratio</td>
+</tr>
+<tr>
+<td><code>eer_threshold_ch</code></td>
+<td>Channel-level EER threshold</td>
+</tr>
+<tr>
+<td><code>eer_value_ch</code></td>
+<td>Channel-level EER value</td>
+</tr>
+<tr>
+<td><code>p_saturation_ch</code></td>
+<td>Channel-level saturation fraction</td>
+</tr>
+<tr>
+<td><code>n_signal</code>, <code>n_noise</code></td>
+<td>Hit counts used in the estimates</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="testing-without-data">Testing Without Data</h2>
+<p>A standalone smoke test runs all new metrics and plot functions on synthetic
+histograms — no ROOT files needed:</p>
+<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code class="language-bash"># Assertions only
+python test_snr_methods.py
 
-<!-- ═══════════════════════════════════════ TOC ═══════════ -->
-<nav class="toc">
-  <h2>Contents</h2>
-  <ol>
-    <li><a href="#sec-overview">Overview</a></li>
-    <li><a href="#sec-setup">Detector Setup &amp; VMM Mapping</a></li>
-    <li><a href="#sec-config">VMM Configuration Scan Analysis</a>
-      <ol>
-        <li><a href="#sec-method">Methodology</a></li>
-        <li><a href="#sec-runs">Run Configuration &amp; Scan Parameters</a></li>
-        <li><a href="#sec-noise">Noise Baseline Estimation</a></li>
-        <li><a href="#sec-signal">Signal MPV Estimation</a></li>
-        <li><a href="#sec-snr">SNR Results</a></li>
-        <li><a href="#sec-best">Best Configuration Summary</a></li>
-      </ol>
-    </li>
-    <li><a href="#sec-trigger">Trigger Analysis</a>
-      <ol>
-        <li><a href="#sec-trig-setup">Trigger Setup</a></li>
-        <li><a href="#sec-spill">Spill Structure Identification</a></li>
-        <li><a href="#sec-rates">Hit Rates vs Configuration</a></li>
-      </ol>
-    </li>
-    <li><a href="#sec-conclusions">Conclusions &amp; Recommendations</a></li>
-    <li><a href="#sec-appendix-a">Appendix A: Full SNR Results Table</a></li>
-    <li><a href="#sec-appendix-b">Appendix B: Best Configuration per VMM</a></li>
-    <li><a href="#sec-appendix-c">Appendix C: Spill Rates Table</a></li>
-  </ol>
-</nav>
-
-<!-- ═══════════════════════════════════════ 1. OVERVIEW ═══ -->
-<section id="sec-overview">
-  <h2 class="section-title">1. Overview</h2>
-  <p>
-    This report documents the VMM3a ASIC configuration scan performed during the CERN SPS beam
-    test in November 2025 using the P2 basket detector system. The primary goal was to determine
-    the optimal combination of analogue gain (<code>sg</code>) and peaking time (<code>snt</code>)
-    that maximises the signal-to-noise ratio (SNR) across all detector VMMs.
-  </p>
-  <p>
-    A secondary analysis characterises the trigger performance by identifying beam spill structure
-    from trigger VMMs 0 and 1, and comparing hit rates during spill-on and spill-off periods
-    across all gain/peaking-time configurations.
-  </p>
-  <div class="highlight result">
-    <strong>Key result:</strong> The configuration <strong>sg = 3.0 mV/fC, snt = 100 ns</strong>
-    yields the highest VMM-level SNR for 6 out of 8 detector VMMs, with SNR values ranging
-    from ~19 to ~40. The remaining two VMMs (14 and 15 on P2 Large) marginally prefer
-    sg = 4.5 / snt = 100 ns. The channel-level analysis favours sg = 3.0 / snt = 100 ns
-    for 7 of 8 VMMs.
-  </div>
-</section>
-
-<!-- ═══════════════════════════════════════ 2. SETUP ══════ -->
-<section id="sec-setup">
-  <h2 class="section-title">2. Detector Setup &amp; VMM Mapping</h2>
-  <p>
-    The P2 basket detector consists of three gaseous detectors instrumented with VMM3a ASICs
-    on an ALINX readout board. Each detector is connected to one or two VMMs. Two additional
-    VMMs (0 and 1) read out plastic scintillator trigger counters.
-  </p>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Group</th><th>Name</th><th>VMM IDs</th><th>Connector IDs</th><th>Role</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="left">trigger</td>
-          <td class="left">Scintillator Trigger</td>
-          <td>0, 1</td>
-          <td>10, 11</td>
-          <td>Trigger reference; excluded from SNR analysis</td>
-        </tr>
-        <tr>
-          <td class="left">p2_large_1</td>
-          <td class="left">P2 Large Detector</td>
-          <td>12, 13, 14, 15</td>
-          <td>0, 1, 2, 3</td>
-          <td>4-VMM large-area detector</td>
-        </tr>
-        <tr>
-          <td class="left">p2_small_1</td>
-          <td class="left">P2 Small Detector 1</td>
-          <td>10, 11</td>
-          <td>0, 1</td>
-          <td>Small detector — 2 VMMs</td>
-        </tr>
-        <tr>
-          <td class="left">p2_small_3</td>
-          <td class="left">P2 Small Detector 3</td>
-          <td>8, 9</td>
-          <td>0, 1</td>
-          <td>Small detector — 2 VMMs</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-  <p>
-    The trigger channels on VMM 0 are channels 40 and 48; on VMM 1 channels 0, 20, 40 and 60.
-    All detector VMMs use normal strip orientation. Data are stored as ROOT files in the
-    ALINX-VMM format and loaded with <code>uproot</code>.
-  </p>
-</section>
-
-<!-- ═══════════════════════════════════════ 3. CONFIG SCAN ═ -->
-<section id="sec-config">
-  <h2 class="section-title">3. VMM Configuration Scan Analysis</h2>
-
-  <!-- 3.1 Methodology -->
-  <h3 class="sub-title" id="sec-method">3.1 Methodology</h3>
-  <p>
-    The analysis pipeline (orchestrated by <code>vmm_config_scan_analysis.py</code>) consists of
-    four stages:
-  </p>
-  <div class="card">
-    <ol style="padding-left:1.4rem; line-height:2;">
-      <li><strong>Noise baseline estimation</strong> — from <code>sng=1</code> (neighbour-trigger
-          suppressed) runs. Robust median absolute deviation (MAD):
-          σ<sub>noise</sub> = 1.4826 × MAD, computed only on hits with
-          <code>over_threshold=0</code> and <code>adc &gt; 20</code>.</li>
-      <li><strong>Signal MPV estimation</strong> — from <code>sng=0</code> (self-triggered)
-          runs. The most-probable value (MPV) of the ADC distribution is extracted as the
-          smoothed histogram peak, restricted to hits with
-          <code>over_threshold=1</code> and <code>adc &lt; 1023</code> (non-saturated).</li>
-      <li><strong>SNR computation</strong> — at VMM level and per-channel level:
-          SNR = MPV / σ<sub>noise</sub>. The VMM-level noise cut
-          (= mean + 10σ<sub>noise</sub>) is used as <code>adc_min</code> for the MPV search at
-          both levels.</li>
-      <li><strong>Best-config summary</strong> — the configuration maximising SNR is identified
-          independently at VMM level and channel level; agreement between the two is flagged.</li>
-    </ol>
-  </div>
-
-  <!-- 3.2 Runs -->
-  <h3 class="sub-title" id="sec-runs">3.2 Run Configuration &amp; Scan Parameters</h3>
-  <p>
-    Six gain × peaking-time combinations were scanned. For each configuration a
-    <code>sng=0</code> (signal) run and a <code>sng=1</code> (noise) run were recorded.
-    The beam rate during signal runs was approximately 5 kHz (muons). Up to 5 ROOT files
-    were merged per run to improve statistics.
-  </p>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Gain sg (mV/fC)</th>
-          <th>Peaking time snt (ns)</th>
-          <th>Signal run (sng=0)</th>
-          <th>Noise run (sng=1)</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr><td>3.0</td><td>200</td><td>67</td><td>—</td></tr>
-        <tr><td>3.0</td><td>100</td><td>70</td><td>71</td></tr>
-        <tr><td>3.0</td><td>50</td><td>73</td><td>76</td></tr>
-        <tr><td>4.5</td><td>200</td><td>78</td><td>79</td></tr>
-        <tr><td>4.5</td><td>100</td><td>82</td><td>96</td></tr>
-        <tr><td>4.5</td><td>50</td><td>97</td><td>98</td></tr>
-        <tr><td>6.0</td><td>200</td><td>99</td><td>100</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <p>
-    The data were taken with the direct trigger configuration (scintillators directly connected
-    to VMM 0/1, no external delay module). The trigger reference channel on VMM 0 is channel 48.
-  </p>
-
-  <!-- 3.3 Noise -->
-  <h3 class="sub-title" id="sec-noise">3.3 Noise Baseline Estimation</h3>
-  <p>
-    Noise is characterised from <code>sng=1</code> runs where only above-threshold hits are
-    recorded but the neighbour-suppression flag separates genuine signal from baseline
-    fluctuations. The robust estimator (MAD-based σ) is preferred over the standard deviation
-    because it is insensitive to ADC artefacts such as the occasional ADC=16 spike.
-  </p>
-  <p>
-    A noise quality flag is assigned to each (VMM, config) pair:
-    <span class="badge badge-green">ok</span> — σ<sub>noise</sub> &lt; 9 ADC counts;
-    <span class="badge badge-orange">warn</span> — 9 ≤ σ &lt; 12 ADC counts (elevated noise,
-    usually at short peaking times); <span class="badge badge-red">bad</span> — σ ≥ 12 ADC
-    counts (excluded from best-config selection).
-  </p>
-
-  <figure>
-    <img src="results/VMM_Config_Scan_SPS_Nov25/noise_pedestals.png"
-         alt="Noise pedestal distributions per VMM and configuration">
-    <figcaption>
-      <strong>Figure 1.</strong> Noise pedestal ADC distributions for all detector VMMs and
-      selected configurations. Narrower distributions (small σ) correspond to low-noise
-      operation. Short peaking times (snt = 50 ns) consistently show wider pedestals.
-    </figcaption>
-  </figure>
-
-  <figure>
-    <img src="results/VMM_Config_Scan_SPS_Nov25/noise_sigma_direct_Trigger_all_config.png"
-         alt="Noise sigma vs configuration for all VMMs">
-    <figcaption>
-      <strong>Figure 2.</strong> Noise σ (ADC counts) per VMM and configuration (direct trigger
-      runs). Noise increases significantly at snt = 50 ns for all gains. snt = 100 and 200 ns
-      give comparable low-noise baselines across all VMMs.
-    </figcaption>
-  </figure>
-
-  <!-- 3.4 Signal -->
-  <h3 class="sub-title" id="sec-signal">3.4 Signal MPV Estimation</h3>
-  <p>
-    The signal amplitude is characterised by the most-probable value (MPV) of the ADC spectrum,
-    extracted as the peak of a Gaussian-smoothed histogram. Only hits with
-    <code>over_threshold=1</code> and ADC above the VMM-level noise cut are included.
-    Non-saturated hits (<code>adc &lt; 1023</code>) are selected to avoid pile-up
-    at the ADC ceiling.
-  </p>
-
-  <figure>
-    <img src="results/VMM_Config_Scan_SPS_Nov25/ADC_direct_Trigger_all_config.png"
-         alt="MPV (ADC) vs configuration for all VMMs">
-    <figcaption>
-      <strong>Figure 3.</strong> Signal MPV (ADC counts) per VMM and configuration. The MPV
-      increases with gain (sg), as expected. Peaking time has a smaller effect on the MPV
-      compared to gain. VMMs 10 and 11 (P2 Small Detector 1) consistently show higher MPV
-      values than the P2 Large VMMs at the same configuration.
-    </figcaption>
-  </figure>
-
-  <!-- 3.5 SNR -->
-  <h3 class="sub-title" id="sec-snr">3.5 SNR Results</h3>
-  <p>
-    The SNR is computed at both VMM level (using VMM-averaged noise and MPV) and per-channel
-    level (individual channel noise and MPV). The VMM-level SNR provides a single figure-of-merit
-    per configuration, while the channel-level view reveals intra-VMM uniformity and
-    problematic channels.
-  </p>
-
-  <figure>
-    <img src="results/VMM_Config_Scan_SPS_Nov25/SNR_direct_Trigger_all_config.png"
-         alt="VMM-level SNR vs configuration for all VMMs">
-    <figcaption>
-      <strong>Figure 4.</strong> VMM-level SNR vs configuration for all detector VMMs
-      (direct trigger, SPS Nov 2025). The configuration sg = 3.0 / snt = 100 ns consistently
-      achieves the highest or near-highest SNR across most VMMs. The snt = 50 ns row shows a
-      marked SNR reduction due to elevated noise. VMM 9 (P2 Small 3) achieves the highest
-      single-VMM SNR of ~40 at the optimal configuration.
-    </figcaption>
-  </figure>
-
-  <div class="fig-row">
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/p2_large_vs_config.png"
-           alt="P2 Large Detector — SNR vs configuration">
-      <figcaption>
-        <strong>Figure 5a.</strong> P2 Large Detector (VMMs 12–15) — SNR vs configuration.
-        VMMs 14 and 15 show a marginal preference for sg = 4.5 / snt = 100 ns at the
-        VMM level.
-      </figcaption>
-    </figure>
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/p2_small_1_vs%20_configs.png"
-           alt="P2 Small Detector 1 — SNR vs configuration">
-      <figcaption>
-        <strong>Figure 5b.</strong> P2 Small Detector 1 (VMMs 10–11) — SNR vs configuration.
-        Both VMMs peak clearly at sg = 3.0 / snt = 100 ns.
-      </figcaption>
-    </figure>
-  </div>
-
-  <div class="fig-row">
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/p2_small_3_vs%20_configs.png"
-           alt="P2 Small Detector 3 — SNR vs configuration">
-      <figcaption>
-        <strong>Figure 5c.</strong> P2 Small Detector 3 (VMMs 8–9) — SNR vs configuration.
-        VMM 9 achieves the highest single SNR (~40) at sg = 3.0 / snt = 100 ns.
-      </figcaption>
-    </figure>
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/SNR_VMM_ch_direct_trigger_all.png"
-           alt="Channel-level SNR heatmap for all VMMs and configurations">
-      <figcaption>
-        <strong>Figure 5d.</strong> Channel-level SNR heatmap (all VMMs, all configurations).
-        Each cell shows the median per-channel SNR. sg = 3.0 / snt = 100 ns is brightest
-        across the largest number of VMMs.
-      </figcaption>
-    </figure>
-  </div>
-
-  <h3 class="sub-title">3.5.1 Per-VMM Channel SNR Distributions</h3>
-  <p>
-    The following figures show the per-channel SNR distribution for each individual VMM
-    across all configurations, allowing identification of dead or noisy channels.
-  </p>
-
-  <div class="fig-row">
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/VMM9_vs_Ch_direct_Trigger_all_config.png"
-           alt="VMM 9 — SNR vs channel for all configurations">
-      <figcaption>
-        <strong>Figure 6a.</strong> VMM 9 (P2 Small 3) — per-channel SNR across all
-        configurations. Most channels achieve SNR &gt; 30 at sg = 3.0 / snt = 100 ns.
-      </figcaption>
-    </figure>
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/VMM10_vs_Ch_direct_Trigger_all_config.png"
-           alt="VMM 10 — SNR vs channel for all configurations">
-      <figcaption>
-        <strong>Figure 6b.</strong> VMM 10 (P2 Small 1) — per-channel SNR. Consistent
-        SNR above 25 at the optimal configuration.
-      </figcaption>
-    </figure>
-  </div>
-
-  <div class="fig-row">
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/VMM11_vs_Ch_direct_Trigger_all_config.png"
-           alt="VMM 11 — SNR vs channel for all configurations">
-      <figcaption>
-        <strong>Figure 6c.</strong> VMM 11 (P2 Small 1).
-      </figcaption>
-    </figure>
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/VMM12_vs_Ch_direct_Trigger_all_config.png"
-           alt="VMM 12 — SNR vs channel for all configurations">
-      <figcaption>
-        <strong>Figure 6d.</strong> VMM 12 (P2 Large Detector).
-      </figcaption>
-    </figure>
-  </div>
-
-  <div class="fig-row">
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/VMM13_vs_Ch_direct_Trigger_all_config.png"
-           alt="VMM 13 — SNR vs channel for all configurations">
-      <figcaption>
-        <strong>Figure 6e.</strong> VMM 13 (P2 Large Detector).
-      </figcaption>
-    </figure>
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/VMM14_vs_Ch_direct_Trigger_all_config.png"
-           alt="VMM 14 — SNR vs channel for all configurations">
-      <figcaption>
-        <strong>Figure 6f.</strong> VMM 14 (P2 Large Detector). SNR is marginally higher
-        at sg = 4.5 / snt = 100 ns at the VMM level, though the channel-level analysis
-        favours sg = 3.0 / snt = 100 ns.
-      </figcaption>
-    </figure>
-  </div>
-
-  <div class="fig-row">
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/VMM15_vs_Ch_direct_Trigger_all_config.png"
-           alt="VMM 15 — SNR vs channel for all configurations">
-      <figcaption>
-        <strong>Figure 6g.</strong> VMM 15 (P2 Large Detector). Similar situation to VMM 14:
-        VMM-level best is sg = 4.5 / snt = 100 ns, but channel-level median prefers
-        sg = 3.0 / snt = 100 ns.
-      </figcaption>
-    </figure>
-  </div>
-
-  <!-- 3.6 Best config -->
-  <h3 class="sub-title" id="sec-best">3.6 Best Configuration Summary</h3>
-  <p>
-    The table below shows the best configuration identified for each VMM at both the VMM level
-    and the channel level, along with the corresponding peak SNR values and their agreement.
-  </p>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>VMM</th>
-          <th>Detector</th>
-          <th>VMM-level best config</th>
-          <th>VMM SNR</th>
-          <th>Channel-level best config</th>
-          <th>Channel median SNR</th>
-          <th>Agreement</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>8</td><td class="left">P2 Small 3</td>
-          <td class="left">sg=3.0 / snt=100</td><td>24.8</td>
-          <td class="left">sg=3.0 / snt=100</td><td>35.6</td>
-          <td><span class="badge badge-green">Yes</span></td>
-        </tr>
-        <tr>
-          <td>9</td><td class="left">P2 Small 3</td>
-          <td class="left">sg=3.0 / snt=100</td><td>39.9</td>
-          <td class="left">sg=3.0 / snt=100</td><td>42.0</td>
-          <td><span class="badge badge-green">Yes</span></td>
-        </tr>
-        <tr>
-          <td>10</td><td class="left">P2 Small 1</td>
-          <td class="left">sg=3.0 / snt=100</td><td>26.8</td>
-          <td class="left">sg=3.0 / snt=100</td><td>37.1</td>
-          <td><span class="badge badge-green">Yes</span></td>
-        </tr>
-        <tr>
-          <td>11</td><td class="left">P2 Small 1</td>
-          <td class="left">sg=3.0 / snt=100</td><td>23.6</td>
-          <td class="left">sg=3.0 / snt=100</td><td>41.6</td>
-          <td><span class="badge badge-green">Yes</span></td>
-        </tr>
-        <tr>
-          <td>12</td><td class="left">P2 Large</td>
-          <td class="left">sg=3.0 / snt=100</td><td>18.8</td>
-          <td class="left">sg=4.5 / snt=200</td><td>39.7</td>
-          <td><span class="badge badge-orange">No</span></td>
-        </tr>
-        <tr>
-          <td>13</td><td class="left">P2 Large</td>
-          <td class="left">sg=3.0 / snt=100</td><td>31.6</td>
-          <td class="left">sg=3.0 / snt=100</td><td>53.6</td>
-          <td><span class="badge badge-green">Yes</span></td>
-        </tr>
-        <tr>
-          <td>14</td><td class="left">P2 Large</td>
-          <td class="left">sg=4.5 / snt=100</td><td>23.4</td>
-          <td class="left">sg=3.0 / snt=100</td><td>40.2</td>
-          <td><span class="badge badge-orange">No</span></td>
-        </tr>
-        <tr>
-          <td>15</td><td class="left">P2 Large</td>
-          <td class="left">sg=4.5 / snt=100</td><td>29.2</td>
-          <td class="left">sg=3.0 / snt=100</td><td>46.6</td>
-          <td><span class="badge badge-orange">No</span></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="highlight">
-    <strong>Note on VMM vs channel-level disagreement (VMMs 12, 14, 15):</strong>
-    The VMM-level SNR uses a single aggregate noise and MPV estimate. When a VMM has channels
-    with non-uniform noise (e.g., a few noisy strips pulling up the average), the VMM-level
-    noise estimate is inflated and the optimal configuration can shift. The channel-level
-    median SNR is the more robust estimator and consistently points to sg = 3.0 / snt = 100 ns.
-  </div>
-</section>
-
-<!-- ═══════════════════════════════════════ 4. TRIGGER ══════ -->
-<section id="sec-trigger">
-  <h2 class="section-title">4. Trigger Analysis</h2>
-
-  <!-- 4.1 Setup -->
-  <h3 class="sub-title" id="sec-trig-setup">4.1 Trigger Setup</h3>
-  <p>
-    The trigger system consists of two plastic scintillators read out by VMMs 0 and 1
-    (directly connected, no external delay module). The reference trigger channel is
-    VMM 0 channel 48. A second scintillator is connected to VMM 0 channel 40 and VMM 1
-    channels 0, 20, 40, and 60.
-  </p>
-  <p>
-    The trigger analysis (<code>vmm_trigger_analysis.py</code>) uses the trigger hit
-    time stream to identify SPS beam spill structure and compute hit rates in beam-on
-    (spill-on) and beam-off (spill-off) periods separately for each detector VMM and
-    each configuration.
-  </p>
-  <p>
-    Timestamps are in 1 GHz clock ticks (1 ns per tick). Corrupted timestamps
-    (ticks ≥ 2 × 10<sup>12</sup>) are removed before analysis. VMM timestamps are
-    sorted chronologically before rate computation.
-  </p>
-
-  <!-- 4.2 Spill -->
-  <h3 class="sub-title" id="sec-spill">4.2 Spill Structure Identification</h3>
-  <p>
-    Hit rates are binned in 1 ms windows. During SPS extraction, the trigger rate
-    rises sharply to ~4 kHz (beam-on) for a spill flat-top of ~2.5–4 s, then drops
-    to a noise floor ≪ 1 kHz during the inter-spill gap. A threshold of 1 kHz
-    cleanly separates spill-on from spill-off bins. Contiguous above-threshold regions
-    shorter than 1 s are reclassified as spill-off (start-of-run artefacts).
-  </p>
-
-  <figure>
-    <img src="results/VMM_Config_Scan_SPS_Nov25/spil_structure.png"
-         alt="Trigger rate vs time showing SPS spill structure">
-    <figcaption>
-      <strong>Figure 7.</strong> Trigger rate (VMM 0, channel 48) in 1 ms bins vs time
-      from run start (run 149, direct trigger). The SPS spill structure is clearly visible:
-      flat-tops at ~4 kHz separated by inter-spill gaps. The full run spans multiple spills.
-    </figcaption>
-  </figure>
-
-  <figure>
-    <img src="results/VMM_Config_Scan_SPS_Nov25/threshold_spil_on_off.png"
-         alt="Spill mask validation — on/off regions shaded">
-    <figcaption>
-      <strong>Figure 8.</strong> Spill mask validation plot. Green shading = spill-on bins
-      (trigger rate &gt; 1 kHz); grey shading = spill-off bins. The 1 kHz threshold
-      (red dashed line) correctly captures all genuine beam spills. Top: full run;
-      bottom: first 10 s zoom showing individual spill profile.
-    </figcaption>
-  </figure>
-
-  <figure>
-    <img src="results/Trigger_Analysis/spill_on_off_regions.png"
-         alt="Spill-on and spill-off regions across the full run">
-    <figcaption>
-      <strong>Figure 9.</strong> Spill-on / spill-off classification across the full run.
-      The run contains multiple spills; the beam duty cycle is approximately 7–11%
-      depending on the run.
-    </figcaption>
-  </figure>
-
-  <!-- 4.3 Rates -->
-  <h3 class="sub-title" id="sec-rates">4.3 Hit Rates vs Configuration</h3>
-  <p>
-    For each (sg, snt) configuration the mean detector VMM hit rate is computed separately
-    during spill-on and spill-off periods. The spill-on rate contains both signal and
-    electronic noise; the spill-off rate gives the pure noise floor.
-    A high ratio rate<sub>on</sub> / rate<sub>off</sub> indicates good signal-to-background.
-  </p>
-
-  <div class="fig-row">
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/P2_large_all_vmm_spil_on_all_files.png"
-           alt="P2 Large Detector — spill-on rate vs configuration, all files">
-      <figcaption>
-        <strong>Figure 10a.</strong> P2 Large Detector (VMMs 12–15) — mean spill-on hit rate
-        vs configuration. The trigger rate (black dashed) is stable across configurations,
-        confirming consistent beam conditions. The detector rate increases with gain, as expected.
-      </figcaption>
-    </figure>
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/P2_large_all_vmm_spil_off_all_files.png"
-           alt="P2 Large Detector — spill-off rate vs configuration, all files">
-      <figcaption>
-        <strong>Figure 10b.</strong> P2 Large Detector — spill-off (noise floor) rate vs
-        configuration. The noise floor is lowest at snt = 100 ns, consistent with the SNR
-        analysis. The snt = 50 ns configurations show an elevated noise floor.
-      </figcaption>
-    </figure>
-  </div>
-
-  <div class="fig-row">
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/P2_1_small_all_vmm_spil_on_all_files.png"
-           alt="P2 Small Detector 1 — spill-on rate vs configuration">
-      <figcaption>
-        <strong>Figure 11a.</strong> P2 Small Detector 1 (VMMs 10–11) — spill-on hit rate.
-        VMMs 10 and 11 are the most active detector VMMs, showing rates of 3–15 kHz during
-        spill-on depending on gain.
-      </figcaption>
-    </figure>
-    <figure>
-      <img src="results/VMM_Config_Scan_SPS_Nov25/P2_3_small_all_vmm_spil_on_all_files_1.png"
-           alt="P2 Small Detector 3 — spill-on rate vs configuration">
-      <figcaption>
-        <strong>Figure 11b.</strong> P2 Small Detector 3 (VMMs 8–9) — spill-on hit rate.
-        Lower overall rate compared to Small 1 but consistent spill-on / spill-off contrast
-        across all configurations.
-      </figcaption>
-    </figure>
-  </div>
-
-  <p>
-    The spill rates table (Appendix C) summarises the spill-on and spill-off rates in kHz
-    for all VMMs and configurations, together with the trigger reference rate and the number
-    of 1 ms bins classified as spill-on and spill-off.
-  </p>
-</section>
-
-<!-- ═══════════════════════════════════════ 5. CONCLUSIONS ═ -->
-<section id="sec-conclusions">
-  <h2 class="section-title">5. Conclusions &amp; Recommendations</h2>
-
-  <div class="highlight result">
-    <strong>Recommended configuration: sg = 3.0 mV/fC, snt = 100 ns</strong><br>
-    This setting maximises the VMM-level SNR for 6 of 8 VMMs and the channel-level
-    median SNR for 7 of 8 VMMs. It also gives a well-controlled noise baseline
-    (σ &lt; 9 ADC for all VMMs) while preserving signal MPV in the range 130–190 ADC.
-  </div>
-
-  <ul style="padding-left: 1.5rem; line-height: 2.2; margin-bottom: 1rem;">
-    <li>
-      <strong>Peaking time:</strong> snt = 100 ns is the sweet spot — snt = 50 ns
-      increases noise without a proportional gain in MPV; snt = 200 ns reduces noise
-      only marginally compared to 100 ns while the SNR does not improve.
-    </li>
-    <li>
-      <strong>Gain:</strong> sg = 3.0 mV/fC avoids noise inflation that appears at
-      higher gains (sg = 4.5 or 6.0) particularly at short peaking times. For the
-      P2 Large VMMs 14/15, sg = 4.5 + snt = 100 ns is competitive at the VMM level
-      but the channel-level data consistently favour sg = 3.0.
-    </li>
-    <li>
-      <strong>Trigger performance:</strong> The spill-on / spill-off rate ratio is
-      highest at sg = 3.0 / snt = 100 ns for all three detector groups, in agreement
-      with the SNR analysis.
-    </li>
-    <li>
-      <strong>Saturation:</strong> No saturation artefacts (ADC = 1023 pile-up) were
-      observed at sg = 3.0 / snt = 100 ns; at sg = 6.0 a small fraction of channels
-      approach the ceiling, motivating the lower gain choice.
-    </li>
-  </ul>
-
-  <div class="highlight warning">
-    <strong>Note on ADC = 16 artefact:</strong> A spike at ADC = 16 is present in
-    noise runs at short peaking times (snt = 50 ns). This is an electronic artefact
-    of the VMM3a ASIC and is excluded from the noise baseline computation by the
-    robust MAD estimator (not affected by the spike if it is a minority of samples).
-    At snt = 100 and 200 ns the artefact is absent or negligible.
-  </div>
-</section>
-
-<!-- ═══════════════════════════════════════ APPENDIX A ══════ -->
-<section id="sec-appendix-a">
-  <h2 class="section-title">Appendix A: Full SNR Results Table</h2>
-  <p>VMM-level SNR for all (sg, snt, vmm_id) combinations. Source: <code>vmm_snr_results.csv</code>.</p>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>sg</th><th>snt</th><th>VMM</th><th>Detector</th>
-          <th>σ<sub>noise</sub> (ADC)</th><th>Noise quality</th>
-          <th>MPV (ADC)</th><th>SNR</th>
-        </tr>
-      </thead>
-      <tbody>
-        <!-- sg=3.0, snt=100 — best config -->
-        <tr><td>3.0</td><td>100</td><td>8</td><td class="left">P2 Small 3</td><td>5.93</td><td class="ok">ok</td><td>146.9</td><td class="best">24.8</td></tr>
-        <tr><td>3.0</td><td>100</td><td>9</td><td class="left">P2 Small 3</td><td>4.45</td><td class="ok">ok</td><td>177.4</td><td class="best">39.9</td></tr>
-        <tr><td>3.0</td><td>100</td><td>10</td><td class="left">P2 Small 1</td><td>5.93</td><td class="ok">ok</td><td>158.9</td><td class="best">26.8</td></tr>
-        <tr><td>3.0</td><td>100</td><td>11</td><td class="left">P2 Small 1</td><td>7.41</td><td class="ok">ok</td><td>174.7</td><td class="best">23.6</td></tr>
-        <tr><td>3.0</td><td>100</td><td>12</td><td class="left">P2 Large</td><td>7.41</td><td class="ok">ok</td><td>139.1</td><td class="best">18.8</td></tr>
-        <tr><td>3.0</td><td>100</td><td>13</td><td class="left">P2 Large</td><td>5.93</td><td class="ok">ok</td><td>187.4</td><td class="best">31.6</td></tr>
-        <tr><td>3.0</td><td>100</td><td>14</td><td class="left">P2 Large</td><td>7.41</td><td class="ok">ok</td><td>163.7</td><td>22.1</td></tr>
-        <tr><td>3.0</td><td>100</td><td>15</td><td class="left">P2 Large</td><td>5.93</td><td class="ok">ok</td><td>149.3</td><td>25.2</td></tr>
-        <!-- sg=3.0, snt=50 -->
-        <tr><td>3.0</td><td>50</td><td>8</td><td class="left">P2 Small 3</td><td>8.90</td><td class="ok">ok</td><td>154.3</td><td>17.3</td></tr>
-        <tr><td>3.0</td><td>50</td><td>9</td><td class="left">P2 Small 3</td><td>10.38</td><td class="warn">warn</td><td>179.4</td><td>17.3</td></tr>
-        <tr><td>3.0</td><td>50</td><td>10</td><td class="left">P2 Small 1</td><td>10.38</td><td class="warn">warn</td><td>160.0</td><td>15.4</td></tr>
-        <tr><td>3.0</td><td>50</td><td>11</td><td class="left">P2 Small 1</td><td>10.38</td><td class="warn">warn</td><td>179.3</td><td>17.3</td></tr>
-        <tr><td>3.0</td><td>50</td><td>12</td><td class="left">P2 Large</td><td>10.38</td><td class="warn">warn</td><td>137.7</td><td>13.3</td></tr>
-        <tr><td>3.0</td><td>50</td><td>13</td><td class="left">P2 Large</td><td>8.90</td><td class="ok">ok</td><td>141.1</td><td>15.9</td></tr>
-        <tr><td>3.0</td><td>50</td><td>14</td><td class="left">P2 Large</td><td>10.38</td><td class="warn">warn</td><td>174.9</td><td>16.9</td></tr>
-        <tr><td>3.0</td><td>50</td><td>15</td><td class="left">P2 Large</td><td>8.90</td><td class="ok">ok</td><td>151.3</td><td>17.0</td></tr>
-        <!-- sg=4.5, snt=200 -->
-        <tr><td>4.5</td><td>200</td><td>8</td><td class="left">P2 Small 3</td><td>8.90</td><td class="ok">ok</td><td>150.7</td><td>16.9</td></tr>
-        <tr><td>4.5</td><td>200</td><td>9</td><td class="left">P2 Small 3</td><td>7.41</td><td class="ok">ok</td><td>175.9</td><td>23.7</td></tr>
-        <tr><td>4.5</td><td>200</td><td>10</td><td class="left">P2 Small 1</td><td>5.93</td><td class="ok">ok</td><td>158.9</td><td>26.8</td></tr>
-        <tr><td>4.5</td><td>200</td><td>11</td><td class="left">P2 Small 1</td><td>8.90</td><td class="ok">ok</td><td>185.9</td><td>20.9</td></tr>
-        <tr><td>4.5</td><td>200</td><td>12</td><td class="left">P2 Large</td><td>7.41</td><td class="ok">ok</td><td>137.3</td><td>18.5</td></tr>
-        <tr><td>4.5</td><td>200</td><td>13</td><td class="left">P2 Large</td><td>7.41</td><td class="ok">ok</td><td>144.9</td><td>19.5</td></tr>
-        <tr><td>4.5</td><td>200</td><td>14</td><td class="left">P2 Large</td><td>7.41</td><td class="ok">ok</td><td>168.5</td><td>22.7</td></tr>
-        <tr><td>4.5</td><td>200</td><td>15</td><td class="left">P2 Large</td><td>5.93</td><td class="ok">ok</td><td>148.4</td><td>25.0</td></tr>
-        <!-- sg=4.5, snt=100 -->
-        <tr><td>4.5</td><td>100</td><td>8</td><td class="left">P2 Small 3</td><td>7.41</td><td class="ok">ok</td><td>148.8</td><td>20.1</td></tr>
-        <tr><td>4.5</td><td>100</td><td>9</td><td class="left">P2 Small 3</td><td>5.93</td><td class="ok">ok</td><td>174.2</td><td>29.4</td></tr>
-        <tr><td>4.5</td><td>100</td><td>10</td><td class="left">P2 Small 1</td><td>7.41</td><td class="ok">ok</td><td>133.2</td><td>18.0</td></tr>
-        <tr><td>4.5</td><td>100</td><td>11</td><td class="left">P2 Small 1</td><td>8.90</td><td class="ok">ok</td><td>186.8</td><td>21.0</td></tr>
-        <tr><td>4.5</td><td>100</td><td>12</td><td class="left">P2 Large</td><td>7.41</td><td class="ok">ok</td><td>138.2</td><td>18.6</td></tr>
-        <tr><td>4.5</td><td>100</td><td>13</td><td class="left">P2 Large</td><td>5.93</td><td class="ok">ok</td><td>143.9</td><td>24.3</td></tr>
-        <tr><td>4.5</td><td>100</td><td>14</td><td class="left">P2 Large</td><td>7.41</td><td class="ok">ok</td><td>173.2</td><td class="best">23.4</td></tr>
-        <tr><td>4.5</td><td>100</td><td>15</td><td class="left">P2 Large</td><td>5.93</td><td class="ok">ok</td><td>173.3</td><td class="best">29.2</td></tr>
-        <!-- sg=4.5, snt=50 -->
-        <tr><td>4.5</td><td>50</td><td>8</td><td class="left">P2 Small 3</td><td>8.90</td><td class="ok">ok</td><td>150.5</td><td>16.9</td></tr>
-        <tr><td>4.5</td><td>50</td><td>9</td><td class="left">P2 Small 3</td><td>10.38</td><td class="warn">warn</td><td>174.8</td><td>16.8</td></tr>
-        <tr><td>4.5</td><td>50</td><td>10</td><td class="left">P2 Small 1</td><td>11.86</td><td class="warn">warn</td><td>164.2</td><td>13.8</td></tr>
-        <tr><td>4.5</td><td>50</td><td>11</td><td class="left">P2 Small 1</td><td>13.34</td><td class="bad">bad</td><td>185.6</td><td>13.9</td></tr>
-        <tr><td>4.5</td><td>50</td><td>12</td><td class="left">P2 Large</td><td>10.38</td><td class="warn">warn</td><td>141.4</td><td>13.6</td></tr>
-        <tr><td>4.5</td><td>50</td><td>13</td><td class="left">P2 Large</td><td>8.90</td><td class="ok">ok</td><td>154.3</td><td>17.3</td></tr>
-        <tr><td>4.5</td><td>50</td><td>14</td><td class="left">P2 Large</td><td>8.90</td><td class="ok">ok</td><td>172.1</td><td>19.3</td></tr>
-        <tr><td>4.5</td><td>50</td><td>15</td><td class="left">P2 Large</td><td>7.41</td><td class="ok">ok</td><td>153.0</td><td>20.6</td></tr>
-        <!-- sg=6.0, snt=200 -->
-        <tr><td>6.0</td><td>200</td><td>8</td><td class="left">P2 Small 3</td><td>8.90</td><td class="ok">ok</td><td>150.7</td><td>16.9</td></tr>
-        <tr><td>6.0</td><td>200</td><td>9</td><td class="left">P2 Small 3</td><td>7.41</td><td class="ok">ok</td><td>175.9</td><td>23.7</td></tr>
-        <tr><td>6.0</td><td>200</td><td>10</td><td class="left">P2 Small 1</td><td>7.41</td><td class="ok">ok</td><td>133.2</td><td>18.0</td></tr>
-        <tr><td>6.0</td><td>200</td><td>11</td><td class="left">P2 Small 1</td><td>8.90</td><td class="ok">ok</td><td>186.8</td><td>21.0</td></tr>
-        <tr><td>6.0</td><td>200</td><td>12</td><td class="left">P2 Large</td><td>8.90</td><td class="ok">ok</td><td>140.3</td><td>15.8</td></tr>
-        <tr><td>6.0</td><td>200</td><td>13</td><td class="left">P2 Large</td><td>7.41</td><td class="ok">ok</td><td>141.0</td><td>19.0</td></tr>
-        <tr><td>6.0</td><td>200</td><td>14</td><td class="left">P2 Large</td><td>8.90</td><td class="ok">ok</td><td>166.5</td><td>18.7</td></tr>
-        <tr><td>6.0</td><td>200</td><td>15</td><td class="left">P2 Large</td><td>7.41</td><td class="ok">ok</td><td>147.4</td><td>19.9</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <p style="font-size:0.85rem; color: var(--muted);">
-    <span class="badge badge-green">ok</span> σ &lt; 9 ADC &nbsp;
-    <span class="badge badge-orange">warn</span> 9 ≤ σ &lt; 12 ADC &nbsp;
-    <span class="badge badge-red">bad</span> σ ≥ 12 ADC &nbsp;
-    Highlighted cells = VMM-level best config for that VMM.
-  </p>
-</section>
-
-<!-- ═══════════════════════════════════════ APPENDIX B ══════ -->
-<section id="sec-appendix-b">
-  <h2 class="section-title">Appendix B: Best Configuration per VMM</h2>
-  <p>Source: <code>vmm_snr_summary.csv</code>.</p>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>VMM</th><th>Detector</th>
-          <th>VMM-level best</th><th>VMM SNR</th>
-          <th>Channel-level best</th><th>Channel median SNR</th>
-          <th>Agreement</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr><td>8</td><td class="left">P2 Small 3</td><td>sg=3.0 / snt=100</td><td>24.8</td><td>sg=3.0 / snt=100</td><td>35.6</td><td><span class="badge badge-green">Yes</span></td></tr>
-        <tr><td>9</td><td class="left">P2 Small 3</td><td>sg=3.0 / snt=100</td><td>39.9</td><td>sg=3.0 / snt=100</td><td>42.0</td><td><span class="badge badge-green">Yes</span></td></tr>
-        <tr><td>10</td><td class="left">P2 Small 1</td><td>sg=3.0 / snt=100</td><td>26.8</td><td>sg=3.0 / snt=100</td><td>37.1</td><td><span class="badge badge-green">Yes</span></td></tr>
-        <tr><td>11</td><td class="left">P2 Small 1</td><td>sg=3.0 / snt=100</td><td>23.6</td><td>sg=3.0 / snt=100</td><td>41.6</td><td><span class="badge badge-green">Yes</span></td></tr>
-        <tr><td>12</td><td class="left">P2 Large</td><td>sg=3.0 / snt=100</td><td>18.8</td><td>sg=4.5 / snt=200</td><td>39.7</td><td><span class="badge badge-orange">No</span></td></tr>
-        <tr><td>13</td><td class="left">P2 Large</td><td>sg=3.0 / snt=100</td><td>31.6</td><td>sg=3.0 / snt=100</td><td>53.6</td><td><span class="badge badge-green">Yes</span></td></tr>
-        <tr><td>14</td><td class="left">P2 Large</td><td>sg=4.5 / snt=100</td><td>23.4</td><td>sg=3.0 / snt=100</td><td>40.2</td><td><span class="badge badge-orange">No</span></td></tr>
-        <tr><td>15</td><td class="left">P2 Large</td><td>sg=4.5 / snt=100</td><td>29.2</td><td>sg=3.0 / snt=100</td><td>46.6</td><td><span class="badge badge-orange">No</span></td></tr>
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<!-- ═══════════════════════════════════════ APPENDIX C ══════ -->
-<section id="sec-appendix-c">
-  <h2 class="section-title">Appendix C: Spill Rates Table</h2>
-  <p>
-    Mean hit rates (kHz) during spill-on and spill-off periods per run, VMM, and
-    configuration. 1 ms time bins; spill threshold = 1 kHz on VMM 0 ch 48.
-    Source: <code>vmm_spill_rates.csv</code>.
-  </p>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Run</th><th>sg</th><th>snt</th><th>VMM</th>
-          <th>Rate ON (kHz)</th><th>Rate OFF (kHz)</th>
-          <th>Trigger ON (kHz)</th><th>ON bins</th><th>OFF bins</th>
-        </tr>
-      </thead>
-      <tbody>
-        <!-- Run 67 sg=3.0 snt=200 -->
-        <tr><td>67</td><td>3.0</td><td>200</td><td>8</td><td>0.677</td><td>0.008</td><td>4.162</td><td>146 965</td><td>1 852 753</td></tr>
-        <tr><td>67</td><td>3.0</td><td>200</td><td>9</td><td>0.917</td><td>0.011</td><td>4.162</td><td>146 965</td><td>1 852 753</td></tr>
-        <tr><td>67</td><td>3.0</td><td>200</td><td>10</td><td>3.629</td><td>0.042</td><td>4.162</td><td>146 965</td><td>1 852 753</td></tr>
-        <tr><td>67</td><td>3.0</td><td>200</td><td>11</td><td>5.463</td><td>0.061</td><td>4.162</td><td>146 965</td><td>1 852 753</td></tr>
-        <tr><td>67</td><td>3.0</td><td>200</td><td>12</td><td>0.184</td><td>0.021</td><td>4.162</td><td>146 965</td><td>1 852 753</td></tr>
-        <tr><td>67</td><td>3.0</td><td>200</td><td>13</td><td>0.114</td><td>0.023</td><td>4.162</td><td>146 965</td><td>1 852 753</td></tr>
-        <tr><td>67</td><td>3.0</td><td>200</td><td>14</td><td>0.636</td><td>0.053</td><td>4.162</td><td>146 965</td><td>1 852 753</td></tr>
-        <tr><td>67</td><td>3.0</td><td>200</td><td>15</td><td>0.420</td><td>0.059</td><td>4.162</td><td>146 965</td><td>1 852 753</td></tr>
-        <!-- Run 70 sg=3.0 snt=100 -->
-        <tr><td>70</td><td>3.0</td><td>100</td><td>8</td><td>0.510</td><td>0.004</td><td>4.147</td><td>225 026</td><td>1 774 952</td></tr>
-        <tr><td>70</td><td>3.0</td><td>100</td><td>9</td><td>0.703</td><td>0.004</td><td>4.147</td><td>225 026</td><td>1 774 952</td></tr>
-        <tr><td>70</td><td>3.0</td><td>100</td><td>10</td><td>3.153</td><td>0.010</td><td>4.147</td><td>225 026</td><td>1 774 952</td></tr>
-        <tr><td>70</td><td>3.0</td><td>100</td><td>11</td><td>4.712</td><td>0.008</td><td>4.147</td><td>225 026</td><td>1 774 952</td></tr>
-        <tr><td>70</td><td>3.0</td><td>100</td><td>12</td><td>0.122</td><td>0.013</td><td>4.147</td><td>225 026</td><td>1 774 952</td></tr>
-        <tr><td>70</td><td>3.0</td><td>100</td><td>13</td><td>0.079</td><td>0.017</td><td>4.147</td><td>225 026</td><td>1 774 952</td></tr>
-        <tr><td>70</td><td>3.0</td><td>100</td><td>14</td><td>0.385</td><td>0.015</td><td>4.147</td><td>225 026</td><td>1 774 952</td></tr>
-        <tr><td>70</td><td>3.0</td><td>100</td><td>15</td><td>0.265</td><td>0.029</td><td>4.147</td><td>225 026</td><td>1 774 952</td></tr>
-        <!-- Run 73 sg=3.0 snt=50 -->
-        <tr><td>73</td><td>3.0</td><td>50</td><td>8</td><td>0.330</td><td>0.010</td><td>4.142</td><td>322 272</td><td>1 677 728</td></tr>
-        <tr><td>73</td><td>3.0</td><td>50</td><td>9</td><td>0.455</td><td>0.010</td><td>4.142</td><td>322 272</td><td>1 677 728</td></tr>
-        <tr><td>73</td><td>3.0</td><td>50</td><td>10</td><td>2.319</td><td>0.019</td><td>4.142</td><td>322 272</td><td>1 677 728</td></tr>
-        <tr><td>73</td><td>3.0</td><td>50</td><td>11</td><td>3.301</td><td>0.016</td><td>4.142</td><td>322 272</td><td>1 677 728</td></tr>
-        <tr><td>73</td><td>3.0</td><td>50</td><td>12</td><td>0.094</td><td>0.036</td><td>4.142</td><td>322 272</td><td>1 677 728</td></tr>
-        <tr><td>73</td><td>3.0</td><td>50</td><td>13</td><td>0.081</td><td>0.046</td><td>4.142</td><td>322 272</td><td>1 677 728</td></tr>
-        <tr><td>73</td><td>3.0</td><td>50</td><td>14</td><td>0.181</td><td>0.020</td><td>4.142</td><td>322 272</td><td>1 677 728</td></tr>
-        <tr><td>73</td><td>3.0</td><td>50</td><td>15</td><td>0.134</td><td>0.022</td><td>4.142</td><td>322 272</td><td>1 677 728</td></tr>
-        <!-- Run 78 sg=4.5 snt=200 -->
-        <tr><td>78</td><td>4.5</td><td>200</td><td>8</td><td>2.555</td><td>0.004</td><td>8.276</td><td>519 087</td><td>1 480 855</td></tr>
-        <tr><td>78</td><td>4.5</td><td>200</td><td>9</td><td>3.531</td><td>0.007</td><td>8.276</td><td>519 087</td><td>1 480 855</td></tr>
-        <tr><td>78</td><td>4.5</td><td>200</td><td>10</td><td>8.990</td><td>0.013</td><td>8.276</td><td>519 087</td><td>1 480 855</td></tr>
-        <tr><td>78</td><td>4.5</td><td>200</td><td>11</td><td>14.383</td><td>0.016</td><td>8.276</td><td>519 087</td><td>1 480 855</td></tr>
-        <tr><td>78</td><td>4.5</td><td>200</td><td>12</td><td>0.564</td><td>0.023</td><td>8.276</td><td>519 087</td><td>1 480 855</td></tr>
-        <tr><td>78</td><td>4.5</td><td>200</td><td>13</td><td>0.317</td><td>0.032</td><td>8.276</td><td>519 087</td><td>1 480 855</td></tr>
-        <tr><td>78</td><td>4.5</td><td>200</td><td>14</td><td>2.072</td><td>0.057</td><td>8.276</td><td>519 087</td><td>1 480 855</td></tr>
-        <tr><td>78</td><td>4.5</td><td>200</td><td>15</td><td>1.325</td><td>0.064</td><td>8.276</td><td>519 087</td><td>1 480 855</td></tr>
-        <!-- Run 82 sg=4.5 snt=100 -->
-        <tr><td>82</td><td>4.5</td><td>100</td><td>8</td><td>1.091</td><td>0.006</td><td>4.178</td><td>422 269</td><td>1 577 724</td></tr>
-        <tr><td>82</td><td>4.5</td><td>100</td><td>9</td><td>1.481</td><td>0.006</td><td>4.178</td><td>422 269</td><td>1 577 724</td></tr>
-        <tr><td>82</td><td>4.5</td><td>100</td><td>10</td><td>4.971</td><td>0.470</td><td>4.178</td><td>422 269</td><td>1 577 724</td></tr>
-        <tr><td>82</td><td>4.5</td><td>100</td><td>11</td><td>7.018</td><td>0.013</td><td>4.178</td><td>422 269</td><td>1 577 724</td></tr>
-        <tr><td>82</td><td>4.5</td><td>100</td><td>12</td><td>0.217</td><td>0.024</td><td>4.178</td><td>422 269</td><td>1 577 724</td></tr>
-        <tr><td>82</td><td>4.5</td><td>100</td><td>13</td><td>0.139</td><td>0.029</td><td>4.178</td><td>422 269</td><td>1 577 724</td></tr>
-        <tr><td>82</td><td>4.5</td><td>100</td><td>14</td><td>0.758</td><td>0.051</td><td>4.178</td><td>422 269</td><td>1 577 724</td></tr>
-        <tr><td>82</td><td>4.5</td><td>100</td><td>15</td><td>0.496</td><td>0.059</td><td>4.178</td><td>422 269</td><td>1 577 724</td></tr>
-        <!-- Run 97 sg=4.5 snt=50 -->
-        <tr><td>97</td><td>4.5</td><td>50</td><td>8</td><td>1.113</td><td>0.007</td><td>4.185</td><td>563 221</td><td>1 436 766</td></tr>
-        <tr><td>97</td><td>4.5</td><td>50</td><td>9</td><td>1.474</td><td>0.008</td><td>4.185</td><td>563 221</td><td>1 436 766</td></tr>
-        <tr><td>97</td><td>4.5</td><td>50</td><td>10</td><td>3.620</td><td>0.044</td><td>4.185</td><td>563 221</td><td>1 436 766</td></tr>
-        <tr><td>97</td><td>4.5</td><td>50</td><td>11</td><td>5.360</td><td>0.014</td><td>4.185</td><td>563 221</td><td>1 436 766</td></tr>
-        <tr><td>97</td><td>4.5</td><td>50</td><td>12</td><td>0.079</td><td>0.016</td><td>4.185</td><td>563 221</td><td>1 436 766</td></tr>
-        <tr><td>97</td><td>4.5</td><td>50</td><td>13</td><td>0.061</td><td>0.020</td><td>4.185</td><td>563 221</td><td>1 436 766</td></tr>
-        <tr><td>97</td><td>4.5</td><td>50</td><td>14</td><td>0.197</td><td>0.012</td><td>4.185</td><td>563 221</td><td>1 436 766</td></tr>
-        <tr><td>97</td><td>4.5</td><td>50</td><td>15</td><td>0.142</td><td>0.018</td><td>4.185</td><td>563 221</td><td>1 436 766</td></tr>
-        <!-- Run 99 sg=6.0 snt=200 -->
-        <tr><td>99</td><td>6.0</td><td>200</td><td>8</td><td>3.183</td><td>0.012</td><td>4.185</td><td>642 643</td><td>1 357 354</td></tr>
-        <tr><td>99</td><td>6.0</td><td>200</td><td>9</td><td>4.551</td><td>0.015</td><td>4.185</td><td>642 643</td><td>1 357 354</td></tr>
-        <tr><td>99</td><td>6.0</td><td>200</td><td>10</td><td>5.930</td><td>0.586</td><td>4.185</td><td>642 643</td><td>1 357 354</td></tr>
-        <tr><td>99</td><td>6.0</td><td>200</td><td>11</td><td>8.589</td><td>0.018</td><td>4.185</td><td>642 643</td><td>1 357 354</td></tr>
-        <tr><td>99</td><td>6.0</td><td>200</td><td>12</td><td>0.285</td><td>0.024</td><td>4.185</td><td>642 643</td><td>1 357 354</td></tr>
-        <tr><td>99</td><td>6.0</td><td>200</td><td>13</td><td>0.168</td><td>0.031</td><td>4.185</td><td>642 643</td><td>1 357 354</td></tr>
-        <tr><td>99</td><td>6.0</td><td>200</td><td>14</td><td>1.025</td><td>0.049</td><td>4.185</td><td>642 643</td><td>1 357 354</td></tr>
-        <tr><td>99</td><td>6.0</td><td>200</td><td>15</td><td>0.664</td><td>0.056</td><td>4.185</td><td>642 643</td><td>1 357 354</td></tr>
-      </tbody>
-    </table>
-  </div>
-</section>
-
-</div><!-- /wrapper -->
+# Save plots to inspect visually
+python test_snr_methods.py --save /tmp/snr_test_plots/
+</code></pre>
+<h2 id="dependencies">Dependencies</h2>
+<pre style="background:var(--code-bg);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85em;margin:0.8rem 0;"><code>numpy
+pandas
+scipy
+uproot      (ROOT file I/O)
+matplotlib
+</code></pre>
+</div>
 
 <footer>
-  P2 Basket Detector — VMM3a Configuration Scan &amp; Trigger Analysis &nbsp;|&nbsp;
-  CERN SPS Beam Test November 2025 &nbsp;|&nbsp;
-  A. Kallitsopoulou, CEA Saclay
+  VMM Configuration Scan SNR Analysis &mdash; P2 Basket Detector &mdash; CEA Saclay
 </footer>
 
 </body>
