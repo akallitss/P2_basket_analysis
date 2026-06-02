@@ -64,7 +64,9 @@ All plots are saved under `qa_plots/<input_basename>/` next to the input file.
 | filename | content |
 |---|---|
 | `<base>_adc.png` | ADC value distribution (0–1023), one panel per VMM |
-| `<base>_chno.png` | Channel occupancy (0–63 hits), one panel per VMM |
+| `<base>_adc_ot.png` | ADC distribution split by over-threshold flag (Not OT vs OT overlaid), one panel per VMM |
+| `<base>_ot.png` | Over-threshold flag distribution — bar chart of Not OT vs OT hit counts with OT fraction in title, one panel per VMM |
+| `<base>_chno.png` | Channel occupancy (0–63), one panel per VMM |
 | `<base>_hits_per_vmm.png` | Bar chart of total hits per VMM |
 | `<base>_time_vmm<N>.png` | Hit rate vs frame counter for VMM N (one file per VMM) |
 
@@ -117,7 +119,7 @@ VMM IDs found: [0, 1, 2, 3]
   VMM  2: 24,103 hits
   VMM  3: 26,152 hits
 
-Saved 8 files in: /data/run042/qa_plots/hybrid_run042/
+Saved 10 files in: /data/run042/qa_plots/hybrid_run042/
 ```
 
 ---
