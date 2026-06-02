@@ -127,8 +127,9 @@ def get_run_dir(base_dir, run_no):
     return os.path.join(base_dir, f"run_{run_no}")
 
 
-_SESSION_RE  = re.compile(r'^enp[^_]+_(\d{8}-\d{6})_')
-_FILE_IDX_RE = re.compile(r'^enp[^_]+_\d{8}-\d{6}_(\d+)')
+_SESSION_RE   = re.compile(r'^enp[^_]+_(\d{8}-\d{6})_')
+_FILE_IDX_RE  = re.compile(r'^enp[^_]+_\d{8}-\d{6}_(\d+)')
+_SESSION_NOTED: set = set()   # run_dirs already printed the NOTE
 
 def _sort_key(fname):
     m = _FILE_IDX_RE.match(fname)
@@ -174,9 +175,11 @@ def list_root_files(run_dir, n=None, min_size=10_000):
         main_key = max(sessions, key=lambda k: (len(sessions[k]), k))
         n_skipped = sum(len(v) for k, v in sessions.items()
                         if k != main_key)
-        print(f"  NOTE {run_dir}: multiple pcap sessions — "
-              f"using {main_key} ({len(sessions[main_key])} files), "
-              f"skipping {n_skipped} file(s) from other session(s)")
+        if run_dir not in _SESSION_NOTED:
+            print(f"  NOTE {run_dir}: multiple pcap sessions — "
+                  f"using {main_key} ({len(sessions[main_key])} files), "
+                  f"skipping {n_skipped} file(s) from other session(s)")
+            _SESSION_NOTED.add(run_dir)
         candidates = sorted(sessions[main_key], key=_sort_key)
 
     return candidates[:n] if n else candidates

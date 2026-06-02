@@ -240,6 +240,8 @@ def plot_adc_by_vmm(vmm_ids, run_list, df_run_scan, data_dir,
                           "time", "over_threshold"]
             )
             adc_values = df_hits[df_hits["vmm"] == vmm_id]["adc"]
+            if adc_values.empty:
+                continue
             param_row  = df_run_scan[df_run_scan["run_no"] == run_no]
             param_str  = ", ".join([
                 f"{col}={param_row.iloc[0][col]}"
