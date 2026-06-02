@@ -93,7 +93,9 @@ def plot_adc_histograms_for_runs(run_list, data_dir,
     ax.set_xlabel("ADC Value")
     ax.set_ylabel("Counts")
     ax.set_title("ADC Value Distribution by Run/VMM")
-    ax.legend()
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend()
     _finish_fig(fig, "adc_hist_per_run", out_dir, show)
 
 
@@ -250,7 +252,9 @@ def plot_adc_by_vmm(vmm_ids, run_list, df_run_scan, data_dir,
         ax.set_xlabel("ADC")
         ax.set_ylabel("Normalized Counts")
         ax.set_title(f"ADC Distribution for VMM {vmm_id}")
-        ax.legend()
+        handles, labels = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend()
         _finish_fig(fig, f"adc_by_vmm_vmm{vmm_id}", out_dir, show)
 
 
