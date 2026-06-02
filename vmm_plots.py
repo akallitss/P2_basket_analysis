@@ -974,6 +974,233 @@ def plot_snr_method_comparison(df_snr, df_snr_ch,
     _finish_fig(fig, "snr_comparison_mpv_vs_mean", out_dir, show)
 
 
+def _snr_heatmap_panel(ax, df_snr, col, configs, vmm_ids,
+                        cmap, label, fmt=".1f", reverse=False):
+    """Fill one subplot of plot_all_methods_heatmap."""
+    matrix = np.full((len(vmm_ids), len(configs)), np.nan)
+    for i, vmm_id in enumerate(vmm_ids):
+        for j, cfg in enumerate(configs):
+            row = df_snr[(df_snr["vmm_id"] == vmm_id) &
+                         (df_snr["config"]  == cfg)]
+            if not row.empty:
+                matrix[i, j] = row[col].iloc[0]
+
+    valid = matrix[~np.isnan(matrix)]
+    vmin  = float(valid.min()) if len(valid) else 0.0
+    vmax  = float(valid.max()) if len(valid) else 1.0
+    if vmin == vmax:
+        vmax = vmin + 1.0
+    if reverse:
+        vmin, vmax = vmax, vmin
+
+    masked = np.ma.masked_invalid(matrix)
+    im = ax.imshow(masked, aspect="auto", cmap=cmap,
+                   vmin=vmin, vmax=vmax)
+
+    for i in range(len(vmm_ids)):
+        for j in range(len(configs)):
+            v = matrix[i, j]
+            if np.isnan(v):
+                ax.text(j, i, "—", ha="center", va="center",
+                        fontsize=10, color="gray")
+            else:
+                ax.text(j, i, f"{v:{fmt}}",
+                        ha="center", va="center",
+                        fontsize=11, fontweight="bold")
+
+    ax.set_xticks(range(len(configs)))
+    ax.set_xticklabels(configs, fontsize=9)
+    ax.set_yticks(range(len(vmm_ids)))
+    ax.set_yticklabels([f"VMM {v}" for v in vmm_ids], fontsize=9)
+    ax.set_title(label, fontsize=11, pad=6)
+    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+
+def plot_all_methods_heatmap(df_snr, out_dir=None, show=True):
+    """
+    Four-panel heatmap comparing all VMM-level SNR metrics side by side:
+      top-left  : SNR (MPV / noise σ)            — higher is better
+      top-right : SNR (mean charge / noise σ)    — higher is better
+      bottom-left : Area ratio (signal/noise above noise_cut) — higher is better
+      bottom-right: EER value (equal-error-rate probability)  — lower is better
+
+    One row per VMM, one column per (sg, snt) configuration.
+    """
+    df = df_snr.copy()
+    df["config"] = df.apply(
+        lambda r: f"sg={r['sg']:.1f}\nsnt={r['snt']:.0f}", axis=1
+    )
+    configs = (df[["sg", "snt", "config"]]
+               .drop_duplicates()
+               .sort_values(["sg", "snt"])["config"]
+               .tolist())
+    vmm_ids = sorted(df["vmm_id"].unique())
+
+    n_cfg  = len(configs)
+    cell_w = 1.8
+    fig_w  = max(16, n_cfg * cell_w * 2 + 6)
+    fig_h  = max(8,  len(vmm_ids) * 0.9 + 4)
+
+    fig, axes = plt.subplots(2, 2, figsize=(fig_w, fig_h))
+    fig.subplots_adjust(hspace=0.45, wspace=0.35)
+
+    panels = [
+        (axes[0, 0], "snr",          plt.cm.RdYlGn, "SNR  (MPV / σ)",              ".1f", False),
+        (axes[0, 1], "snr_mean",     plt.cm.RdYlGn, "SNR  (mean / σ)",             ".1f", False),
+        (axes[1, 0], "area_ratio",   plt.cm.Blues,  "Area ratio  (sig / noise)",   ".0f", False),
+        (axes[1, 1], "eer_value",    plt.cm.RdYlGn, "EER value  (lower = better)", ".3f", True),
+    ]
+
+    for ax, col, cmap, label, fmt, rev in panels:
+        _snr_heatmap_panel(ax, df, col, configs, vmm_ids,
+                           cmap, label, fmt=fmt, reverse=rev)
+
+    plt.suptitle("SNR method comparison — VMM vs configuration",
+                 fontweight="bold", fontsize=13)
+    _finish_fig(fig, "snr_all_methods_heatmap", out_dir, show)
+
+
+def plot_tail_distributions(tail_data, detector_vmms,
+                             out_dir=None, show=True):
+    """
+    Log-scale tail distribution plot per VMM.
+
+    For each VMM, all configurations are overlaid on the same axes:
+      - Dashed lines : P(noise > x)   — noise survival function
+      - Solid lines  : P(signal ≤ x)  — signal CDF
+    Same colour = same configuration.
+    The equal-error-rate crossing is marked with a dot on each config.
+
+    A better configuration shows the two curves crossing at a lower
+    probability value (the curves separate more cleanly).
+    """
+    if not tail_data:
+        return
+
+    vmm_ids_in_data = sorted({d["vmm_id"] for d in tail_data})
+    configs_all     = sorted(
+        {(d["sg"], d["snt"]) for d in tail_data},
+        key=lambda x: (x[0], x[1])
+    )
+    palette   = plt.cm.tab10(np.linspace(0, 1, len(configs_all)))
+    color_map = {cfg: palette[i] for i, cfg in enumerate(configs_all)}
+
+    for vmm_id in vmm_ids_in_data:
+        if vmm_id not in detector_vmms:
+            continue
+
+        rows = [d for d in tail_data if d["vmm_id"] == vmm_id]
+        if not rows:
+            continue
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        legend_handles = []
+        for row in sorted(rows, key=lambda r: (r["sg"], r["snt"])):
+            cfg   = (row["sg"], row["snt"])
+            color = color_map[cfg]
+            label = f"sg={cfg[0]:.1f} snt={cfg[1]:.0f}"
+            adc   = row["adc"]
+
+            ln_n = ax.semilogy(adc, np.clip(row["noise_sf"],  1e-6, 1),
+                               "--", color=color, lw=1.5, alpha=0.85)[0]
+            ln_s = ax.semilogy(adc, np.clip(row["signal_cdf"], 1e-6, 1),
+                               "-",  color=color, lw=1.5, alpha=0.85)[0]
+
+            if not np.isnan(row["eer_threshold"]):
+                idx = int(row["eer_threshold"])
+                ax.plot(adc[idx], np.clip(row["eer_value"], 1e-6, 1),
+                        "o", color=color, ms=7, zorder=5)
+
+            from matplotlib.lines import Line2D
+            legend_handles.append(
+                Line2D([0], [0], color=color, lw=1.5, label=label)
+            )
+
+        # Style guides (one pair of lines for the legend)
+        legend_handles += [
+            Line2D([0], [0], color="gray", lw=1.5, ls="--",
+                   label="P(noise > x)  [dashed]"),
+            Line2D([0], [0], color="gray", lw=1.5, ls="-",
+                   label="P(signal ≤ x)  [solid]"),
+        ]
+
+        ax.set_xlabel("ADC value")
+        ax.set_ylabel("Probability")
+        ax.set_title(
+            f"Tail distributions — VMM {vmm_id}\n"
+            "Dot = equal-error-rate crossing; lower crossing = better separation",
+            fontsize=12
+        )
+        ax.set_xlim(0, 1023)
+        ax.set_ylim(1e-4, 1.2)
+        ax.grid(True, which="both", alpha=0.25)
+        ax.legend(handles=legend_handles, fontsize=9,
+                  loc="upper right", ncol=2)
+
+        _finish_fig(fig, f"tail_distributions_vmm{vmm_id}", out_dir, show)
+
+
+def plot_saturation_curves(tail_data, detector_vmms,
+                            out_dir=None, show=True):
+    """
+    Signal survival function P(signal > x) per VMM, all configs overlaid.
+
+    Shows what fraction of signal hits exceeds a given ADC threshold.
+    The vertical line at ADC=1022 marks the hardware saturation boundary.
+    The value of the curve at that line is the saturation probability.
+
+    Useful for checking whether a configuration loses too many hits to
+    ADC saturation (and whether gain is set too high).
+    """
+    if not tail_data:
+        return
+
+    vmm_ids_in_data = sorted({d["vmm_id"] for d in tail_data})
+    configs_all     = sorted(
+        {(d["sg"], d["snt"]) for d in tail_data},
+        key=lambda x: (x[0], x[1])
+    )
+    palette   = plt.cm.tab10(np.linspace(0, 1, len(configs_all)))
+    color_map = {cfg: palette[i] for i, cfg in enumerate(configs_all)}
+
+    for vmm_id in vmm_ids_in_data:
+        if vmm_id not in detector_vmms:
+            continue
+
+        rows = [d for d in tail_data if d["vmm_id"] == vmm_id]
+        if not rows:
+            continue
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        for row in sorted(rows, key=lambda r: (r["sg"], r["snt"])):
+            cfg   = (row["sg"], row["snt"])
+            color = color_map[cfg]
+            p_sat = row["p_saturation"]
+            label = (f"sg={cfg[0]:.1f} snt={cfg[1]:.0f}"
+                     f"  (p_sat={p_sat*100:.2f}%)")
+            ax.semilogy(row["adc"],
+                        np.clip(row["signal_sf"], 1e-6, 1),
+                        color=color, lw=1.8, label=label)
+
+        ax.axvline(1022, color="red", lw=1.5, ls="--",
+                   label="ADC saturation boundary (1022)")
+        ax.set_xlabel("ADC threshold")
+        ax.set_ylabel("P(signal > threshold)")
+        ax.set_title(
+            f"Signal survival function — VMM {vmm_id}\n"
+            "Value at red line = fraction of hits lost to saturation",
+            fontsize=12
+        )
+        ax.set_xlim(0, 1023)
+        ax.set_ylim(1e-4, 1.2)
+        ax.grid(True, which="both", alpha=0.25)
+        ax.legend(fontsize=9, loc="upper right")
+
+        _finish_fig(fig, f"saturation_curves_vmm{vmm_id}", out_dir, show)
+
+
 def main():
     pass
 

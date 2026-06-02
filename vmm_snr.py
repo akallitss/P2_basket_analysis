@@ -38,6 +38,55 @@ def _hist_mean(hist, lo, hi=1022):
     return float((adc[m] * hist[m]).sum()) / n if n > 0 else np.nan
 
 
+def _compute_area_ratio(signal_hist, noise_hist, noise_cut):
+    """Ratio of signal counts to noise counts above noise_cut.
+
+    Higher values indicate better signal/noise separation in the
+    region above the noise threshold.
+    """
+    cut_idx  = min(int(np.ceil(noise_cut)), 1023)
+    sig_area = float(signal_hist[cut_idx:].sum())
+    noi_area = float(noise_hist[cut_idx:].sum())
+    return sig_area / noi_area if noi_area > 0 else np.nan
+
+
+def _compute_eer(signal_hist, noise_hist):
+    """Equal-error-rate threshold and value.
+
+    Finds the ADC value x* where P(noise > x*) == P(signal < x*).
+    The EER value is the shared probability at that crossing — lower
+    means better discrimination between noise and signal.
+
+    Returns
+    -------
+    eer_threshold : float — ADC bin at the crossing
+    eer_value     : float — probability at the crossing (0–1)
+    """
+    n_noise  = float(noise_hist.sum())
+    n_signal = float(signal_hist.sum())
+    if n_noise == 0 or n_signal == 0:
+        return np.nan, np.nan
+
+    noise_sf   = 1.0 - np.cumsum(noise_hist)  / n_noise   # P(noise > x)
+    signal_cdf = np.cumsum(signal_hist) / n_signal          # P(signal ≤ x)
+
+    diff         = noise_sf - signal_cdf
+    sign_changes = np.where(np.diff(np.sign(diff)))[0]
+    if len(sign_changes) == 0:
+        return np.nan, np.nan
+
+    idx           = sign_changes[0]
+    eer_threshold = float(idx)
+    eer_value     = float(0.5 * (noise_sf[idx] + signal_cdf[idx]))
+    return eer_threshold, eer_value
+
+
+def _compute_p_saturation(signal_hist):
+    """Fraction of signal hits at the ADC saturation bin (1023)."""
+    total = float(signal_hist.sum())
+    return float(signal_hist[1023]) / total if total > 0 else np.nan
+
+
 def compute_adc_stats(df_run_scan, vmm_ids, run_list, data_dir,
                        adc_cut=100, n_files=1,
                        use_over_threshold=True):
@@ -202,7 +251,8 @@ def compute_snr(data_dir, pairs, detector_vmms,
             continue
 
         df_noise_baseline = compute_noise_baseline_from_hists(noise_hists)
-        del noise_hists
+        # noise_hists kept alive until after the per-VMM loop
+        # (needed for area_ratio and EER computation)
 
         if "vmm_id" not in df_noise_baseline.columns:
             print(f"  WARNING: no noise baseline for run {run_sng1} "
@@ -265,6 +315,14 @@ def compute_snr(data_dir, pairs, detector_vmms,
                            if (not np.isnan(mean_signal) and noise_sigma > 0)
                            else np.nan)
 
+            area_ratio            = _compute_area_ratio(
+                signal_hists[vmm_id], noise_hists[vmm_id], noise_cut
+            )
+            eer_threshold, eer_value = _compute_eer(
+                signal_hists[vmm_id], noise_hists[vmm_id]
+            )
+            p_saturation          = _compute_p_saturation(signal_hists[vmm_id])
+
             results.append({
                 "sg"           : sg,
                 "snt"          : snt,
@@ -279,15 +337,20 @@ def compute_snr(data_dir, pairs, detector_vmms,
                 "mean_signal"  : mean_signal,
                 "mean_noise"   : mean_noise,
                 "snr_mean"     : snr_mean,
+                "area_ratio"   : area_ratio,
+                "eer_threshold": eer_threshold,
+                "eer_value"    : eer_value,
+                "p_saturation" : p_saturation,
             })
 
-        del signal_hists, df_noise_baseline
+        del noise_hists, signal_hists, df_noise_baseline
 
     if not results:
         return pd.DataFrame(columns=[
             "sg", "snt", "run_sng0", "run_sng1", "vmm_id",
             "noise_sigma", "noise_cut", "noise_quality",
             "mpv", "snr", "mean_signal", "mean_noise", "snr_mean",
+            "area_ratio", "eer_threshold", "eer_value", "p_saturation",
         ])
     return pd.DataFrame(results)
 
@@ -507,6 +570,12 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
                     snr  = mpv / noise_sigma
                     n_ok += 1
 
+                area_ratio_ch               = _compute_area_ratio(
+                    sig_hist, noi_hist, vmm_noise_cut
+                )
+                eer_thr_ch, eer_val_ch      = _compute_eer(sig_hist, noi_hist)
+                p_saturation_ch             = _compute_p_saturation(sig_hist)
+
                 results.append({
                     "sg"               : sg,
                     "snt"              : snt,
@@ -523,6 +592,10 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
                     "snr_mean_ch"      : snr_mean_ch,
                     "n_signal"         : n_signal_ch,
                     "n_noise"          : n_noise_ch,
+                    "area_ratio_ch"    : area_ratio_ch,
+                    "eer_threshold_ch" : eer_thr_ch,
+                    "eer_value_ch"     : eer_val_ch,
+                    "p_saturation_ch"  : p_saturation_ch,
                 })
 
         print(f"  → {n_ok} channels ok | "
@@ -538,8 +611,125 @@ def compute_snr_per_channel(data_dir, pairs, detector_vmms,
             "noise_sigma_ch", "vmm_noise_cut", "vmm_noise_quality",
             "mpv_ch", "snr_ch", "mean_signal_ch", "snr_mean_ch",
             "n_signal", "n_noise",
+            "area_ratio_ch", "eer_threshold_ch", "eer_value_ch",
+            "p_saturation_ch",
         ])
     return pd.DataFrame(results)
+
+
+def compute_tail_curves(data_dir, pairs, detector_vmms,
+                         n_files=1,
+                         exclude_trigger_vmms=(0, 1)):
+    """
+    Compute per-VMM noise survival function and signal CDF for each pair.
+
+    Returns the full tail curves needed for tail-distribution plots and
+    saturation curves.  Scalar summary metrics (EER, area_ratio, p_sat)
+    are already in the compute_snr() output; this function provides the
+    arrays for visualisation.
+
+    Parameters
+    ----------
+    Same as compute_snr().
+
+    Returns
+    -------
+    list of dict, one entry per (pair, vmm_id):
+        sg, snt, vmm_id,
+        adc          : np.arange(1024)
+        noise_sf     : P(noise > x)   — noise survival function
+        signal_cdf   : P(signal ≤ x)  — signal cumulative distribution
+        signal_sf    : P(signal > x)  — signal survival (for saturation view)
+        noise_cut    : float
+        eer_threshold: float
+        eer_value    : float
+        p_saturation : float
+    """
+    adc  = np.arange(1024, dtype=np.float64)
+    rows = []
+
+    for pair in pairs:
+        sg, snt       = pair["sg"], pair["snt"]
+        run_sng0, run_sng1 = pair["sng0"], pair["sng1"]
+
+        # --- noise histograms ---
+        noise_hists = {v: np.zeros(1024, np.int64) for v in detector_vmms}
+        for df in iter_hits_files(get_run_dir(data_dir, run_sng1), n_files,
+                                   branches=["adc", "vmm",
+                                             "over_threshold"]):
+            df_det = df[df["vmm"].isin(detector_vmms)]
+            for vmm_id in detector_vmms:
+                vals = df_det.loc[
+                    (df_det["vmm"]            == vmm_id) &
+                    (df_det["over_threshold"] == 0) &
+                    (df_det["adc"]            >  20), "adc"
+                ].values.clip(0, 1023).astype(np.int32)
+                if len(vals):
+                    noise_hists[vmm_id] += np.bincount(vals,
+                                                        minlength=1024)[:1024]
+            del df, df_det
+
+        df_noise_bl = compute_noise_baseline_from_hists(noise_hists)
+        if "vmm_id" not in df_noise_bl.columns:
+            continue
+
+        # --- signal histograms ---
+        signal_hists = {v: np.zeros(1024, np.int64) for v in detector_vmms}
+        for df in iter_hits_files(get_run_dir(data_dir, run_sng0), n_files,
+                                   branches=["adc", "vmm",
+                                             "over_threshold"]):
+            df_det = df[df["vmm"].isin(detector_vmms)]
+            for vmm_id in detector_vmms:
+                vals = df_det.loc[
+                    (df_det["vmm"]            == vmm_id) &
+                    (df_det["over_threshold"] == 1) &
+                    (df_det["adc"]            <  1023), "adc"
+                ].values.clip(0, 1023).astype(np.int32)
+                if len(vals):
+                    signal_hists[vmm_id] += np.bincount(vals,
+                                                         minlength=1024)[:1024]
+            del df, df_det
+
+        for vmm_id in detector_vmms:
+            if vmm_id in exclude_trigger_vmms:
+                continue
+
+            noise_row = df_noise_bl[df_noise_bl["vmm_id"] == vmm_id]
+            if noise_row.empty:
+                continue
+
+            noise_cut   = noise_row["noise_cut"].iloc[0]
+            n_noise     = float(noise_hists[vmm_id].sum())
+            n_signal    = float(signal_hists[vmm_id].sum())
+            if n_noise == 0 or n_signal < 100:
+                continue
+
+            noise_sf   = 1.0 - np.cumsum(noise_hists[vmm_id])   / n_noise
+            signal_cdf = np.cumsum(signal_hists[vmm_id]) / n_signal
+            signal_sf  = 1.0 - signal_cdf
+
+            eer_thr, eer_val = _compute_eer(
+                signal_hists[vmm_id], noise_hists[vmm_id]
+            )
+            p_sat = _compute_p_saturation(signal_hists[vmm_id])
+
+            rows.append({
+                "sg"           : sg,
+                "snt"          : snt,
+                "vmm_id"       : vmm_id,
+                "adc"          : adc.copy(),
+                "noise_sf"     : noise_sf,
+                "signal_cdf"   : signal_cdf,
+                "signal_sf"    : signal_sf,
+                "noise_cut"    : noise_cut,
+                "eer_threshold": eer_thr,
+                "eer_value"    : eer_val,
+                "p_saturation" : p_sat,
+            })
+
+        del noise_hists, signal_hists, df_noise_bl
+
+    return rows
 
 
 def summarise_best_config(df_snr, df_snr_ch, detector_vmms):
