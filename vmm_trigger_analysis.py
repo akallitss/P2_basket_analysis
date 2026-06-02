@@ -81,6 +81,12 @@ def main():
     config_file = "vmm_config_scan_15kHz.csv"
     rate_tag    = config_file.replace("vmm_config_scan_", "").replace(".csv", "")
 
+    # --- Files per run ---
+    # Runs with fewer than n_files automatically use all they have.
+    # Multiple pcapng sessions are resolved by list_root_files: the session
+    # with the most files is kept; ties go to the latest timestamp.
+    n_files = 10
+
     # test_run = 82
     test_run = 149
     # test_run = 158
@@ -110,7 +116,7 @@ def main():
     diag_run_nos = [r for r, _, _ in diagnostic_runs]
     ch_counts = collect_channel_hit_counts(
         data_dir, diag_run_nos, all_vmm_ids,
-        n_files=3, file_start=1
+        n_files=n_files, file_start=1
     )
     ch_outliers = identify_outlier_channels(
         ch_counts,
@@ -137,7 +143,7 @@ def main():
         per_ch = compute_per_channel_spill_rates(
             data_dir, run_no, all_vmm_ids,
             trigger_ref_channels=trigger_ref_channels,
-            n_files=5, file_start=1,
+            n_files=n_files, file_start=1,
             spill_threshold_khz=1.0,
             max_gap_s=2.0,
         )
@@ -246,7 +252,7 @@ def main():
         trigger_ref_channels = trigger_ref_channels,
         detector_vmms        = detector_vmms,
         bin_width_s          = 0.001,
-        n_files              = 1,
+        n_files              = n_files,
         spill_threshold_khz  = 1.0,
         max_gap_s            = 2.0,
         good_channels        = good_channels,
@@ -269,7 +275,7 @@ def main():
         trigger_ref_channels     = trigger_ref_channels,
         detector_vmms            = detector_vmms,
         bin_width_s              = 0.001,
-        n_files                  = 1,
+        n_files                  = n_files,
         spill_threshold_khz      = 1.0,
         max_gap_s                = 2.0,
         good_channels            = good_channels,
