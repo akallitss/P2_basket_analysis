@@ -208,3 +208,4 @@ __marimo__/
 *.csv
 results/
 FreeCAD/fem_report.docx
+*.pdf

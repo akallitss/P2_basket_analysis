@@ -5,7 +5,7 @@ Created on 3/25/26 1:24 PM
 Created in PyCharm
 Created as vmm_config_scan_analysis.py
 
-@author: ak271430
+@author: ak271430 Alexandra Kallitsopoulou (alexandra.kallitsopoulou@cea.fr)
 """
 
 """
@@ -90,7 +90,7 @@ DATASETS = {
         "run_table"            : "vmm_config_scan_15kHz.csv",
         "plot_subdir"          : "plots_15kHz/",
         "mapping_module"       : "vmm_mapping",
-        "legacy_sg"            : 1.0,
+        "legacy_sg"            : 3.0,
         "legacy_sng"           : 1.0,
         "qa_run_signal"        : 149,
         "qa_run_noisy"         : 150,
@@ -199,7 +199,7 @@ def main():
     # --- Dataset ---
     # Pick one key from the DATASETS dict defined at the top of this file.
     # To add a new campaign, add an entry there — nothing else changes here.
-    dataset = "15kHz"   # "15kHz" | "5kHz" | "lab"
+    dataset = "5kHz"   # "15kHz" | "5kHz" | "lab"
 
     # --- Run mode ---
     # "analysis" : save all plots to plot_dir, no interactive windows
