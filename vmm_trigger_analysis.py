@@ -67,52 +67,93 @@ for g in vmm_groups:
     print(f"  {g['label']}: VMMs {g['vmm_ids']}")
 
 
+# ─────────────────────────────────────────────
+# DATASET PRESETS
+# Add a new entry here when starting a new run campaign.
+# ─────────────────────────────────────────────
+DATASETS = {
+    "15kHz": {
+        "cnfg_dir"        : "/drf/projets/clas12/P2/akallits/",
+        "data_dir"        : "/drf/projets/clas12/cern_202511_p2_alinx/",
+        "config_file"     : "vmm_config_scan_15kHz.csv",
+        "plot_subdir"     : "plots_trigger_15kHz/",
+        "test_run"        : 149,
+        "root_file_index" : 2,
+        "diagnostic_runs" : [
+            (149, 3.0, 200),
+            (156, 3.0, 100),
+            (158, 3.0, 50),
+            (152, 4.5, 200),
+            (155, 6.0, 200),
+        ],
+    },
+    "5kHz": {
+        "cnfg_dir"        : "/drf/projets/clas12/P2/akallits/",
+        "data_dir"        : "/drf/projets/clas12/cern_202511_p2_alinx/",
+        "config_file"     : "vmm_config_scan_5kHz.csv",
+        "plot_subdir"     : "plots_trigger_5kHz/",
+        "test_run"        : 82,
+        "root_file_index" : 2,
+        "diagnostic_runs" : [
+            (67, 3.0, 200),
+            (70, 3.0, 100),
+            (73, 3.0, 50),
+            (97, 4.5, 50),
+            (78, 4.5, 200),
+            (82, 4.5, 100),
+            (99, 6.0, 200),
+        ],
+    },
+}
+
+
 def main():
-    # ── User configuration ──────────────────────────────────
-    cnfg_dir = "/drf/projets/clas12/P2/akallits/"
-    data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+    # ════════════════════════════════════════════════════════════
+    # USER CONFIGURATION — normally only these three lines change:
+    # ════════════════════════════════════════════════════════════
 
-    # cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
-    # data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
-    root_file_index = 2
-    out_dir     = "/drf/projets/clas12/P2/akallits/plots_trigger"
-    show        = False
-    # config_file = "vmm_config_scan_5kHz.csv"
-    config_file = "vmm_config_scan_15kHz.csv"
-    rate_tag    = config_file.replace("vmm_config_scan_", "").replace(".csv", "")
+    dataset = "15kHz"    # "15kHz" | "5kHz"
+    mode    = "analysis" # "analysis": save, no window
+                         # "debug"   : show window, nothing saved
+                         # "both"    : save and show window
+    n_files = 10         # files per run; fewer available → use all
 
-    # --- Files per run ---
-    # Runs with fewer than n_files automatically use all they have.
-    # Multiple pcapng sessions are resolved by list_root_files: the session
-    # with the most files is kept; ties go to the latest timestamp.
-    n_files = 10
+    # ════════════════════════════════════════════════════════════
+    # END USER CONFIGURATION
+    # ════════════════════════════════════════════════════════════
 
-    # test_run = 82
-    test_run = 149
-    # test_run = 158
+    if dataset not in DATASETS:
+        raise ValueError(
+            f"Unknown dataset '{dataset}'. "
+            f"Available: {list(DATASETS.keys())}"
+        )
+    _ds             = DATASETS[dataset]
+    cnfg_dir        = _ds["cnfg_dir"]
+    data_dir        = _ds["data_dir"]
+    config_file     = _ds["config_file"]
+    plot_dir        = f"{cnfg_dir}{_ds['plot_subdir']}"
+    test_run        = _ds["test_run"]
+    root_file_index = _ds["root_file_index"]
+    diagnostic_runs = _ds["diagnostic_runs"]
+    rate_tag        = config_file.replace("vmm_config_scan_", "").replace(".csv", "")
+
+    show    = mode in ("debug", "both")
+    out_dir = plot_dir if mode in ("analysis", "both") else None
+
+    W = 57
+    print(f"\n{'='*W}")
+    print(f"  Dataset  : {dataset}")
+    print(f"  Mode     : {mode}")
+    print(f"  data_dir : {data_dir}")
+    print(f"  plot_dir : {plot_dir if out_dir else '(not saving)'}")
+    print(f"  n_files  : {n_files}   test_run : {test_run}")
+    print(f"{'='*W}")
 
     # ── Step 0: channel diagnostics (hits per channel) ──────
     # Aggregate hits over a few files across ALL diagnostic runs so that
     # a channel at the beam edge (low hits at one gain) is not wrongly
     # flagged dead because it happened to be the test run.
-    all_vmm_ids = trigger_vmms + detector_vmms
-    # diagnostic_runs = [
-    #     (67, 3.0, 200),
-    #     (70, 3.0, 100),
-    #     (73, 3.0, 50),
-    #     (97, 4.5, 50),
-    #     (78, 4.5, 200),
-    #     (82, 4.5, 100),
-    #     (99, 6.0, 200),
-    # ] # for the 5kHz
-    # #
-    diagnostic_runs = [
-        (149, 3.0, 200),
-        (156, 3.0, 100),
-        (158, 3.0, 50),
-        (152, 4.5, 200),
-        (155, 6.0, 200),
-    ] # runs for the 15kHz
+    all_vmm_ids  = trigger_vmms + detector_vmms
     diag_run_nos = [r for r, _, _ in diagnostic_runs]
     ch_counts = collect_channel_hit_counts(
         data_dir, diag_run_nos, all_vmm_ids,
@@ -127,7 +168,7 @@ def main():
     plot_hits_per_channel_all_vmms(
         ch_counts, ch_outliers,
         dead_frac=0.1, noisy_factor=5.0,
-        out_dir=out_dir, show=True, rate_tag=rate_tag
+        out_dir=out_dir, show=show, rate_tag=rate_tag
     )
 
     # ── Step 0b: per-channel on/off rate for problematic runs ──
@@ -192,7 +233,7 @@ def main():
             good_channels=good_channels_by_config.get((sg, snt), good_channels),
             ch_outliers=ch_outliers,
             noisy_off_spill=noisy_off_by_config.get((sg, snt), noisy_off),
-            out_dir=out_dir, show=True,
+            out_dir=out_dir, show=show,
             rate_tag=rate_tag
         )
 
@@ -259,8 +300,7 @@ def main():
         file_start           = 1,
     )
 
-    # print("\n=== Step 3: spill rates on run 67 ===")
-    print("\n=== Step 3: spill rates on run 149 ===")
+    print(f"\n=== Step 3: spill rates on run {test_run} ===")
     print(df_spill_test.to_string(index=False))
 
     # ── Step 4: loop over all sng=0 configs ─────────────────
@@ -282,8 +322,7 @@ def main():
         good_channels_per_config = good_channels_by_config,
     )
 
-    # df_spill.to_csv("vmm_spill_rates_5kHz.csv", index=False)
-    df_spill.to_csv("vmm_spill_rates_15kHz.csv", index=False)
+    df_spill.to_csv(f"vmm_spill_rates_{rate_tag}.csv", index=False)
     print("\n=== Step 4: spill rates — all configs ===")
     print(df_spill.to_string(index=False))
 
