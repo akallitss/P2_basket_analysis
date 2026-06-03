@@ -139,6 +139,21 @@ def main():
 
     show    = mode in ("debug", "both")
     out_dir = plot_dir if mode in ("analysis", "both") else None
+    verbose = (mode == "debug")
+
+    import time
+    _t0 = time.time()
+
+    def _hdr(title, W=57):
+        t = time.time() - _t0
+        print(f"\n{'─'*W}")
+        print(f"  {title}  [{t:.0f}s]")
+        print(f"{'─'*W}")
+
+    def _done(msg=""):
+        t = time.time() - _t0
+        suffix = f"  {msg}" if msg else ""
+        print(f"  ✓ done{suffix}  [{t:.0f}s]")
 
     W = 57
     print(f"\n{'='*W}")
@@ -150,11 +165,9 @@ def main():
     print(f"{'='*W}")
 
     # ── Step 0: channel diagnostics (hits per channel) ──────
-    # Aggregate hits over a few files across ALL diagnostic runs so that
-    # a channel at the beam edge (low hits at one gain) is not wrongly
-    # flagged dead because it happened to be the test run.
     all_vmm_ids  = trigger_vmms + detector_vmms
     diag_run_nos = [r for r, _, _ in diagnostic_runs]
+    _hdr(f"Step 0: channel diagnostics  ({len(diag_run_nos)} runs)")
     ch_counts = collect_channel_hit_counts(
         data_dir, diag_run_nos, all_vmm_ids,
         n_files=n_files, file_start=1
@@ -168,35 +181,42 @@ def main():
     plot_hits_per_channel_all_vmms(
         ch_counts, ch_outliers,
         dead_frac=0.1, noisy_factor=5.0,
-        out_dir=out_dir, show=show, rate_tag=rate_tag
+        out_dir=out_dir, show=show, rate_tag=rate_tag,
+        verbose=verbose
     )
+    _done()
 
-    # ── Step 0b: per-channel on/off rate for problematic runs ──
-    # Shows spill-on and spill-off rate per channel separately.
-    # A channel with elevated OFF rate is genuinely noisy.
-    # A channel with elevated ON rate only is a beam-hit pad — not noise.
-    # Results are stored so Step 0c can reuse them without extra file reads.
+    # ── Step 0b: per-channel on/off rate for diagnostic runs ──
+    n_diag = len(diagnostic_runs)
+    _hdr(f"Step 0b: per-channel spill rates  ({n_diag} runs)")
     per_ch_all_runs  = []
     per_ch_by_run    = {}
-    for run_no, sg, snt in diagnostic_runs:
-        print(f"\n── Per-channel on/off rate: run {run_no} "
-              f"(sg={sg} snt={snt}) ──")
+    for _i, (run_no, sg, snt) in enumerate(diagnostic_runs):
+        if verbose:
+            print(f"\n── Per-channel on/off rate: run {run_no} "
+                  f"(sg={sg} snt={snt}) ──")
+        else:
+            filled = int(20 * (_i + 1) / n_diag)
+            bar    = "=" * filled + "-" * (20 - filled)
+            print(f"\r  [{bar}] {_i+1}/{n_diag}  run {run_no}",
+                  end="", flush=True)
         per_ch = compute_per_channel_spill_rates(
             data_dir, run_no, all_vmm_ids,
             trigger_ref_channels=trigger_ref_channels,
             n_files=n_files, file_start=1,
             spill_threshold_khz=1.0,
             max_gap_s=2.0,
+            verbose=verbose,
         )
         if per_ch is not None:
             per_ch_all_runs.append(per_ch)
             per_ch_by_run[run_no] = (sg, snt, per_ch)
+    if not verbose:
+        print()  # end progress-bar line
+    _done()
 
     # ── Step 0c: build good-channel mask ───────────────────────
-    # Noisy = off-spill rate > 3 × median off-spill rate across
-    # the diagnostic runs (max rate per channel, so a channel
-    # flagged noisy at high gain is excluded everywhere).
-    # Dead  = total-hit count < 10% × median (from Step 0 counts).
+    _hdr("Step 0c: channel masking")
     if per_ch_all_runs:
         noisy_off   = identify_noisy_from_off_spill(
             per_ch_all_runs, noisy_factor=3.0, ch_outliers=ch_outliers
@@ -206,27 +226,28 @@ def main():
         noisy_off     = None
         good_channels = build_good_channels(ch_outliers)
 
-    print("\n── Good channels per detector VMM (global mask) ──")
-    for vmm_id in detector_vmms:
-        if vmm_id not in good_channels:
-            continue
-        chs = good_channels[vmm_id]
-        print(f"  VMM {vmm_id}: {len(chs)} good channels  "
-              f"{sorted(chs.tolist())}")
+    if verbose:
+        print("\n── Good channels per detector VMM (global mask) ──")
+        for vmm_id in detector_vmms:
+            if vmm_id not in good_channels:
+                continue
+            chs = good_channels[vmm_id]
+            print(f"  VMM {vmm_id}: {len(chs)} good channels  "
+                  f"{sorted(chs.tolist())}")
+    else:
+        n_good_total = sum(len(v) for v in good_channels.values())
+        print(f"  {n_good_total} good channels across "
+              f"{len(good_channels)} detector VMMs")
 
-    # Per-(sg, snt) masks: only flag a channel noisy for the config
-    # where its off-spill rate is elevated, not globally.
     good_channels_by_config, noisy_off_by_config = build_good_channels_per_config(
         per_ch_by_run, ch_outliers, noisy_factor=3.0
     )
-    print("\n── Good channels per config (per-config mask) ──")
-    for (sg, snt), gc in sorted(good_channels_by_config.items()):
-        n_total = sum(len(v) for v in gc.values())
-        print(f"  sg={sg} snt={snt:.0f}: {n_total} total good channels")
+    if verbose:
+        print("\n── Good channels per config (per-config mask) ──")
+        for (sg, snt), gc in sorted(good_channels_by_config.items()):
+            n_cfg_total = sum(len(v) for v in gc.values())
+            print(f"  sg={sg} snt={snt:.0f}: {n_cfg_total} total good channels")
 
-    # Now plot per-channel rates with masking overlay.
-    # Use the per-config mask so the colour coding matches exactly what
-    # the analysis uses for each (sg, snt) — not the global worst-case mask.
     for run_no, (sg, snt, per_ch) in per_ch_by_run.items():
         plot_rate_per_channel_on_off(
             per_ch, run_no, sg, snt,
@@ -236,25 +257,27 @@ def main():
             out_dir=out_dir, show=show,
             rate_tag=rate_tag
         )
+    _done()
 
-    # ── Step 1: trigger rate time series on one run ─────────
-    # Plot 1 ms binned trigger rate to see the spill structure.
-    # Confirm beam-on / beam-off periods are clearly visible
-    # before applying any threshold or looping over configs.
-    print(f"Loading run {test_run}...")
+    # ── Steps 1-2: spill structure on test run ───────────────
+    _hdr(f"Steps 1-2: spill structure  (run {test_run})")
+    if verbose:
+        print(f"  Loading run {test_run}...")
     df_hits = load_sorted_hits(
         data_dir, test_run,
         branches=["time", "vmm", "ch"],
         root_file_index=root_file_index
     )
     if df_hits is None or df_hits.empty:
-        print(f"No data for run {test_run} at file_index={root_file_index}, "
+        print(f"  No data for run {test_run} at "
+              f"file_index={root_file_index}, "
               f"try a different root_file_index")
         return
 
     duration = compute_run_duration(df_hits)
-    print(f"Run duration : {duration:.1f} s")
-    print(f"Total hits   : {len(df_hits)}")
+    if verbose:
+        print(f"  Run duration : {duration:.1f} s")
+        print(f"  Total hits   : {len(df_hits)}")
 
     plot_trigger_rate_ms(
         df_hits,
@@ -264,11 +287,6 @@ def main():
         bin_width_ms=1.0,
         out_dir=out_dir, show=show, rate_tag=rate_tag,
     )
-
-    # ── Step 2: spill mask validation on run 67 ─────────────
-    # Same trigger rate plot but with green/grey shading showing
-    # which 1 ms bins are classified as spill-on vs spill-off.
-    # Confirm the 1 kHz threshold correctly captures the spills.
     plot_spill_mask_diagnostic(
         df_hits,
         run_no=test_run,
@@ -278,12 +296,12 @@ def main():
         bin_width_ms=1.0,
         max_gap_s=2.0,
         out_dir=out_dir, show=show, rate_tag=rate_tag,
+        verbose=verbose,
     )
+    _done()
 
-    # ── Step 3: detector VMM rates on run 67 (sanity check) ─
-    # Before looping over all configs, verify that the spill-on
-    # and spill-off rates for each detector VMM look physically
-    # reasonable on the test run.
+    # ── Step 3: sanity check on test run ─────────────────────
+    _hdr(f"Step 3: sanity check  (run {test_run})")
     df_run_scan = load_run_table(f"{cnfg_dir}{config_file}")
 
     df_spill_test = compute_spill_rates_all_runs(
@@ -298,15 +316,17 @@ def main():
         max_gap_s            = 2.0,
         good_channels        = good_channels,
         file_start           = 1,
+        verbose              = verbose,
     )
-
-    print(f"\n=== Step 3: spill rates on run {test_run} ===")
-    print(df_spill_test.to_string(index=False))
+    if verbose:
+        print(f"\n  Spill rates on run {test_run}:")
+        print(df_spill_test.to_string(index=False))
+    _done()
 
     # ── Step 4: loop over all sng=0 configs ─────────────────
-    # Same computation as Step 3 but over all 7 configurations.
-    # Produces the full table used for the summary plot.
     run_groups = get_run_groups(df_run_scan)
+    n_sng0     = len(run_groups["sng0_runs"])
+    _hdr(f"Step 4: all configs  ({n_sng0} runs)")
 
     df_spill = compute_spill_rates_all_runs(
         df_run_scan              = df_run_scan,
@@ -320,24 +340,27 @@ def main():
         max_gap_s                = 2.0,
         good_channels            = good_channels,
         good_channels_per_config = good_channels_by_config,
+        verbose                  = verbose,
     )
 
-    df_spill.to_csv(f"vmm_spill_rates_{rate_tag}.csv", index=False)
-    print("\n=== Step 4: spill rates — all configs ===")
-    print(df_spill.to_string(index=False))
+    csv_path = f"vmm_spill_rates_{rate_tag}.csv"
+    df_spill.to_csv(csv_path, index=False)
+    print(f"  Saved → {csv_path}")
+    if verbose:
+        print("\n  Spill rates — all configs:")
+        print(df_spill.to_string(index=False))
+    _done(f"{len(df_spill)} VMM-run records")
 
-    # ── Step 5: summary plot ─────────────────────────────────
-    # rate_on and rate_off vs (sg, snt) per detector group.
+    # ── Step 5: summary plots ────────────────────────────────
+    _hdr("Step 5: summary plots")
+    trig_ref = list(trigger_ref_channels.keys())[0]
+
     plot_spill_rates_vs_config(
         df_spill        = df_spill,
         vmm_groups      = vmm_groups,
-        trigger_ref_vmm = list(trigger_ref_channels.keys())[0],
+        trigger_ref_vmm = trig_ref,
         out_dir=out_dir, show=show, rate_tag=rate_tag,
     )
-
-    # ── Step 5b: all VMMs on one plot per group ─────────────
-    trig_ref = list(trigger_ref_channels.keys())[0]
-
     plot_spill_on_all_vmms(
         df_spill        = df_spill,
         vmm_groups      = vmm_groups,
@@ -345,7 +368,6 @@ def main():
         rate_col        = "rate_on_khz",
         out_dir=out_dir, show=show, rate_tag=rate_tag,
     )
-
     plot_spill_on_all_vmms(
         df_spill        = df_spill,
         vmm_groups      = vmm_groups,
@@ -353,6 +375,7 @@ def main():
         rate_col        = "rate_off_khz",
         out_dir=out_dir, show=show, rate_tag=rate_tag,
     )
+    _done()
 
 def load_sorted_hits(data_dir, run_no, branches,
                       root_file_index=1,
@@ -563,7 +586,8 @@ def compute_per_channel_spill_rates(data_dir, run_no, all_vmm_ids,
                                      spill_threshold_khz=1.0,
                                      min_spill_s=1.0,
                                      max_gap_s=0.0,
-                                     max_time_ticks=2e12):
+                                     max_time_ticks=2e12,
+                                     verbose=True):
     """
     For every connected channel on each VMM compute the hit rate
     separately during spill-on and spill-off periods.
@@ -621,9 +645,10 @@ def compute_per_channel_spill_rates(data_dir, run_no, all_vmm_ids,
     t_on_s  = on_mask.sum()  * bin_width_s
     t_off_s = off_mask.sum() * bin_width_s
 
-    print(f"  Run {run_no}: spill-on {t_on_s:.0f}s  "
-          f"spill-off {t_off_s:.0f}s  "
-          f"trig_on {trig_rate_khz[on_mask].mean():.1f} kHz")
+    if verbose:
+        print(f"  Run {run_no}: spill-on {t_on_s:.0f}s  "
+              f"spill-off {t_off_s:.0f}s  "
+              f"trig_on {trig_rate_khz[on_mask].mean():.1f} kHz")
 
     # ── Pass 3: per-channel on/off counts ──────────────────
     ch_on  = {v: np.zeros(64, dtype=np.int64) for v in all_vmm_ids}
@@ -1032,7 +1057,8 @@ def build_good_channels_per_config(per_ch_by_run, ch_outliers,
 
 def plot_hits_per_channel_all_vmms(counts, outliers,
                                     dead_frac=0.1, noisy_factor=5.0,
-                                    out_dir=None, show=True, rate_tag=""):
+                                    out_dir=None, show=True, rate_tag="",
+                                    verbose=True):
     """
     Diagnostic plots restricted to physically connected channels only.
 
@@ -1179,17 +1205,18 @@ def plot_hits_per_channel_all_vmms(counts, outliers,
         plt.tight_layout()
         _finish_fig(fig, f"hits_per_channel_{key}", out_dir, show, rate_tag)
 
-        print(f"\n{'='*50}")
-        print(f"Group: {group_name}")
-        for vmm_id in group_vmm_ids:
-            info = outliers[vmm_id]
-            connected = get_connected_channels(vmm_id)
-            if is_trigger_grp:
-                print(f"  VMM {vmm_id}: connected = {connected}")
-            else:
-                print(f"  VMM {vmm_id}: dead={info['dead']}  "
-                      f"noisy={info['noisy']}  "
-                      f"median={info['median']:.0f} hits")
+        if verbose:
+            print(f"\n{'='*50}")
+            print(f"Group: {group_name}")
+            for vmm_id in group_vmm_ids:
+                info = outliers[vmm_id]
+                connected = get_connected_channels(vmm_id)
+                if is_trigger_grp:
+                    print(f"  VMM {vmm_id}: connected = {connected}")
+                else:
+                    print(f"  VMM {vmm_id}: dead={info['dead']}  "
+                          f"noisy={info['noisy']}  "
+                          f"median={info['median']:.0f} hits")
 
 
 def compute_run_duration(df_hits):
@@ -2038,7 +2065,8 @@ def plot_spill_mask_diagnostic(df_hits, run_no,
                                bin_width_ms=1.0,
                                min_spill_s=1.0,
                                max_gap_s=0.0,
-                               out_dir=None, show=True, rate_tag=""):
+                               out_dir=None, show=True, rate_tag="",
+                               verbose=True):
     """
     Step 1 validation: plot 1 ms trigger rate with spill-on/off
     regions shaded.
@@ -2120,10 +2148,11 @@ def plot_spill_mask_diagnostic(df_hits, run_no,
     plt.tight_layout()
     _finish_fig(fig, f"spill_mask_run{run_no}", out_dir, show, rate_tag)
 
-    print(f"Spill-on  bins : {n_on}  ({frac_on:.1f}%)")
-    print(f"Spill-off bins : {n_off}  ({100-frac_on:.1f}%)")
-    print(f"Mean rate (on) : {rate_khz[on_mask].mean():.2f} kHz")
-    print(f"Mean rate (off): {rate_khz[off_mask].mean():.3f} kHz")
+    if verbose:
+        print(f"  Spill-on  bins : {n_on}  ({frac_on:.1f}%)")
+        print(f"  Spill-off bins : {n_off}  ({100-frac_on:.1f}%)")
+        print(f"  Mean rate (on) : {rate_khz[on_mask].mean():.2f} kHz")
+        print(f"  Mean rate (off): {rate_khz[off_mask].mean():.3f} kHz")
 
 
 def _get_run_time_range(run_dir, n_files, max_time_ticks=2e12,
@@ -2284,7 +2313,8 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
                                   good_channels=None,
                                   good_channels_per_config=None,
                                   normalize_per_channel=True,
-                                  file_start=0):
+                                  file_start=0,
+                                  verbose=True):
     """
     For each run compute the mean hit rate during spill-on and spill-off
     periods for every detector VMM.
@@ -2338,8 +2368,9 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
     trig_ch  = trigger_ref_channels[trig_vmm]
 
     records = []
+    n_total = len(sng0_runs)
 
-    for run_no in sng0_runs:
+    for _i, run_no in enumerate(sng0_runs):
         row = df_run_scan[df_run_scan["run_no"] == run_no]
         if row.empty:
             continue
@@ -2353,11 +2384,19 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
         run_dir = get_run_dir(data_dir, run_no)
         n_avail = len(list_root_files(run_dir))
         if n_avail == 0:
+            if not verbose:
+                print()  # end progress-bar line before warning
             print(f"  Run {run_no}: no files found, skipping")
             continue
         n_load = min(n_files, n_avail)
-        print(f"  Run {run_no} (sg={sg}, snt={snt:.0f}): "
-              f"loading {n_load}/{n_avail} files...")
+        if verbose:
+            print(f"  Run {run_no} (sg={sg}, snt={snt:.0f}): "
+                  f"loading {n_load}/{n_avail} files...")
+        else:
+            filled = int(20 * (_i + 1) / max(n_total, 1))
+            bar    = "=" * filled + "-" * (20 - filled)
+            print(f"\r  [{bar}] {_i+1}/{n_total}  run {run_no}",
+                  end="", flush=True)
 
         # Pass 1: get time range across all files (time column only)
         t_start, t_end = _get_run_time_range(run_dir, n_load,
@@ -2439,9 +2478,12 @@ def compute_spill_rates_all_runs(df_run_scan, data_dir,
                 "n_good_channels"   : n_good,
             })
 
-        print(f"    on={n_on} bins  off={n_off} bins  "
-              f"trig_on={trig_rate_on:.1f} kHz")
+        if verbose:
+            print(f"    on={n_on} bins  off={n_off} bins  "
+                  f"trig_on={trig_rate_on:.1f} kHz")
 
+    if not verbose and n_total > 0:
+        print()  # end progress-bar line
     return pd.DataFrame(records)
 
 
