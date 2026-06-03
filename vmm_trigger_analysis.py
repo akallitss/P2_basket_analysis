@@ -1161,7 +1161,9 @@ def plot_hits_per_channel_all_vmms(counts, outliers,
 
             ax_bar.set_yscale("log")
             ax_bar.set_ylabel("Hits (log)")
-            ax_bar.legend(fontsize=8, loc="upper right")
+            handles, _ = ax_bar.get_legend_handles_labels()
+            if handles:
+                ax_bar.legend(fontsize=8, loc="upper right")
             ax_bar.grid(True, alpha=0.3, axis="y")
 
             # ── RIGHT panel: rank plot (detector VMMs only) ────
