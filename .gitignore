@@ -206,7 +206,12 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 *.csv
-results/
 FreeCAD/fem_report.docx
 *.pdf
 *.png
+# Keep HTML reports; exclude large raw solver output inside results/
+FreeCAD/results/**/*.frd
+FreeCAD/results/**/*.dat
+FreeCAD/results/**/*.inp
+FreeCAD/results/**/*.cvg
+FreeCAD/results/**/*.sta
