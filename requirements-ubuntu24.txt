@@ -1,3 +1,6 @@
+# --- Build / packaging ---
+setuptools
+
 # --- Core scientific / analysis ---
 numpy
 psutil

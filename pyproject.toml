@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vmm-analysis"
+version = "0.1.0"
+description = "VMM ASIC configuration scan analysis tools (P2 basket)"
+requires-python = ">=3.10"
+
+[tool.setuptools]
+py-modules = [
+    "vmm_io",
+    "vmm_mapping",
+    "vmm_mapping_lab",
+    "vmm_noise",
+    "vmm_signal",
+    "vmm_snr",
+    "vmm_qa",
+    "vmm_plots",
+    "vmm_config_scan",
+    "vmm_config_scan_analysis",
+    "vmm_combine_results",
+    "vmm_pipeline_diagram",
+    "vmm_trigger_analysis",
+    "vmm_detector_efficiency",
+    "vmm_tid_analysis",
+    "vmm_read_pcapng",
+    "SquarePadDetector",
+]
