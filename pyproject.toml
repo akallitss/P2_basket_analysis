@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vmm-analysis"
 version = "0.1.0"
-description = "VMM ASIC configuration scan analysis tools (P2 basket)"
+description = "VMM configuration scan analysis tools (P2 basket)"
 requires-python = ">=3.10"
 
 [tool.setuptools]
