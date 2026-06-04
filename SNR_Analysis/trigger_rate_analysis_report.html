@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VMM Trigger Rate Analysis — P2 Basket Detector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Roboto',Arial,sans-serif; font-size:11pt; background:#f1f3f4; color:#202124; line-height:1.75; }
+  .page { max-width:860px; margin:40px auto; background:#fff; padding:72px 96px; box-shadow:0 1px 3px rgba(0,0,0,.12),0 2px 8px rgba(0,0,0,.08); border-radius:2px; }
+  .doc-title { margin-bottom:2rem; padding-bottom:1.2rem; border-bottom:1px solid #e0e0e0; }
+  .doc-title h1 { font-size:26pt; font-weight:700; color:#202124; line-height:1.25; margin-bottom:.4rem; }
+  .doc-meta { font-size:9.5pt; color:#5f6368; margin-top:.5rem; }
+  .doc-meta span { margin-right:1.4rem; }
+  h2 { font-size:14pt; font-weight:700; color:#202124; margin:2.2rem 0 .6rem; padding-bottom:3px; border-bottom:1px solid #e8eaed; }
+  h3 { font-size:11.5pt; font-weight:700; color:#202124; margin:1.6rem 0 .5rem; }
+  h4 { font-size:11pt; font-weight:700; color:#3c4043; margin:1.4rem 0 .3rem; border-left:3px solid #dadce0; padding-left:.6rem; }
+  p { margin-bottom:.8rem; }
+  ul,ol { margin:.4rem 0 .8rem 1.8rem; }
+  li { margin-bottom:.3rem; }
+  code { font-family:'Roboto Mono','Courier New',monospace; font-size:9.5pt; background:#f8f9fa; border:1px solid #e8eaed; border-radius:3px; padding:.1em .35em; color:#c0392b; }
+  .table-wrap { overflow-x:auto; margin:1rem 0 1.2rem; }
+  table { width:100%; border-collapse:collapse; font-size:10pt; }
+  thead th { background:#f8f9fa; color:#202124; font-weight:700; padding:8px 12px; text-align:left; border-top:2px solid #dadce0; border-bottom:2px solid #dadce0; white-space:nowrap; }
+  tbody td { padding:7px 12px; border-bottom:1px solid #e8eaed; text-align:left; vertical-align:top; }
+  tbody tr:last-child td { border-bottom:2px solid #dadce0; }
+  tbody tr:hover { background:#f8f9fa; }
+  figure { margin:1.4rem 0; text-align:center; }
+  figure img { max-width:100%; height:auto; border:1px solid #e8eaed; border-radius:3px; }
+  figcaption { font-size:9pt; color:#5f6368; margin-top:.45rem; text-align:left; font-style:italic; line-height:1.5; }
+  figcaption strong { color:#202124; font-style:normal; font-weight:700; }
+  .fig-row { display:grid; grid-template-columns:1fr 1fr; gap:1.2rem; margin:1.2rem 0; }
+  .fig-row-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem; margin:1.2rem 0; }
+  @media(max-width:700px) { .fig-row,.fig-row-3 { grid-template-columns:1fr; } }
+  .badge { display:inline-block; font-size:8.5pt; font-weight:700; padding:.15em .55em; border-radius:3px; margin-right:.3rem; font-style:normal; }
+  .badge-5k  { background:#e8f0fe; color:#1a73e8; }
+  .badge-15k { background:#fce8e6; color:#d93025; }
+  .badge-vmm11 { background:#e6f4ea; color:#137333; }
+  .badge-vmm12 { background:#fff3e0; color:#b06000; }
+  .callout { background:#f8f9fa; border-left:4px solid #dadce0; padding:.7rem 1rem; margin:1rem 0; border-radius:0 4px 4px 0; font-size:10.5pt; }
+  .callout.note  { border-color:#1a73e8; background:#e8f0fe; }
+  .callout.warn  { border-color:#f9ab00; background:#fef9e0; }
+  .step-label { font-size:9pt; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:#5f6368; margin-bottom:.25rem; }
+  .doc-footer { margin-top:3rem; padding-top:.8rem; border-top:1px solid #e0e0e0; font-size:9pt; color:#80868b; text-align:center; }
+  @media(max-width:960px) { .page { margin:0; padding:2rem 1.5rem; box-shadow:none; border-radius:0; } }
+  @media print { body { background:white; } .page { margin:0; padding:1cm 2cm; box-shadow:none; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="doc-title">
+    <h1>VMM Trigger Rate Analysis<br>P2 Basket Detector — SPS Beam Test</h1>
+    <div class="doc-meta">
+      <span>CERN SPS Beam Test &nbsp;·&nbsp; November 2025</span>
+      <span>Author: Alexandra Kallitsopoulou</span>
+      <span>Generated: June 2026</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       OVERVIEW
+  ═══════════════════════════════════════════════════════ -->
+  <h2>Overview</h2>
+
+  <p>This report documents the five-step trigger rate analysis pipeline applied to VMM3a ASIC configuration scans
+  at two beam intensities: <span class="badge badge-5k">5 kHz</span> and
+  <span class="badge badge-15k">15 kHz</span>.
+  Each step is illustrated with plots from both datasets, using
+  <span class="badge badge-vmm11">VMM 11</span> (P2 Small Detector 1, connector 1, ch&nbsp;14–63) and
+  <span class="badge badge-vmm12">VMM 12</span> (P2 Large Detector, all 64 ch) as running examples.</p>
+
+  <p>The pipeline goal is to measure, for each VMM configuration (gain <code>sg</code>, peaking time <code>snt</code>),
+  the mean hit rate per good channel separately during beam-on (spill) and beam-off (inter-spill) periods.
+  The ratio of these two rates is the fundamental figure of merit for configuration selection.</p>
+
+  <h3>Detector Layout</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Detector</th><th>VMM IDs</th><th>Active channels</th><th>Pads</th></tr></thead>
+    <tbody>
+      <tr><td>P2 Large Detector</td><td>12, 13, 14, 15</td><td>0–63 per VMM (64 ch)</td><td>256 total</td></tr>
+      <tr><td>P2 Small Detector 1</td><td>10 (conn. 0), 11 (conn. 1)</td><td>ch 0–31 / ch 14–63</td><td>82 total</td></tr>
+      <tr><td>P2 Small Detector 3</td><td>8 (conn. 0), 9 (conn. 1)</td><td>ch 0–29 / ch 14–63</td><td>79 total</td></tr>
+      <tr><td>Trigger (scintillator)</td><td>0 (ref: ch 40), 1</td><td>selected channels</td><td>—</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Configuration Scan Datasets</h3>
+  <div class="fig-row">
+    <div>
+      <p><strong><span class="badge badge-5k">5 kHz</span> — 7 configurations (sng=0 runs)</strong></p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Run</th><th>sg (mV/fC)</th><th>snt (ns)</th></tr></thead>
+        <tbody>
+          <tr><td>73</td><td>3.0</td><td>50</td></tr>
+          <tr><td>70</td><td>3.0</td><td>100</td></tr>
+          <tr><td>67</td><td>3.0</td><td>200</td></tr>
+          <tr><td>97</td><td>4.5</td><td>50</td></tr>
+          <tr><td><strong>82</strong></td><td>4.5</td><td>100 &nbsp;<em>(test run)</em></td></tr>
+          <tr><td>78</td><td>4.5</td><td>200</td></tr>
+          <tr><td>99</td><td>6.0</td><td>200</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <div>
+      <p><strong><span class="badge badge-15k">15 kHz</span> — 5 configurations (sng=0 runs)</strong></p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Run</th><th>sg (mV/fC)</th><th>snt (ns)</th></tr></thead>
+        <tbody>
+          <tr><td>158</td><td>3.0</td><td>50 &nbsp;<em>(lower beam)</em></td></tr>
+          <tr><td>156</td><td>3.0</td><td>100</td></tr>
+          <tr><td><strong>149</strong></td><td>3.0</td><td>200 &nbsp;<em>(test run)</em></td></tr>
+          <tr><td>152</td><td>4.5</td><td>200</td></tr>
+          <tr><td>155</td><td>6.0</td><td>200</td></tr>
+        </tbody>
+      </table></div>
+      <div class="callout warn"><strong>Note — Run 158:</strong> beam intensity was ~10 kHz (lower fill) rather than the nominal 15 kHz. Rates from this run should be compared against others in the same dataset with caution.</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       STEP 1
+  ═══════════════════════════════════════════════════════ -->
+  <h2>Step 1 — Trigger Rate Time Series</h2>
+
+  <div class="step-label">Spill structure visualisation</div>
+  <p>The trigger VMM 0, channel 40 hit timestamps are binned into <code>1 ms</code> windows to produce a rate vs. time
+  plot that directly reveals the SPS spill structure. This is the first sanity check: a working DAQ shows a clear
+  two-level pattern — high rate during spills, near-zero between them. The bin width of 1 ms is chosen to collect
+  ~4 triggers per bin at 5 kHz beam intensity, giving enough statistics to distinguish beam-on from beam-off
+  while still resolving within-spill bunch microstructure.</p>
+
+  <div class="fig-row">
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_5kHz/trigger_rate_ms_run82_5kHz.png"
+           alt="Trigger rate 5kHz run 82">
+      <figcaption><strong>Fig. 1a.</strong> <span class="badge badge-5k">5 kHz</span> Run 82 (sg=4.5, snt=100).
+      Approximately 10 regular spills over ~600 s, each ~5 s long.
+      On-spill trigger rate ~4–5 kHz; off-spill rate ~0. The zoom panel reveals
+      within-spill dips from SPS bunch microstructure.</figcaption>
+    </figure>
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_15kHz/trigger_rate_ms_run149_15kHz.png"
+           alt="Trigger rate 15kHz run 149">
+      <figcaption><strong>Fig. 1b.</strong> <span class="badge badge-15k">15 kHz</span> Run 149 (sg=3.0, snt=200).
+      Only 2 spills visible in the ~120 s file; peak rate ~80 kHz. The spill
+      structure is sharp and unambiguous.</figcaption>
+    </figure>
+  </div>
+
+  <div class="callout note">The trigger reference channel (VMM 0, ch 40) is verified from the hits-per-channel
+  plot of the trigger VMM: ch 40 stands out clearly above all others, confirming it carries the coincidence
+  signal cleanly.</div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       STEP 2
+  ═══════════════════════════════════════════════════════ -->
+  <h2>Step 2 — Spill Mask Construction</h2>
+
+  <div class="step-label">Beam-on / beam-off classification</div>
+  <p>Each 1 ms bin is classified as spill-on or spill-off by applying a fixed threshold of <code>1 kHz</code>
+  on the trigger rate. Two refinements are applied:</p>
+  <ul>
+    <li><strong>Hole-filling</strong> (<code>max_gap_s = 2 s</code>): short below-threshold gaps within a spill
+    are reclassified as on-spill. This corrects for SPS bunch microstructure dips at low beam intensity
+    without bridging real inter-spill gaps (which are always ≥ 5 s in this dataset).</li>
+    <li><strong>Minimum spill duration</strong> (<code>min_spill_s = 1 s</code>): on-regions shorter than 1 s
+    after hole-filling are discarded — typically run-start artefacts or isolated cosmic hits.</li>
+  </ul>
+  <p>The 1 kHz threshold sits comfortably between the ~4–80 kHz on-spill rate and the ~0 kHz off-spill rate
+  and is robust across the full range of beam intensities in both datasets.</p>
+
+  <div class="fig-row">
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_5kHz/spill_mask_run82_5kHz.png"
+           alt="Spill mask 5kHz run 82">
+      <figcaption><strong>Fig. 2a.</strong> <span class="badge badge-5k">5 kHz</span> Run 82.
+      155,544 on-bins (26.8%) and 542,387 off-bins. Green shading marks spill-on regions;
+      white marks spill-off. The zoom confirms clean transition at spill boundaries with no
+      mis-classified bins.</figcaption>
+    </figure>
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_15kHz/spill_mask_run149_15kHz.png"
+           alt="Spill mask 15kHz run 149">
+      <figcaption><strong>Fig. 2b.</strong> <span class="badge badge-15k">15 kHz</span> Run 149.
+      6,682 on-bins (5.8%); 2 spills captured at ~80 kHz peak rate. The 10 s zoom
+      shows no spill in the first segment, consistent with the inter-spill gap visible
+      in Fig. 1b.</figcaption>
+    </figure>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       STEP 3a
+  ═══════════════════════════════════════════════════════ -->
+  <h2>Step 3a — Total Hit Count per Channel</h2>
+
+  <div class="step-label">Dead / noisy channel identification (total-hit criterion)</div>
+  <p>Hit counts are aggregated over all diagnostic runs for each VMM channel. Connected channels are
+  defined from the detector geometry in <code>vmm_mapping.py</code>. Two thresholds are applied
+  relative to the median count among connected channels:</p>
+  <ul>
+    <li><strong>Dead</strong>: count &lt; 10% × median — disconnected or broken pad.</li>
+    <li><strong>Noisy</strong>: count &gt; 5× median — extreme self-triggering (total-hit level only;
+    a finer noise test is applied in Step 3b).</li>
+  </ul>
+
+  <h4><span class="badge badge-vmm11">VMM 11</span> P2 Small Detector 1 — hits per channel</h4>
+  <div class="fig-row">
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_5kHz/hits_per_channel_p2_small_1_5kHz.png"
+           alt="Hits per channel VMM11 5kHz">
+      <figcaption><strong>Fig. 3a.</strong> <span class="badge badge-5k">5 kHz</span>
+      P2 Small Detector 1 (VMMs 10–11). VMM 11 (connector 1) is active on ch 14–63; ch 0–13
+      are unconnected and show near-zero or anomalously high counts at higher gain — correctly
+      excluded from analysis.</figcaption>
+    </figure>
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_15kHz/hits_per_channel_p2_small_1_15kHz.png"
+           alt="Hits per channel VMM11 15kHz">
+      <figcaption><strong>Fig. 3b.</strong> <span class="badge badge-15k">15 kHz</span>
+      Same detector. The active ch 14–63 on VMM 11 show substantially higher total counts
+      than at 5 kHz (consistent with ~6× higher beam rate). The geometry boundary at ch 14
+      is sharp and consistent across both beam conditions.</figcaption>
+    </figure>
+  </div>
+
+  <h4><span class="badge badge-vmm12">VMM 12</span> P2 Large Detector — hits per channel</h4>
+  <div class="fig-row">
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_5kHz/hits_per_channel_p2_large_1_5kHz.png"
+           alt="Hits per channel VMM12 5kHz">
+      <figcaption><strong>Fig. 3c.</strong> <span class="badge badge-5k">5 kHz</span>
+      P2 Large Detector (VMMs 12–15). All 64 channels are physically connected; the hit
+      distribution reflects the beam footprint. VMM 12 shows 1 dead channel at sg=3.0 and
+      no channels above the 5× noisy threshold.</figcaption>
+    </figure>
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_15kHz/hits_per_channel_p2_large_1_15kHz.png"
+           alt="Hits per channel VMM12 15kHz">
+      <figcaption><strong>Fig. 3d.</strong> <span class="badge badge-15k">15 kHz</span>
+      The large detector hit distribution at 15 kHz shows a wider spread across channels
+      and a larger fraction of channels with non-negligible counts, reflecting a broader
+      beam illumination at the higher intensity fill.</figcaption>
+    </figure>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       STEP 3b
+  ═══════════════════════════════════════════════════════ -->
+  <h2>Step 3b — Per-Channel Spill-On / Spill-Off Rate</h2>
+
+  <div class="step-label">Noise-based channel masking using off-spill rate</div>
+  <p>For each diagnostic run, per-channel hit rates are computed separately during on-spill and off-spill
+  periods using the mask from Step 2. The off-spill rate is the true noise discriminator:</p>
+  <ul>
+    <li>A channel with elevated <strong>off-spill rate</strong> is genuinely self-triggering on
+    electronics noise and must be masked.</li>
+    <li>A channel with elevated <strong>on-spill rate only</strong> is a beam-hit pad — real signal,
+    must not be masked.</li>
+  </ul>
+  <p>Noisy threshold: off-spill rate &gt; <code>3×</code> median off-spill rate among non-dead connected channels
+  of the same VMM. The threshold is shown as a dashed orange line on the spill-off panel.
+  Masking is applied <strong>per configuration</strong> (sg, snt): a channel noisy at high gain is not
+  excluded from low-gain configurations where it is clean.</p>
+
+  <h4><span class="badge badge-vmm11">VMM 11</span> — per-channel rates, representative configurations</h4>
+
+  <p>5 kHz — shown for run 82 (sg=4.5, snt=100) and run 78 (sg=4.5, snt=200):</p>
+  <div class="fig-row">
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_5kHz/rate_per_channel_p2_small_1_run82_5kHz.png"
+           alt="Rate per channel VMM11 5kHz run82">
+      <figcaption><strong>Fig. 4a.</strong> <span class="badge badge-5k">5 kHz</span> Run 82 (sg=4.5, snt=100).
+      VMM 11 active channels (ch 14–63): spill-off rates (left) are uniformly low (~0.1–0.3 Hz/ch),
+      well below the 3× median threshold. On-spill rates (right) are ~100–200 Hz/ch with
+      a clear non-uniform beam footprint pattern.</figcaption>
+    </figure>
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_5kHz/rate_per_channel_p2_small_1_run78_5kHz.png"
+           alt="Rate per channel VMM11 5kHz run78">
+      <figcaption><strong>Fig. 4b.</strong> <span class="badge badge-5k">5 kHz</span> Run 78 (sg=4.5, snt=200).
+      Higher peaking time increases both on-spill signal (~145 Hz/ch mean) and the noise floor.
+      A small number of channels begin to approach the 3× threshold on the off-spill panel,
+      demonstrating why per-config masking is needed.</figcaption>
+    </figure>
+  </div>
+
+  <p>15 kHz — shown for run 149 (sg=3.0, snt=200) and run 152 (sg=4.5, snt=200):</p>
+  <div class="fig-row">
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_15kHz/rate_per_channel_p2_small_1_run149_15kHz.png"
+           alt="Rate per channel VMM11 15kHz run149">
+      <figcaption><strong>Fig. 4c.</strong> <span class="badge badge-15k">15 kHz</span> Run 149 (sg=3.0, snt=200).
+      On-spill rates substantially higher than at 5 kHz for the same configuration (~142 vs 98 Hz/ch).
+      Off-spill floor remains very clean at this gain setting (≪ 0.1 Hz/ch).</figcaption>
+    </figure>
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_15kHz/rate_per_channel_p2_small_1_run152_15kHz.png"
+           alt="Rate per channel VMM11 15kHz run152">
+      <figcaption><strong>Fig. 4d.</strong> <span class="badge badge-15k">15 kHz</span> Run 152 (sg=4.5, snt=200).
+      On-spill rates reach ~160 Hz/ch mean. The off-spill floor rises slightly compared to sg=3.0
+      but all channels remain below the noisy threshold — VMM 11 is clean across all 15 kHz
+      configurations tested.</figcaption>
+    </figure>
+  </div>
+
+  <h4><span class="badge badge-vmm12">VMM 12</span> — per-channel rates, representative configurations</h4>
+
+  <p>5 kHz — run 82 (sg=4.5, snt=100) and run 78 (sg=4.5, snt=200):</p>
+  <div class="fig-row">
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_5kHz/rate_per_channel_p2_large_1_run82_5kHz.png"
+           alt="Rate per channel VMM12 5kHz run82">
+      <figcaption><strong>Fig. 5a.</strong> <span class="badge badge-5k">5 kHz</span> Run 82 (sg=4.5, snt=100).
+      VMM 12 (64 ch): on-spill rates are much lower in absolute terms than VMM 11
+      (~3.5 Hz/ch mean), reflecting the larger pad area of the large detector. Off-spill
+      floor is negligible; 57 good channels retained.</figcaption>
+    </figure>
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_5kHz/rate_per_channel_p2_large_1_run78_5kHz.png"
+           alt="Rate per channel VMM12 5kHz run78">
+      <figcaption><strong>Fig. 5b.</strong> <span class="badge badge-5k">5 kHz</span> Run 78 (sg=4.5, snt=200).
+      At snt=200 ns the on-spill rate rises to ~5.6 Hz/ch with a very clean noise floor
+      (0.09 Hz/ch). On/off ratio ~60 — the best configuration for VMM 12 at 5 kHz.</figcaption>
+    </figure>
+  </div>
+
+  <p>15 kHz — run 149 (sg=3.0, snt=200) and run 152 (sg=4.5, snt=200):</p>
+  <div class="fig-row">
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_15kHz/rate_per_channel_p2_large_1_run149_15kHz.png"
+           alt="Rate per channel VMM12 15kHz run149">
+      <figcaption><strong>Fig. 5c.</strong> <span class="badge badge-15k">15 kHz</span> Run 149 (sg=3.0, snt=200).
+      On-spill rates jump to ~56 Hz/ch — a factor ~20× higher than 5 kHz at the same
+      configuration, consistent with the ~7× higher beam rate plus longer integration at
+      snt=200 ns. Off-spill floor stays at 0.1 Hz/ch.</figcaption>
+    </figure>
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_15kHz/rate_per_channel_p2_large_1_run152_15kHz.png"
+           alt="Rate per channel VMM12 15kHz run152">
+      <figcaption><strong>Fig. 5d.</strong> <span class="badge badge-15k">15 kHz</span> Run 152 (sg=4.5, snt=200).
+      Best large-detector configuration at 15 kHz: 83 Hz/ch on-spill, 0.73 Hz/ch off-spill
+      (on/off ≈ 115). The off-spill floor is noticeably higher than at sg=3.0, indicating
+      increased electronics noise at higher gain under 15 kHz beam conditions.</figcaption>
+    </figure>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       STEP 4 / 5
+  ═══════════════════════════════════════════════════════ -->
+  <h2>Steps 4–5 — Rate vs. Configuration and Summary</h2>
+
+  <div class="step-label">Config scan rates and all-VMM comparison</div>
+  <p>For each configuration (sg, snt), all hits from good channels are accumulated into 1 ms bins
+  and the spill mask is applied. Two per-VMM rates are computed:</p>
+  <ul>
+    <li><code>rate_on_khz</code>: mean on-spill hit rate ÷ n_good_channels — signal + noise, dominated by beam.</li>
+    <li><code>rate_off_khz</code>: mean off-spill hit rate ÷ n_good_channels — pure electronics noise floor.</li>
+  </ul>
+  <p>Normalisation by n_good_channels makes VMMs with different numbers of connected pads directly
+  comparable. The ±1σ band across good channels quantifies beam illumination non-uniformity.</p>
+
+  <h4><span class="badge badge-vmm11">VMM 11</span> — rate vs. configuration</h4>
+  <div class="fig-row">
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_5kHz/spill_rates_config_P2_Small_Detector_1_5kHz.png"
+           alt="Spill rates config small det 1 5kHz">
+      <figcaption><strong>Fig. 6a.</strong> <span class="badge badge-5k">5 kHz</span>
+      P2 Small Detector 1 (VMMs 10–11). On-spill rate (filled markers, solid) increases
+      monotonically with sg and snt; off-spill rate (open markers, dashed) stays flat and low.
+      VMM 11 peaks at sg=6.0, snt=200: <strong>0.171 kHz/ch</strong> on-spill,
+      <strong>0.44 Hz/ch</strong> off-spill. On/off ≈ 390.</figcaption>
+    </figure>
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_15kHz/spill_rates_config_P2_Small_Detector_1_15kHz.png"
+           alt="Spill rates config small det 1 15kHz">
+      <figcaption><strong>Fig. 6b.</strong> <span class="badge badge-15k">15 kHz</span>
+      Same detector. Fewer configurations scanned. VMM 11 reaches
+      <strong>0.188 kHz/ch</strong> at sg=6.0, snt=200.
+      The noise floor at sg=4.5 and 6.0 is slightly elevated compared to 5 kHz but
+      on/off ratios remain &gt; 800 for all configurations.</figcaption>
+    </figure>
+  </div>
+
+  <h4><span class="badge badge-vmm12">VMM 12</span> — rate vs. configuration</h4>
+  <div class="fig-row">
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_5kHz/spill_rates_config_P2_Large_Detector_5kHz.png"
+           alt="Spill rates config large det 5kHz">
+      <figcaption><strong>Fig. 7a.</strong> <span class="badge badge-5k">5 kHz</span>
+      P2 Large Detector (VMMs 12–15). VMM 12 on-spill rates are ~30–60× lower than VMM 11,
+      consistent with the larger pad area. Best config: sg=4.5, snt=200 at
+      <strong>5.6 Hz/ch</strong>. Off-spill floor is negligible across all configurations.</figcaption>
+    </figure>
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_15kHz/spill_rates_config_P2_Large_Detector_15kHz.png"
+           alt="Spill rates config large det 15kHz">
+      <figcaption><strong>Fig. 7b.</strong> <span class="badge badge-15k">15 kHz</span>
+      At 15 kHz the large detector rates scale up strongly: VMM 12 reaches
+      <strong>93.3 Hz/ch</strong> at sg=6.0, snt=200. The off-spill floor rises to
+      0.72 Hz/ch at high gain (vs &lt; 0.1 Hz/ch at 5 kHz) — a factor ~10 increase in
+      noise floor at higher beam intensity.</figcaption>
+    </figure>
+  </div>
+
+  <h3>All-VMM Rate Comparison</h3>
+
+  <div class="fig-row">
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_5kHz/spill_on_vmms_P2_Large_Detector_rate_on_khz_5kHz.png"
+           alt="All VMMs rate on 5kHz large">
+      <figcaption><strong>Fig. 8a.</strong> <span class="badge badge-5k">5 kHz</span>
+      Large Detector — on-spill rate per VMM across all configurations.
+      VMM 14 and 15 consistently show 3–4× higher rates than VMM 12 and 13,
+      indicating stronger beam illumination on one side of the large detector.</figcaption>
+    </figure>
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_15kHz/spill_on_vmms_P2_Large_Detector_rate_on_khz_15kHz.png"
+           alt="All VMMs rate on 15kHz large">
+      <figcaption><strong>Fig. 8b.</strong> <span class="badge badge-15k">15 kHz</span>
+      Same plot. The relative ordering of VMMs is preserved; absolute rates are ~6–30×
+      higher. The ±1σ band is very wide at 15 kHz, highlighting strong non-uniformity in
+      the beam footprint at higher intensity.</figcaption>
+    </figure>
+  </div>
+
+  <div class="fig-row">
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_5kHz/spill_on_vmms_P2_Small_Detector_1_rate_on_khz_5kHz.png"
+           alt="All VMMs rate on 5kHz small 1">
+      <figcaption><strong>Fig. 9a.</strong> <span class="badge badge-5k">5 kHz</span>
+      Small Detector 1 — on-spill rate. VMMs 10 and 11 are very similar in rate across
+      all configurations, consistent with both connectors sharing the same beam footprint
+      on the small detector.</figcaption>
+    </figure>
+    <figure>
+      <img src="file:///drf/projets/clas12/P2/akallits/plots_trigger_15kHz/spill_on_vmms_P2_Small_Detector_1_rate_on_khz_15kHz.png"
+           alt="All VMMs rate on 15kHz small 1">
+      <figcaption><strong>Fig. 9b.</strong> <span class="badge badge-15k">15 kHz</span>
+      Same detector at 15 kHz. The 5 kHz vs 15 kHz rate ratio for VMMs 10–11 is
+      ~1.1–1.4× (much smaller than the ~7× beam rate ratio), suggesting the small
+      detector was already close to saturation at 5 kHz beam conditions.</figcaption>
+    </figure>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       NUMERICAL SUMMARY
+  ═══════════════════════════════════════════════════════ -->
+  <h2>Numerical Summary</h2>
+
+  <h4><span class="badge badge-vmm11">VMM 11</span> — rate_on and rate_off across all configurations</h4>
+  <div class="table-wrap"><table>
+    <thead>
+      <tr>
+        <th>Dataset</th><th>Run</th><th>sg (mV/fC)</th><th>snt (ns)</th>
+        <th>rate_on (Hz/ch)</th><th>rate_off (Hz/ch)</th>
+        <th>on/off ratio</th><th>n_good_ch</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><span class="badge badge-5k">5k</span></td><td>73</td><td>3.0</td><td>50</td>   <td>67.2</td> <td>0.31</td><td>217</td><td>50</td></tr>
+      <tr><td><span class="badge badge-5k">5k</span></td><td>70</td><td>3.0</td><td>100</td>  <td>62.5</td> <td>0.15</td><td>417</td><td>50</td></tr>
+      <tr><td><span class="badge badge-5k">5k</span></td><td>67</td><td>3.0</td><td>200</td>  <td>98.1</td> <td>1.90</td><td>52</td> <td>50</td></tr>
+      <tr><td><span class="badge badge-5k">5k</span></td><td>97</td><td>4.5</td><td>50</td>   <td>104.5</td><td>0.33</td><td>317</td><td>50</td></tr>
+      <tr style="background:#f0f9f0"><td><span class="badge badge-5k">5k</span></td><td>82</td><td>4.5</td><td>100</td>  <td>134.5</td><td>0.21</td><td>640</td><td>50</td></tr>
+      <tr><td><span class="badge badge-5k">5k</span></td><td>78</td><td>4.5</td><td>200</td>  <td>144.7</td><td>0.25</td><td>579</td><td>50</td></tr>
+      <tr><td><span class="badge badge-5k">5k</span></td><td>99</td><td>6.0</td><td>200</td>  <td>170.8</td><td>0.44</td><td>388</td><td>50</td></tr>
+      <tr style="border-top:2px solid #dadce0"><td><span class="badge badge-15k">15k</span></td><td>158</td><td>3.0</td><td>50</td>  <td>43.3</td> <td>0.055</td><td>787</td><td>50</td></tr>
+      <tr><td><span class="badge badge-15k">15k</span></td><td>156</td><td>3.0</td><td>100</td> <td>135.4</td><td>0.28</td><td>483</td><td>48</td></tr>
+      <tr><td><span class="badge badge-15k">15k</span></td><td>149</td><td>3.0</td><td>200</td> <td>142.0</td><td>0.063</td><td>2254</td><td>50</td></tr>
+      <tr><td><span class="badge badge-15k">15k</span></td><td>152</td><td>4.5</td><td>200</td> <td>163.6</td><td>0.21</td><td>779</td><td>50</td></tr>
+      <tr><td><span class="badge badge-15k">15k</span></td><td>155</td><td>6.0</td><td>200</td> <td>187.6</td><td>0.21</td><td>893</td><td>50</td></tr>
+    </tbody>
+  </table></div>
+
+  <h4><span class="badge badge-vmm12">VMM 12</span> — rate_on and rate_off across all configurations</h4>
+  <div class="table-wrap"><table>
+    <thead>
+      <tr>
+        <th>Dataset</th><th>Run</th><th>sg (mV/fC)</th><th>snt (ns)</th>
+        <th>rate_on (Hz/ch)</th><th>rate_off (Hz/ch)</th>
+        <th>on/off ratio</th><th>n_good_ch</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><span class="badge badge-5k">5k</span></td><td>73</td><td>3.0</td><td>50</td>   <td>1.58</td> <td>0.34</td><td>5</td>  <td>47</td></tr>
+      <tr><td><span class="badge badge-5k">5k</span></td><td>70</td><td>3.0</td><td>100</td>  <td>1.77</td> <td>0.19</td><td>9</td>  <td>62</td></tr>
+      <tr><td><span class="badge badge-5k">5k</span></td><td>67</td><td>3.0</td><td>200</td>  <td>2.86</td> <td>0.24</td><td>12</td> <td>53</td></tr>
+      <tr><td><span class="badge badge-5k">5k</span></td><td>97</td><td>4.5</td><td>50</td>   <td>1.21</td> <td>0.26</td><td>5</td>  <td>60</td></tr>
+      <tr style="background:#fff8f0"><td><span class="badge badge-5k">5k</span></td><td>82</td><td>4.5</td><td>100</td>  <td>3.48</td> <td>0.36</td><td>10</td> <td>57</td></tr>
+      <tr><td><span class="badge badge-5k">5k</span></td><td>78</td><td>4.5</td><td>200</td>  <td>5.60</td> <td>0.091</td><td>62</td><td>45</td></tr>
+      <tr><td><span class="badge badge-5k">5k</span></td><td>99</td><td>6.0</td><td>200</td>  <td>4.65</td> <td>0.31</td><td>15</td> <td>56</td></tr>
+      <tr style="border-top:2px solid #dadce0"><td><span class="badge badge-15k">15k</span></td><td>158</td><td>3.0</td><td>50</td>  <td>4.40</td> <td>0.052</td><td>85</td> <td>60</td></tr>
+      <tr><td><span class="badge badge-15k">15k</span></td><td>156</td><td>3.0</td><td>100</td> <td>20.5</td> <td>0.37</td><td>55</td> <td>63</td></tr>
+      <tr><td><span class="badge badge-15k">15k</span></td><td>149</td><td>3.0</td><td>200</td> <td>56.0</td> <td>0.099</td><td>566</td><td>54</td></tr>
+      <tr><td><span class="badge badge-15k">15k</span></td><td>152</td><td>4.5</td><td>200</td> <td>83.3</td> <td>0.73</td><td>114</td><td>63</td></tr>
+      <tr><td><span class="badge badge-15k">15k</span></td><td>155</td><td>6.0</td><td>200</td> <td>93.3</td> <td>0.72</td><td>130</td><td>59</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       CONCLUSIONS
+  ═══════════════════════════════════════════════════════ -->
+  <h2>Key Observations</h2>
+
+  <h3>5 kHz vs 15 kHz comparison</h3>
+  <ul>
+    <li><strong>Beam scaling:</strong> The nominal beam rate ratio is ~3×, yet the VMM on-spill rates scale by
+    factors of 1.1–20× depending on the VMM and configuration. The small detector (VMM 11) is
+    close to saturation at 5 kHz; the large detector (VMM 12) scales nearly linearly.</li>
+    <li><strong>Noise floor:</strong> The off-spill rate at 15 kHz is 5–10× higher than at 5 kHz for the large
+    detector at high gain (sg ≥ 4.5), consistent with cross-talk or charge-sharing at higher hit rates.
+    The small detector noise floor is largely unaffected.</li>
+    <li><strong>Best on/off ratio:</strong> VMM 11 achieves on/off &gt; 800 at 15 kHz (sg=3.0, snt=200),
+    versus ~600 at 5 kHz. VMM 12 reaches on/off ~565 at 15 kHz (sg=3.0, snt=200) vs ~62 at 5 kHz —
+    a dramatic improvement driven by the much higher on-spill signal at 15 kHz.</li>
+  </ul>
+
+  <h3><span class="badge badge-vmm11">VMM 11</span> vs <span class="badge badge-vmm12">VMM 12</span></h3>
+  <ul>
+    <li>VMM 11 (small detector, 50 ch active) consistently shows on-spill rates
+    30–60× higher than VMM 12 (large detector, 45–63 ch active) per channel, reflecting the difference
+    in pad area: the small detector pads intercept a much larger fraction of the beam footprint.</li>
+    <li>VMM 12 good-channel count varies more across configurations (47–63) due to a small number of
+    channels near the dead/noisy boundary at certain gain settings; VMM 11 maintains 50 good channels
+    consistently.</li>
+    <li>For configuration optimisation the two VMMs point to the same conclusion: longer peaking time
+    (snt=200 ns) at sg=4.5 or 6.0 maximises the signal rate, with the caveat that the noise floor
+    must be monitored at sg=6.0 in the 15 kHz regime.</li>
+  </ul>
+
+  <div class="doc-footer">
+    VMM Trigger Rate Analysis · P2 Basket Detector · CERN SPS Beam Test Nov 2025 · A. Kallitsopoulou
+  </div>
+
+</div>
+</body>
+</html>
