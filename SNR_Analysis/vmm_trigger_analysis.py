@@ -11,6 +11,7 @@ across different configurations (sg, snt).
 @author: ak271430
 """
 
+import gc
 import os
 import numpy as np
 import pandas as pd
@@ -79,6 +80,7 @@ DATASETS = {
         "plot_subdir"     : "plots_trigger_15kHz/",
         "test_run"        : 149,
         "root_file_index" : 2,
+        "n_files"         : 10,  # ~14-28 MB/file
         "diagnostic_runs" : [
             (149, 3.0, 200),
             (156, 3.0, 100),
@@ -94,6 +96,7 @@ DATASETS = {
         "plot_subdir"     : "plots_trigger_5kHz/",
         "test_run"        : 82,
         "root_file_index" : 2,
+        "n_files"         : 3,   # ~105 MB/file — keep memory low
         "diagnostic_runs" : [
             (67, 3.0, 200),
             (70, 3.0, 100),
@@ -112,11 +115,10 @@ def main():
     # USER CONFIGURATION — normally only these three lines change:
     # ════════════════════════════════════════════════════════════
 
-    dataset = "15kHz"    # "15kHz" | "5kHz"
+    dataset = "5kHz"     # "15kHz" | "5kHz"
     mode    = "analysis" # "analysis": save, no window
                          # "debug"   : show window, nothing saved
                          # "both"    : save and show window
-    n_files = 10         # files per run; fewer available → use all
 
     # ════════════════════════════════════════════════════════════
     # END USER CONFIGURATION
@@ -134,6 +136,7 @@ def main():
     plot_dir        = f"{cnfg_dir}{_ds['plot_subdir']}"
     test_run        = _ds["test_run"]
     root_file_index = _ds["root_file_index"]
+    n_files         = _ds["n_files"]
     diagnostic_runs = _ds["diagnostic_runs"]
     rate_tag        = config_file.replace("vmm_config_scan_", "").replace(".csv", "")
 
@@ -634,7 +637,7 @@ def compute_per_channel_spill_rates(data_dir, run_no, all_vmm_ids,
         m_trig = (df["vmm"] == trig_vmm) & (df["ch"] == trig_ch)
         c, _   = np.histogram(t_s[m_trig.values], bins=bins)
         trig_counts += c
-        del df
+        del df; gc.collect()
 
     trig_rate_khz  = trig_counts / bin_width_s / 1e3
     min_spill_bins = max(1, int(min_spill_s / bin_width_s))
@@ -689,7 +692,7 @@ def compute_per_channel_spill_rates(data_dir, run_no, all_vmm_ids,
             np.add.at(ch_on[vmm_id],  ch_v[on_v  & (ch_v < 64)], 1)
             np.add.at(ch_off[vmm_id], ch_v[off_v & (ch_v < 64)], 1)
 
-        del df
+        del df; gc.collect()
 
     # ── Convert counts to rates ────────────────────────────
     result = {}
@@ -870,7 +873,7 @@ def collect_channel_hit_counts(data_dir, run_nos, all_vmm_ids,
                 ch_idx = df_v["ch"].values
                 valid  = (ch_idx >= 0) & (ch_idx < 64)
                 np.add.at(counts[vmm_id], ch_idx[valid], 1)
-            del df
+            del df; gc.collect()
     return counts
 
 
@@ -2177,7 +2180,7 @@ def _get_run_time_range(run_dir, n_files, max_time_ticks=2e12,
         if len(t):
             t_min = min(t_min, t.min())
             t_max = max(t_max, t.max())
-        del df
+        del df; gc.collect()
     if np.isinf(t_min):
         return None, None
     return t_min * S_PER_TICK, t_max * S_PER_TICK
@@ -2213,7 +2216,7 @@ def _accumulate_run_histograms(run_dir, trig_vmm, trig_ch,
             continue
         df = df[df["time"] < max_time_ticks].copy()
         if df.empty:
-            del df
+            del df; gc.collect()
             continue
 
         t_s = df["time"].values * S_PER_TICK
@@ -2235,7 +2238,7 @@ def _accumulate_run_histograms(run_dir, trig_vmm, trig_ch,
             c, _ = np.histogram(t_s[m.values], bins=bins)
             det_counts[vmm_id] += c
 
-        del df
+        del df; gc.collect()
 
     return trig_counts, det_counts
 
@@ -2271,7 +2274,7 @@ def _accumulate_per_channel_on_off(run_dir, detector_vmms, good_channels,
             continue
         df = df[df["time"] < max_time_ticks]
         if df.empty:
-            del df
+            del df; gc.collect()
             continue
 
         t_s     = df["time"].values * S_PER_TICK
@@ -2296,7 +2299,7 @@ def _accumulate_per_channel_on_off(run_dir, detector_vmms, good_channels,
                 m_ch = ch_vals == ch
                 ch_on[vmm_id][i]  += (is_on_v  & m_ch).sum()
                 ch_off[vmm_id][i] += (is_off_v & m_ch).sum()
-        del df
+        del df; gc.collect()
 
     return {vmm_id: {"channels": chs_per_vmm[vmm_id],
                      "on":  ch_on[vmm_id],
