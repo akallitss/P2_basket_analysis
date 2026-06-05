@@ -22,8 +22,10 @@ import sys
 import os
 import array
 
-# Per-user matplotlib cache to avoid permission conflicts on shared machines
-os.environ.setdefault('MPLCONFIGDIR', os.path.join('/tmp', f'matplotlib-{os.getlogin()}'))
+# Redirect per-user cache dirs before any import touches /tmp/.cache on shared machines
+_user = os.getlogin()
+os.environ.setdefault('XDG_CACHE_HOME', f'/tmp/.cache-{_user}')
+os.environ.setdefault('MPLCONFIGDIR', f'/tmp/matplotlib-{_user}')
 
 import numpy as np
 import pandas as pd
