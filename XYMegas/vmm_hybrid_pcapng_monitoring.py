@@ -21,6 +21,10 @@ hits DataFrame columns:
 import sys
 import os
 import array
+
+# Per-user matplotlib cache to avoid permission conflicts on shared machines
+os.environ.setdefault('MPLCONFIGDIR', os.path.join('/tmp', f'matplotlib-{os.getlogin()}'))
+
 import numpy as np
 import pandas as pd
 import matplotlib
