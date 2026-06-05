@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.12
 """
 VMM hybrid diagnostic script for irradiation measurements.
 Reads a pcapng file and produces per-VMM ADC and channel occupancy plots.
@@ -33,6 +33,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from scapy.all import PcapReader, UDP, IP
+import ROOT
+ROOT.gROOT.SetBatch(True)
 
 #########################################
 # AUTO-DETECT FEC SOURCE IPs
@@ -262,3 +264,60 @@ for v, fig_t in time_figs.items():
 print(f"\nSaved {len(saved)} files in: {out_dir}")
 for name in saved:
     print(f"  {name}")
+
+#########################################
+# ROOT OUTPUT
+#########################################
+def _fill1d(h, arr):
+    a = np.ascontiguousarray(arr, dtype=np.float64)
+    h.FillN(len(a), a, np.ones(len(a), dtype=np.float64))
+
+root_path = os.path.join(out_dir, f"{base}.root")
+rf = ROOT.TFile(root_path, "RECREATE")
+
+# Summary: total hits per VMM (one bin per VMM, labelled)
+h_hits = ROOT.TH1F("hits_per_vmm", "Total hits per VMM;VMM ID;Hits",
+                   n_vmm, -0.5, n_vmm - 0.5)
+for i, v in enumerate(vmm_ids):
+    h_hits.SetBinContent(i + 1, int((hits.vmm == v).sum()))
+    h_hits.GetXaxis().SetBinLabel(i + 1, str(v))
+h_hits.Write()
+
+for v in vmm_ids:
+    vdir = rf.mkdir(f"vmm{v:02d}")
+    vdir.cd()
+    vdata  = hits.loc[hits.vmm == v]
+    adc_all    = vdata['adc'].values
+    adc_ot     = vdata.loc[ vdata.over_threshold, 'adc'].values
+    adc_not_ot = vdata.loc[~vdata.over_threshold, 'adc'].values
+
+    h_adc = ROOT.TH1F("adc", f"ADC — VMM {v};ADC;Counts", 100, 0, 1024)
+    _fill1d(h_adc, adc_all)
+    h_adc.Write()
+
+    h_adc_ot = ROOT.TH1F("adc_ot", f"ADC (OT) — VMM {v};ADC;Counts", 100, 0, 1024)
+    _fill1d(h_adc_ot, adc_ot)
+    h_adc_ot.Write()
+
+    h_adc_not_ot = ROOT.TH1F("adc_not_ot", f"ADC (not OT) — VMM {v};ADC;Counts", 100, 0, 1024)
+    _fill1d(h_adc_not_ot, adc_not_ot)
+    h_adc_not_ot.Write()
+
+    h_ot = ROOT.TH1F("ot_flag", f"OT flag — VMM {v};;Counts", 2, 0, 2)
+    h_ot.SetBinContent(1, int((~vdata.over_threshold).sum()))
+    h_ot.SetBinContent(2, int(vdata.over_threshold.sum()))
+    h_ot.GetXaxis().SetBinLabel(1, "Not OT")
+    h_ot.GetXaxis().SetBinLabel(2, "OT")
+    h_ot.Write()
+
+    h_ch = ROOT.TH1F("ch_occ", f"Channel occupancy — VMM {v};Channel;Counts", 64, 0, 64)
+    _fill1d(h_ch, vdata['ch'].values.astype(np.float64))
+    h_ch.Write()
+
+    h_time = ROOT.TH1F("time", f"Hit rate over time — VMM {v};Frame counter;Hits per bin",
+                       200, t_min, t_max)
+    _fill1d(h_time, vdata['time'].values.astype(np.float64))
+    h_time.Write()
+
+rf.Close()
+print(f"ROOT file: {root_path}")
