@@ -2,7 +2,7 @@ name: Sync to GitLab
 
 on:
   push:
-    branches: [ "main", "master" ] # Adjust if your default branch is named something else
+    branches: [ "main" ]
 
 jobs:
   sync:
@@ -11,10 +11,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetches all history so branches sync cleanly
+          fetch-depth: 0
 
       - name: Push to GitLab Mirror
         run: |
-          # Replace <your-gitlab-username> and the URL path with your actual CEA GitLab details
-          git push --prune https://akallits:${{ secrets.GITLAB_TOKEN }}@drf-gitlab.cea.fr/p2/vmm-analysis-extended.git +refs/heads/*:refs/heads/* +refs/tags/*:refs/tags/*
-  
+          git push --prune https://<your-gitlab-username>:${{ secrets.GITLAB_TOKEN }}@drf-gitlab.cea.fr/p2/vmm-analysis-extended.git +refs/heads/*:refs/heads/* +refs/tags/*:refs/tags/*
