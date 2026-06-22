@@ -772,9 +772,14 @@ def plot_efficiency_map(df_ch_eff, det_map, run_no,
         on=["vmm_id", "ch"],
         how="left",
     )
+    # Clip small negatives from sideband subtraction to zero
+    df["true_efficiency"] = df["true_efficiency"].clip(lower=0)
+
+    valid = df["true_efficiency"].dropna()
+    vmax  = valid.max() if not valid.empty else 1.0
 
     cmap = plt.cm.RdYlGn
-    norm = plt.Normalize(vmin=0, vmax=1)
+    norm = plt.Normalize(vmin=0, vmax=vmax)
 
     fig, ax = plt.subplots(figsize=(10, 8))
 
@@ -790,13 +795,16 @@ def plot_efficiency_map(df_ch_eff, det_map, run_no,
         )
         ax.add_patch(rect)
 
-        label = f"{eff:.2f}" if pd.notna(eff) else "—"
+        label = f"{eff*100:.2f}%" if pd.notna(eff) else "—"
         ax.text(row["x_mm"], row["y_mm"], label,
                 ha="center", va="center", fontsize=6, color="black")
 
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
-    fig.colorbar(sm, ax=ax, label="True coincidence efficiency", shrink=0.8)
+    cb = fig.colorbar(sm, ax=ax, shrink=0.8)
+    cb.set_label("Hit rate per trigger (relative, normalised to data max)")
+    cb.formatter = plt.FuncFormatter(lambda x, _: f"{x*100:.2f}%")
+    cb.update_ticks()
 
     margin = det_map["size_mm"].max()
     ax.set_xlim(det_map["x_mm"].min() - margin,
@@ -807,8 +815,9 @@ def plot_efficiency_map(df_ch_eff, det_map, run_no,
     ax.set_xlabel("X (mm)")
     ax.set_ylabel("Y (mm)")
     ax.set_title(
-        f"{detector_label} — pad efficiency map  |  Run {run_no}",
-        fontsize=13, fontweight="bold",
+        f"{detector_label} — pad hit-rate map  |  Run {run_no}\n"
+        f"(hit rate per trigger per pad; max = {vmax*100:.2f}%)",
+        fontsize=12, fontweight="bold",
     )
     plt.tight_layout()
     _save_fig(fig, out_dir,
