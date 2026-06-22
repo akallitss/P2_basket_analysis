@@ -7,13 +7,16 @@ Detector performance analysis using trigger–detector time coincidences.
 
 Answers:
   - What is the timing offset between trigger and detector signals?
-  - What is the true detector efficiency per VMM per configuration,
-    corrected for accidental coincidences?
+  - What is the true detector efficiency per VMM, corrected for
+    accidental coincidences, using only on-spill trigger timestamps.
 
-Requires:
-  - sng=0 runs (signal + trigger hits present)
-  - trigger reference channel defined in vmm_mapping
-  - load_sorted_hits from vmm_trigger_analysis
+Workflow
+--------
+1. load_sorted_hits()               — load one ROOT file
+2. filter_on_spill_triggers()       — gate trigger timestamps to beam-on
+3. compute_trigger_detector_dt()    — Δt histogram for window diagnostics
+4. plot_trigger_detector_dt()       — visualise Δt (linear + log)
+5. compute_time_correlated_efficiency() — efficiency with sideband subtraction
 
 @author: ak271430
 """
@@ -23,24 +26,101 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from vmm_mapping import vmm_mapping
-from vmm_io import load_run_table, get_run_groups
-from vmm_trigger_analysis import (load_sorted_hits,
-                                   NS_PER_TICK,
-                                   detector_vmms,
-                                   vmm_groups,
-                                   trigger_ref_channels)
+from vmm_io import (load_sorted_hits, compute_spill_masks,
+                    NS_PER_TICK, S_PER_TICK)
+
+# ── Derived from vmm_mapping ─────────────────────────────────
+detector_vmms = [
+    vid
+    for key, cfg in vmm_mapping.items()
+    if key != "trigger"
+    for vid in cfg["vmm_ids"]
+]
+vmm_groups = [
+    {"label": cfg.get("name", key), "vmm_ids": cfg["vmm_ids"]}
+    for key, cfg in vmm_mapping.items()
+    if key != "trigger"
+]
+trigger_ref_channels = {
+    vmm_id: vmm_mapping["trigger"]["channels"][vmm_id][0]
+    for vmm_id in vmm_mapping["trigger"]["vmm_ids"]
+}
+
+
+# ─────────────────────────────────────────────────────────────
+# SPILL FILTER
+# ─────────────────────────────────────────────────────────────
+
+def filter_on_spill_triggers(df_hits, trigger_vmm, trigger_ch,
+                              spill_threshold_khz=1.0,
+                              bin_width_ms=1.0,
+                              min_spill_s=1.0,
+                              max_gap_s=2.0):
+    """
+    Return sorted, deduplicated on-spill trigger timestamps.
+
+    Bins the trigger hit rate into 1 ms bins, classifies bins as
+    on/off spill via compute_spill_masks, then keeps only trigger
+    timestamps that fall in on-spill bins.
+
+    Parameters
+    ----------
+    spill_threshold_khz : float
+        Rate threshold separating beam-on from beam-off bins.
+    bin_width_ms : float
+        Bin width in ms for rate computation (default 1 ms).
+    min_spill_s : float
+        Minimum on-region duration to retain (removes startup artifacts).
+    max_gap_s : float
+        Maximum off-gap to bridge within a spill (handles SPS bunch
+        microstructure dips at low beam intensity). Default 2 s.
+
+    Returns
+    -------
+    np.ndarray
+        Sorted, deduplicated trigger timestamps (ticks) in on-spill bins.
+    """
+    t_trig_all = df_hits[
+        (df_hits["vmm"] == trigger_vmm) &
+        (df_hits["ch"]  == trigger_ch)
+    ]["time"].values
+
+    if len(t_trig_all) < 2:
+        print(f"  Too few trigger hits on VMM {trigger_vmm} ch {trigger_ch}")
+        return np.array([])
+
+    bin_width_s   = bin_width_ms * 1e-3
+    t_s           = t_trig_all * S_PER_TICK
+    t_start       = t_s.min()
+    edges         = np.arange(t_start, t_s.max() + bin_width_s, bin_width_s)
+    counts, edges = np.histogram(t_s, bins=edges)
+    rate_khz      = counts / bin_width_s / 1e3
+
+    min_spill_bins = max(1, int(min_spill_s / bin_width_s))
+    max_gap_bins   = max(0, int(max_gap_s   / bin_width_s))
+    on_mask, _     = compute_spill_masks(rate_khz, spill_threshold_khz,
+                                          min_spill_bins=min_spill_bins,
+                                          max_gap_bins=max_gap_bins)
+
+    bin_idx   = np.clip(np.digitize(t_s, edges) - 1, 0, len(on_mask) - 1)
+    t_trig_on = t_trig_all[on_mask[bin_idx]]
+
+    n_total = len(t_trig_all)
+    n_on    = len(t_trig_on)
+    print(f"  Spill filter: {n_on:,}/{n_total:,} trigger hits on-spill "
+          f"({100 * n_on / n_total:.1f}%)")
+
+    return np.sort(np.unique(t_trig_on))
 
 
 # ─────────────────────────────────────────────────────────────
 # TIMING DIAGNOSTIC
 # ─────────────────────────────────────────────────────────────
 
-def compute_trigger_detector_dt(df_hits,
-                                  trigger_vmm=0,
-                                  trigger_ch=48,
+def compute_trigger_detector_dt(df_hits, t_trig,
                                   search_window_ns=1000):
     """
-    For each trigger hit, find all detector hits within
+    For each trigger timestamp, find all detector hits within
     ±search_window_ns and record Δt = t_det - t_trig (in ns).
 
     Uses np.searchsorted on a sorted detector time array —
@@ -48,30 +128,20 @@ def compute_trigger_detector_dt(df_hits,
 
     Parameters
     ----------
+    t_trig : np.ndarray
+        Trigger timestamps in ticks (sorted, deduplicated).
+        Obtain from filter_on_spill_triggers().
     search_window_ns : float
-        Half-width of the search window in ns (= ticks at 1 GHz).
+        Half-width of the search window in ns.
         Default 1000 ns = ±1 μs, wide enough to see any offset.
 
     Returns
     -------
     dict : vmm_id (int) → np.ndarray of Δt values in ns
     """
-    t_trig = df_hits[
-        (df_hits["vmm"] == trigger_vmm) &
-        (df_hits["ch"]  == trigger_ch)
-    ]["time"].values
-
     if len(t_trig) == 0:
-        print(f"  No hits on trigger VMM {trigger_vmm} ch {trigger_ch}")
+        print("  No trigger timestamps provided")
         return {}
-
-    # Deduplicate trigger timestamps — identical timestamps from
-    # the same physical pulse would inflate the denominator.
-    n_before = len(t_trig)
-    t_trig   = np.unique(t_trig)
-    n_dedup  = n_before - len(t_trig)
-    if n_dedup > 0:
-        print(f"  Removed {n_dedup} duplicate trigger timestamps")
 
     window = search_window_ns  # 1 tick = 1 ns
 
@@ -172,9 +242,7 @@ def plot_trigger_detector_dt(dt_dict, run_no, vmm_groups,
 # COINCIDENCE EFFICIENCY
 # ─────────────────────────────────────────────────────────────
 
-def compute_time_correlated_efficiency(df_hits,
-                                        trigger_vmm=0,
-                                        trigger_ch=48,
+def compute_time_correlated_efficiency(df_hits, t_trig,
                                         dt_min_ns=0,
                                         dt_max_ns=250,
                                         sideband_min_ns=400,
@@ -182,8 +250,8 @@ def compute_time_correlated_efficiency(df_hits,
     """
     Compute true coincidence efficiency per detector VMM.
 
-    For each trigger hit, checks whether at least one detector hit
-    falls in the signal window [dt_min_ns, dt_max_ns].
+    For each on-spill trigger timestamp, checks whether at least one
+    detector hit falls in the signal window [dt_min_ns, dt_max_ns].
     Uses a sideband window of equal width to estimate and subtract
     the accidental coincidence rate.
 
@@ -195,6 +263,9 @@ def compute_time_correlated_efficiency(df_hits,
 
     Parameters
     ----------
+    t_trig : np.ndarray
+        On-spill trigger timestamps in ticks (sorted, deduplicated).
+        Obtain from filter_on_spill_triggers().
     dt_min_ns, dt_max_ns : float
         Signal coincidence window in ns (Δt = t_det - t_trig).
     sideband_min_ns, sideband_max_ns : float
@@ -208,16 +279,10 @@ def compute_time_correlated_efficiency(df_hits,
         vmm_id, n_triggers, n_matched, n_accidental,
         raw_efficiency, accidental_eff, true_efficiency
     """
-    t_trig = df_hits[
-        (df_hits["vmm"] == trigger_vmm) &
-        (df_hits["ch"]  == trigger_ch)
-    ]["time"].values
-
     if len(t_trig) == 0:
-        print(f"No hits on trigger VMM {trigger_vmm} ch {trigger_ch}")
+        print("  No trigger timestamps provided")
         return pd.DataFrame()
 
-    t_trig     = np.sort(np.unique(t_trig))
     n_triggers = len(t_trig)
 
     sig_width  = dt_max_ns - dt_min_ns
@@ -274,69 +339,6 @@ def compute_time_correlated_efficiency(df_hits,
     return pd.DataFrame(results)
 
 
-def compute_time_correlated_efficiency_all_runs(
-        df_run_scan, data_dir, sng0_runs,
-        trigger_vmm=0, trigger_ch=48,
-        dt_min_ns=0, dt_max_ns=250,
-        sideband_min_ns=400, sideband_max_ns=650,
-        root_file_index=1):
-    """
-    Run compute_time_correlated_efficiency() over all sng=0 runs.
-
-    Returns
-    -------
-    pd.DataFrame
-        One row per (run_no, vmm_id) with columns:
-        run_no, sg, snt, vmm_id, n_triggers, n_matched,
-        n_accidental, raw_efficiency, accidental_eff, true_efficiency
-    """
-    all_results = []
-
-    for run_no in sng0_runs:
-        sg  = df_run_scan.loc[
-            df_run_scan["run_no"] == run_no, "sg"
-        ].iloc[0]
-        snt = df_run_scan.loc[
-            df_run_scan["run_no"] == run_no, "snt"
-        ].iloc[0]
-
-        print(f"\nRun {run_no}  sg={sg}  snt={snt}")
-
-        df_hits = load_sorted_hits(
-            data_dir, run_no,
-            branches=["time", "vmm", "ch"],
-            root_file_index=root_file_index
-        )
-        if df_hits is None or df_hits.empty:
-            print("  No data, skipping")
-            continue
-
-        df_eff = compute_time_correlated_efficiency(
-            df_hits,
-            trigger_vmm=trigger_vmm,
-            trigger_ch=trigger_ch,
-            dt_min_ns=dt_min_ns,
-            dt_max_ns=dt_max_ns,
-            sideband_min_ns=sideband_min_ns,
-            sideband_max_ns=sideband_max_ns,
-        )
-        if df_eff.empty:
-            continue
-
-        df_eff["run_no"] = run_no
-        df_eff["sg"]     = sg
-        df_eff["snt"]    = snt
-        all_results.append(df_eff)
-
-    if not all_results:
-        return pd.DataFrame()
-
-    cols = ["run_no", "sg", "snt", "vmm_id",
-            "n_triggers", "n_matched", "n_accidental",
-            "raw_efficiency", "accidental_eff", "true_efficiency"]
-    return pd.concat(all_results, ignore_index=True)[cols]
-
-
 def plot_time_correlated_efficiency(df_coinc, vmm_groups):
     """
     Plot true coincidence efficiency vs configuration per VMM,
@@ -345,6 +347,8 @@ def plot_time_correlated_efficiency(df_coinc, vmm_groups):
     One figure per detector group, one line per VMM.
     X axis: configuration (sg / snt), sorted.
     Y axis: true_efficiency with binomial error bars.
+
+    df_coinc must have columns: sg, snt, vmm_id, true_efficiency, n_triggers.
     """
     vmm_to_detector = {
         vid: cfg.get("name", key)
@@ -404,11 +408,7 @@ def plot_time_correlated_efficiency(df_coinc, vmm_groups):
         ax.set_xticklabels(config_labels)
         ax.set_xlabel("Configuration (sg / snt)")
         ax.set_ylabel("True coincidence efficiency")
-        ax.set_title(
-            f"{group_label}\n"
-            f"Time-correlated efficiency  |  "
-            f"signal [0, 250] ns  |  sideband [400, 650] ns"
-        )
+        ax.set_title(f"{group_label} — time-correlated efficiency")
         ax.legend()
         ax.grid(True, alpha=0.3)
         ax.set_ylim(bottom=0)
@@ -425,33 +425,53 @@ def main():
     cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
     data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
 
-    # ── User configuration cluster ──────────────────────────────────
     # cnfg_dir = "/drf/projets/clas12/P2/akallits/"
     # data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
 
-    root_file_index = 1
-    test_run        = 67       # sg=3, snt=200 — used for diagnostics
+    root_file_index     = 1
+    test_run            = 67       # sg=3, snt=200 — used for diagnostics
 
-    trigger_vmm = 0
-    trigger_ch  = trigger_ref_channels[trigger_vmm]
+    trigger_vmm         = 0
+    trigger_ch          = trigger_ref_channels[trigger_vmm]
 
-    # ── Load run metadata ───────────────────────────────────
-    df_run_scan = load_run_table(f"{cnfg_dir}vmm_config_scan.csv")
-    run_groups  = get_run_groups(df_run_scan)
+    spill_threshold_khz = 1.0
+    bin_width_ms        = 1.0
+    min_spill_s         = 1.0
+    max_gap_s           = 2.0
 
-    # ── Timing diagnostic on test run ──────────────────────
-    print(f"\nLoading run {test_run} for timing diagnostic...")
+    dt_min_ns           = 0
+    dt_max_ns           = 250
+    sideband_min_ns     = 400
+    sideband_max_ns     = 650
+
+    # ── Load hits ───────────────────────────────────────────
+    print(f"\nLoading run {test_run}...")
     df_hits = load_sorted_hits(
         data_dir, test_run,
         branches=["time", "vmm", "ch"],
         root_file_index=root_file_index
     )
+    if df_hits is None or df_hits.empty:
+        print("No data loaded — check data_dir and test_run.")
+        return
 
-    print(f"\nComputing trigger–detector Δt on run {test_run}...")
-    dt_dict = compute_trigger_detector_dt(
+    # ── Filter to on-spill triggers ─────────────────────────
+    print(f"\nApplying spill mask (threshold={spill_threshold_khz} kHz)...")
+    t_trig_on = filter_on_spill_triggers(
         df_hits,
         trigger_vmm=trigger_vmm,
         trigger_ch=trigger_ch,
+        spill_threshold_khz=spill_threshold_khz,
+        bin_width_ms=bin_width_ms,
+        min_spill_s=min_spill_s,
+        max_gap_s=max_gap_s,
+    )
+    print(f"  {len(t_trig_on):,} on-spill triggers after deduplication")
+
+    # ── Timing diagnostic ───────────────────────────────────
+    print(f"\nComputing trigger–detector Δt (±1000 ns window)...")
+    dt_dict = compute_trigger_detector_dt(
+        df_hits, t_trig_on,
         search_window_ns=1000
     )
     for vmm_id, dt in dt_dict.items():
@@ -462,47 +482,26 @@ def main():
         search_window_ns=1000
     )
 
-    # ── Single-run efficiency (verify window choice) ────────
-    print(f"\nComputing time-correlated efficiency on run {test_run}...")
-    df_eff_test = compute_time_correlated_efficiency(
-        df_hits,
-        trigger_vmm=trigger_vmm,
-        trigger_ch=trigger_ch,
-        dt_min_ns=0,
-        dt_max_ns=250,
-        sideband_min_ns=400,
-        sideband_max_ns=650,
-    )
-    print("\n=== Time-correlated efficiency (test run) ===")
-    print(df_eff_test[["vmm_id", "n_matched", "n_accidental",
-                         "raw_efficiency", "accidental_eff",
-                         "true_efficiency"]].to_string(index=False))
-
-    # ── All runs ────────────────────────────────────────────
-    print("\nComputing time-correlated efficiency across all runs...")
-    df_coinc_all = compute_time_correlated_efficiency_all_runs(
-        df_run_scan=df_run_scan,
-        data_dir=data_dir,
-        sng0_runs=run_groups["sng0_runs"],
-        trigger_vmm=trigger_vmm,
-        trigger_ch=trigger_ch,
-        dt_min_ns=0,
-        dt_max_ns=250,
-        sideband_min_ns=400,
-        sideband_max_ns=650,
-        root_file_index=root_file_index,
+    # ── Time-correlated efficiency ──────────────────────────
+    print(f"\nComputing time-correlated efficiency "
+          f"(signal [{dt_min_ns}, {dt_max_ns}] ns)...")
+    df_eff = compute_time_correlated_efficiency(
+        df_hits, t_trig_on,
+        dt_min_ns=dt_min_ns,
+        dt_max_ns=dt_max_ns,
+        sideband_min_ns=sideband_min_ns,
+        sideband_max_ns=sideband_max_ns,
     )
 
-    df_coinc_all.to_csv(f"{cnfg_dir}vmm_coinc_efficiency.csv",
-                         index=False)
+    if not df_eff.empty:
+        print("\n=== Time-correlated efficiency ===")
+        print(df_eff[["vmm_id", "n_triggers", "n_matched", "n_accidental",
+                       "raw_efficiency", "accidental_eff",
+                       "true_efficiency"]].to_string(index=False))
+        out_csv = f"{cnfg_dir}vmm_coinc_efficiency_run{test_run}.csv"
+        df_eff.to_csv(out_csv, index=False)
+        print(f"\nSaved → {out_csv}")
 
-    print("\n=== Time-correlated efficiency — all runs ===")
-    print(df_coinc_all[["run_no", "sg", "snt", "vmm_id",
-                          "n_triggers", "n_matched",
-                          "true_efficiency"]].to_string(index=False))
 
-    plot_time_correlated_efficiency(df_coinc_all, vmm_groups)
-
-    print("bonzo")
 if __name__ == "__main__":
     main()
