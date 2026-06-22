@@ -19,6 +19,8 @@ Workflow
 5. fit_dt_peak()                    — fit Gaussian + flat bg → derive μ, σ, window
 6. plot_dt_peak_fits()              — verify fit: green=signal window, orange=sideband
 7. compute_time_correlated_efficiency() — efficiency with fitted window + sideband subtraction
+8. compute_channel_efficiency()     — per-pad efficiency (vmm_id, ch)
+9. plot_efficiency_map()            — 2D pad map coloured by true efficiency
 
 @author: ak271430
 """
@@ -43,6 +45,29 @@ def _save_fig(fig, out_dir, stem):
     for ext in ("png", "pdf"):
         fig.savefig(os.path.join(out_dir, f"{stem}.{ext}"),
                     bbox_inches="tight")
+
+
+def load_detector_map(map_csv, detector_key):
+    """
+    Load pad-position CSV and resolve (connector, channel) → (vmm_id, ch).
+
+    The CSV must have columns: connector, channel, X_mm, Y_mm, Size_mm.
+    connector is a 0-based index into vmm_mapping[detector_key]['vmm_ids'].
+
+    Returns
+    -------
+    pd.DataFrame with columns: vmm_id, ch, x_mm, y_mm, size_mm
+    """
+    cfg    = vmm_mapping[detector_key]
+    vmm_ids = cfg["vmm_ids"]
+
+    df = pd.read_csv(map_csv)
+    df["vmm_id"] = df["connector"].map(lambda c: vmm_ids[c])
+    df["ch"]     = df["channel"]
+    df = df.rename(columns={"X_mm": "x_mm", "Y_mm": "y_mm",
+                             "Size_mm": "size_mm"})
+    return df[["vmm_id", "ch", "x_mm", "y_mm", "size_mm"]].copy()
+
 
 # ── Derived from vmm_mapping ─────────────────────────────────
 detector_vmms = [
@@ -649,6 +674,150 @@ def plot_time_correlated_efficiency(df_coinc, vmm_groups, out_dir=None):
 
 
 # ─────────────────────────────────────────────────────────────
+# PAD EFFICIENCY MAP
+# ─────────────────────────────────────────────────────────────
+
+def compute_channel_efficiency(df_hits, t_trig,
+                                dt_min_ns, dt_max_ns,
+                                sb_min_ns, sb_max_ns):
+    """
+    Compute true coincidence efficiency per detector channel (vmm_id, ch).
+
+    For each channel, counts how many on-spill triggers had at least one
+    hit in the signal window [dt_min_ns, dt_max_ns], then subtracts the
+    accidental rate estimated from the sideband [sb_min_ns, sb_max_ns].
+
+    Parameters
+    ----------
+    df_hits : pd.DataFrame
+        All hits (time, vmm, ch columns required), sorted by time.
+    t_trig : np.ndarray
+        On-spill trigger timestamps (ns), sorted.
+    dt_min_ns, dt_max_ns : float
+        Signal coincidence window relative to trigger (ns).
+    sb_min_ns, sb_max_ns : float
+        Sideband window for accidental estimation (ns).
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per (vmm_id, ch) with columns:
+        vmm_id, ch, n_triggers, n_signal, n_sideband,
+        raw_efficiency, accidental_eff, true_efficiency
+    """
+    n_trig  = len(t_trig)
+    t_hit   = df_hits["time"].values
+    vmm_arr = df_hits["vmm"].values
+    ch_arr  = df_hits["ch"].values
+    results = []
+
+    for vmm_id in np.unique(vmm_arr):
+        vmm_mask = vmm_arr == vmm_id
+        for ch in np.unique(ch_arr[vmm_mask]):
+            t_ch = np.sort(t_hit[vmm_mask & (ch_arr == ch)])
+
+            n_signal    = 0
+            n_sideband  = 0
+            for t in t_trig:
+                i0 = np.searchsorted(t_ch, t + dt_min_ns)
+                i1 = np.searchsorted(t_ch, t + dt_max_ns, side="right")
+                if i1 > i0:
+                    n_signal += 1
+
+                j0 = np.searchsorted(t_ch, t + sb_min_ns)
+                j1 = np.searchsorted(t_ch, t + sb_max_ns, side="right")
+                if j1 > j0:
+                    n_sideband += 1
+
+            raw_eff = n_signal   / n_trig if n_trig > 0 else 0.0
+            acc_eff = n_sideband / n_trig if n_trig > 0 else 0.0
+            results.append({
+                "vmm_id"         : vmm_id,
+                "ch"             : ch,
+                "n_triggers"     : n_trig,
+                "n_signal"       : n_signal,
+                "n_sideband"     : n_sideband,
+                "raw_efficiency" : raw_eff,
+                "accidental_eff" : acc_eff,
+                "true_efficiency": raw_eff - acc_eff,
+            })
+
+    return pd.DataFrame(results)
+
+
+def plot_efficiency_map(df_ch_eff, det_map, run_no,
+                        detector_label="", out_dir=None):
+    """
+    Plot per-pad true coincidence efficiency as a 2D colour map.
+
+    Each pad is drawn as a filled square at its physical (x_mm, y_mm)
+    position, coloured by true_efficiency on a red–yellow–green scale.
+    Pads with no data (not in df_ch_eff) are drawn in grey.
+
+    Parameters
+    ----------
+    df_ch_eff : pd.DataFrame
+        Output of compute_channel_efficiency(): must have vmm_id, ch,
+        true_efficiency.
+    det_map : pd.DataFrame
+        Output of load_detector_map(): must have vmm_id, ch, x_mm,
+        y_mm, size_mm.
+    run_no : int
+        Run number, used in the figure title and save filename.
+    detector_label : str
+        Human-readable detector name for title and filename.
+    out_dir : str or None
+        Directory for saving PNG/PDF. None → no save.
+    """
+    df = det_map.merge(
+        df_ch_eff[["vmm_id", "ch", "true_efficiency"]],
+        on=["vmm_id", "ch"],
+        how="left",
+    )
+
+    cmap = plt.cm.RdYlGn
+    norm = plt.Normalize(vmin=0, vmax=1)
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    for _, row in df.iterrows():
+        half  = row["size_mm"] / 2.0
+        eff   = row["true_efficiency"]
+        color = cmap(norm(eff)) if pd.notna(eff) else "lightgrey"
+        rect  = plt.Rectangle(
+            (row["x_mm"] - half, row["y_mm"] - half),
+            row["size_mm"], row["size_mm"],
+            facecolor=color,
+            edgecolor="black", linewidth=0.4,
+        )
+        ax.add_patch(rect)
+
+        label = f"{eff:.2f}" if pd.notna(eff) else "—"
+        ax.text(row["x_mm"], row["y_mm"], label,
+                ha="center", va="center", fontsize=6, color="black")
+
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    fig.colorbar(sm, ax=ax, label="True coincidence efficiency", shrink=0.8)
+
+    margin = det_map["size_mm"].max()
+    ax.set_xlim(det_map["x_mm"].min() - margin,
+                det_map["x_mm"].max() + margin)
+    ax.set_ylim(det_map["y_mm"].min() - margin,
+                det_map["y_mm"].max() + margin)
+    ax.set_aspect("equal")
+    ax.set_xlabel("X (mm)")
+    ax.set_ylabel("Y (mm)")
+    ax.set_title(
+        f"{detector_label} — pad efficiency map  |  Run {run_no}",
+        fontsize=13, fontweight="bold",
+    )
+    plt.tight_layout()
+    _save_fig(fig, out_dir,
+              f"eff_map_{detector_label.replace(' ', '_')}_run{run_no}")
+
+
+# ─────────────────────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────────────────────
 
@@ -659,6 +828,11 @@ def main():
 
     cnfg_dir = "/drf/projets/clas12/P2/akallits/"
     data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+    map_dir  = ("/local/home/ak271430/Documents/PostDocSaclay/"
+                "data/det_mappings/")
+
+    small_det_map_csv = os.path.join(map_dir, "p2_small_detector_map.csv")
+    small_detectors   = ["p2_small_1", "p2_small_3"]
 
     root_file_index     = 1
     test_run            = 67       # sg=3, snt=200 — used for diagnostics
@@ -768,6 +942,29 @@ def main():
         out_csv = os.path.join(out_dir, f"efficiency_run{test_run}.csv")
         df_eff.to_csv(out_csv, index=False)
         print(f"\nSaved → {out_csv}")
+
+    # ── Step 4: per-pad efficiency map (small detectors) ────
+    print(f"\nStep 4 — per-pad efficiency map...")
+    df_ch_eff = compute_channel_efficiency(
+        df_hits, t_trig_on,
+        dt_min_ns=dt_min_ns,
+        dt_max_ns=dt_max_ns,
+        sb_min_ns=sideband_min_ns,
+        sb_max_ns=sideband_max_ns,
+    )
+
+    for det_key in small_detectors:
+        det_label = vmm_mapping[det_key].get("name", det_key)
+        det_vmms  = vmm_mapping[det_key]["vmm_ids"]
+        df_det    = df_ch_eff[df_ch_eff["vmm_id"].isin(det_vmms)]
+        if df_det.empty:
+            print(f"  {det_label}: no hits — skipping map")
+            continue
+
+        det_map = load_detector_map(small_det_map_csv, det_key)
+        print(f"  {det_label}: {len(df_det)} channels with hits")
+        plot_efficiency_map(df_det, det_map, test_run,
+                            detector_label=det_label, out_dir=out_dir)
 
     plt.show()
 
