@@ -717,18 +717,15 @@ def compute_channel_efficiency(df_hits, t_trig,
         for ch in np.unique(ch_arr[vmm_mask]):
             t_ch = np.sort(t_hit[vmm_mask & (ch_arr == ch)])
 
-            n_signal    = 0
-            n_sideband  = 0
-            for t in t_trig:
-                i0 = np.searchsorted(t_ch, t + dt_min_ns)
-                i1 = np.searchsorted(t_ch, t + dt_max_ns, side="right")
-                if i1 > i0:
-                    n_signal += 1
+            # Vectorised over all triggers: searchsorted accepts an array,
+            # eliminating the Python loop over N_trig.
+            lo = np.searchsorted(t_ch, t_trig + dt_min_ns)
+            hi = np.searchsorted(t_ch, t_trig + dt_max_ns, side="right")
+            n_signal = int(np.sum(hi > lo))
 
-                j0 = np.searchsorted(t_ch, t + sb_min_ns)
-                j1 = np.searchsorted(t_ch, t + sb_max_ns, side="right")
-                if j1 > j0:
-                    n_sideband += 1
+            lo_sb = np.searchsorted(t_ch, t_trig + sb_min_ns)
+            hi_sb = np.searchsorted(t_ch, t_trig + sb_max_ns, side="right")
+            n_sideband = int(np.sum(hi_sb > lo_sb))
 
             raw_eff = n_signal   / n_trig if n_trig > 0 else 0.0
             acc_eff = n_sideband / n_trig if n_trig > 0 else 0.0
