@@ -34,7 +34,8 @@ import os
 
 from vmm_mapping import vmm_mapping
 from vmm_io import (load_sorted_hits, compute_spill_masks,
-                    NS_PER_TICK, S_PER_TICK)
+                    NS_PER_TICK, S_PER_TICK,
+                    iter_hits_files, get_run_dir)
 
 
 def _save_fig(fig, out_dir, stem):
@@ -834,8 +835,12 @@ def main():
     small_det_map_csv = os.path.join(map_dir, "p2_small_detector_map.csv")
     small_detectors   = ["p2_small_1", "p2_small_3"]
 
-    root_file_index     = 1
-    test_run            = 67       # sg=3, snt=200 — used for diagnostics
+    # n_files: number of files for efficiency accumulation (Pass 2).
+    # Memory safety: one file loaded at a time; only integer counts kept
+    # between iterations. Peak memory = one ROOT file regardless of n_files.
+    n_files       = 10
+    diag_file_idx = 1       # file used for Δt diagnostic + peak fit (Pass 1)
+    test_run      = 67      # sg=3, snt=200
 
     out_dir = os.path.join(cnfg_dir, "results", f"run_{test_run}")
     os.makedirs(out_dir, exist_ok=True)
@@ -849,26 +854,26 @@ def main():
     min_spill_s         = 1.0
     max_gap_s           = 2.0
 
-    dt_min_ns           = 0
-    dt_max_ns           = 250
-    sideband_min_ns     = 400
-    sideband_max_ns     = 650
+    dt_min_ns       = 0
+    dt_max_ns       = 250
+    sideband_min_ns = 400
+    sideband_max_ns = 650
 
-    # ── Load hits ───────────────────────────────────────────
-    print(f"\nLoading run {test_run}...")
-    df_hits = load_sorted_hits(
+    # ── Pass 1: diagnostic from one file ────────────────────
+    # Load a single file to fit the coincidence peak and derive the
+    # signal/sideband windows used in Pass 2.
+    print(f"\nPass 1 — diagnostic (file index {diag_file_idx}, run {test_run})...")
+    df_hits_diag = load_sorted_hits(
         data_dir, test_run,
         branches=["time", "vmm", "ch"],
-        root_file_index=root_file_index
+        root_file_index=diag_file_idx,
     )
-    if df_hits is None or df_hits.empty:
+    if df_hits_diag is None or df_hits_diag.empty:
         print("No data loaded — check data_dir and test_run.")
         return
 
-    # ── Filter to on-spill triggers ─────────────────────────
-    print(f"\nApplying spill mask (threshold={spill_threshold_khz} kHz)...")
-    t_trig_on = filter_on_spill_triggers(
-        df_hits,
+    t_trig_diag = filter_on_spill_triggers(
+        df_hits_diag,
         trigger_vmm=trigger_vmm,
         trigger_ch=trigger_ch,
         spill_threshold_khz=spill_threshold_khz,
@@ -876,39 +881,29 @@ def main():
         min_spill_s=min_spill_s,
         max_gap_s=max_gap_s,
     )
-    print(f"  {len(t_trig_on):,} on-spill triggers after deduplication")
+    print(f"  {len(t_trig_diag):,} on-spill triggers")
 
-    # ── Step 1: raw Δt histogram ────────────────────────────
-    # Wide window (±1000 ns) to see the full picture: peak + flat background.
-    print(f"\nStep 1 — computing trigger–detector Δt (±1000 ns)...")
+    # Step 1: raw Δt histogram
+    print(f"\nStep 1 — trigger–detector Δt (±1000 ns)...")
     dt_dict = compute_trigger_detector_dt(
-        df_hits, t_trig_on,
-        search_window_ns=1000
+        df_hits_diag, t_trig_diag, search_window_ns=1000
     )
     for vmm_id, dt in dt_dict.items():
         print(f"  VMM {vmm_id}: {len(dt):,} pairs in ±1000 ns window")
-
-    # Raw histogram: linear + log scale. Visually identify the peak
-    # position and the flat accidental background before fitting.
     plot_trigger_detector_dt(
         dt_dict, test_run, vmm_groups,
-        search_window_ns=1000, out_dir=out_dir
+        search_window_ns=1000, out_dir=out_dir,
     )
 
-    # ── Step 2: fit peak → optimise coincidence window ──────
-    # Fits Gaussian + flat background. Prints μ, σ, and the derived
-    # signal/sideband windows for each VMM. Inspect the plot to confirm
-    # the green band covers the peak and the orange band is in the flat region.
+    # Step 2: fit peak → derive coincidence window
     print(f"\nStep 2 — fitting Δt peak (Gaussian + flat background)...")
     peak_fits = fit_dt_peak(dt_dict, search_window_ns=1000,
                              n_bins=200, n_sigma=3)
-
     plot_dt_peak_fits(peak_fits, run_no=test_run, vmm_groups=vmm_groups,
                       out_dir=out_dir)
 
-    # ── Derive window from fit (first successful VMM) ───────
-    # If fits succeed, use the fitted window; otherwise fall back to
-    # the user-configured defaults set at the top of main().
+    del df_hits_diag, dt_dict, t_trig_diag   # free diagnostic data
+
     fitted = {v: r for v, r in peak_fits.items() if r.get("success")}
     if fitted:
         first = next(iter(fitted.values()))
@@ -916,43 +911,114 @@ def main():
         dt_max_ns       = first["dt_max"]
         sideband_min_ns = first["sb_min"]
         sideband_max_ns = first["sb_max"]
-        print(f"\n  Using fitted window: "
+        print(f"\n  Fitted window: "
               f"signal=[{dt_min_ns:.0f}, {dt_max_ns:.0f}] ns  "
               f"sideband=[{sideband_min_ns:.0f}, {sideband_max_ns:.0f}] ns")
     else:
-        print(f"\n  All fits failed — using default window: "
+        print(f"\n  Fits failed — using defaults: "
               f"signal=[{dt_min_ns}, {dt_max_ns}] ns  "
               f"sideband=[{sideband_min_ns}, {sideband_max_ns}] ns")
 
-    # ── Step 3: time-correlated efficiency ──────────────────
-    print(f"\nStep 3 — computing time-correlated efficiency...")
-    df_eff = compute_time_correlated_efficiency(
-        df_hits, t_trig_on,
-        dt_min_ns=dt_min_ns,
-        dt_max_ns=dt_max_ns,
-        sideband_min_ns=sideband_min_ns,
-        sideband_max_ns=sideband_max_ns,
-    )
+    # ── Pass 2: accumulate counts over n_files ───────────────
+    # Files are streamed one at a time. After processing each file,
+    # df_hits is deleted and only small count DataFrames are retained.
+    # Efficiencies are recomputed from accumulated totals after the loop.
+    print(f"\nPass 2 — accumulating over {n_files} file(s) "
+          f"(starting at file index {diag_file_idx})...")
+    run_dir = get_run_dir(data_dir, test_run)
 
-    if not df_eff.empty:
-        print("\n=== Time-correlated efficiency ===")
-        print(df_eff[["vmm_id", "n_triggers", "n_matched", "n_accidental",
-                       "raw_efficiency", "accidental_eff",
-                       "true_efficiency"]].to_string(index=False))
-        out_csv = os.path.join(out_dir, f"efficiency_run{test_run}.csv")
-        df_eff.to_csv(out_csv, index=False)
-        print(f"\nSaved → {out_csv}")
+    vmm_dfs      = []   # list of small DataFrames: [vmm_id, n_matched, n_accidental]
+    ch_dfs       = []   # list of small DataFrames: [vmm_id, ch, n_signal, n_sideband]
+    n_trig_total = 0
 
-    # ── Step 4: per-pad efficiency map (small detectors) ────
+    for i, df_hits in enumerate(iter_hits_files(
+            run_dir, n_files=n_files,
+            branches=["time", "vmm", "ch"],
+            file_start=diag_file_idx)):
+
+        df_hits = (df_hits[df_hits["time"] < 2e12]
+                   .sort_values("time")
+                   .reset_index(drop=True))
+        if df_hits.empty:
+            del df_hits
+            continue
+
+        t_trig = filter_on_spill_triggers(
+            df_hits,
+            trigger_vmm=trigger_vmm,
+            trigger_ch=trigger_ch,
+            spill_threshold_khz=spill_threshold_khz,
+            bin_width_ms=bin_width_ms,
+            min_spill_s=min_spill_s,
+            max_gap_s=max_gap_s,
+        )
+        n_trig = len(t_trig)
+        print(f"  file {diag_file_idx + i}: {n_trig:,} on-spill triggers  "
+              f"({len(df_hits):,} hits)")
+
+        if n_trig == 0:
+            del df_hits
+            continue
+        n_trig_total += n_trig
+
+        # per-VMM counts (Step 3)
+        df_vmm = compute_time_correlated_efficiency(
+            df_hits, t_trig,
+            dt_min_ns=dt_min_ns, dt_max_ns=dt_max_ns,
+            sideband_min_ns=sideband_min_ns, sideband_max_ns=sideband_max_ns,
+        )
+        vmm_dfs.append(df_vmm[["vmm_id", "n_matched", "n_accidental"]].copy())
+
+        # per-channel counts (Step 4)
+        df_ch = compute_channel_efficiency(
+            df_hits, t_trig,
+            dt_min_ns=dt_min_ns, dt_max_ns=dt_max_ns,
+            sb_min_ns=sideband_min_ns, sb_max_ns=sideband_max_ns,
+        )
+        ch_dfs.append(df_ch[["vmm_id", "ch", "n_signal", "n_sideband"]].copy())
+
+        del df_hits, df_vmm, df_ch   # one file at a time
+
+    print(f"\n  Total: {n_trig_total:,} on-spill triggers "
+          f"across {len(vmm_dfs)} file(s)")
+
+    if n_trig_total == 0 or not vmm_dfs:
+        print("No on-spill triggers found — check spill threshold.")
+        plt.show()
+        return
+
+    # ── Step 3: per-VMM efficiency ──────────────────────────
+    df_eff = (pd.concat(vmm_dfs)
+                .groupby("vmm_id")[["n_matched", "n_accidental"]]
+                .sum()
+                .reset_index())
+    df_eff["n_triggers"]      = n_trig_total
+    df_eff["raw_efficiency"]  = df_eff["n_matched"]    / n_trig_total
+    df_eff["accidental_eff"]  = df_eff["n_accidental"] / n_trig_total
+    df_eff["true_efficiency"] = df_eff["raw_efficiency"] - df_eff["accidental_eff"]
+    del vmm_dfs
+
+    print("\n=== Time-correlated efficiency (per VMM) ===")
+    print(df_eff[["vmm_id", "n_triggers", "n_matched", "n_accidental",
+                   "raw_efficiency", "accidental_eff",
+                   "true_efficiency"]].to_string(index=False))
+    out_csv = os.path.join(out_dir, f"efficiency_run{test_run}.csv")
+    df_eff.to_csv(out_csv, index=False)
+    print(f"Saved → {out_csv}")
+
+    # ── Step 4: per-pad efficiency map ──────────────────────
+    df_ch_eff = (pd.concat(ch_dfs)
+                   .groupby(["vmm_id", "ch"])[["n_signal", "n_sideband"]]
+                   .sum()
+                   .reset_index())
+    df_ch_eff["n_triggers"]      = n_trig_total
+    df_ch_eff["raw_efficiency"]  = df_ch_eff["n_signal"]   / n_trig_total
+    df_ch_eff["accidental_eff"]  = df_ch_eff["n_sideband"] / n_trig_total
+    df_ch_eff["true_efficiency"] = (df_ch_eff["raw_efficiency"]
+                                    - df_ch_eff["accidental_eff"])
+    del ch_dfs
+
     print(f"\nStep 4 — per-pad efficiency map...")
-    df_ch_eff = compute_channel_efficiency(
-        df_hits, t_trig_on,
-        dt_min_ns=dt_min_ns,
-        dt_max_ns=dt_max_ns,
-        sb_min_ns=sideband_min_ns,
-        sb_max_ns=sideband_max_ns,
-    )
-
     for det_key in small_detectors:
         det_label = vmm_mapping[det_key].get("name", det_key)
         det_vmms  = vmm_mapping[det_key]["vmm_ids"]
@@ -960,7 +1026,6 @@ def main():
         if df_det.empty:
             print(f"  {det_label}: no hits — skipping map")
             continue
-
         det_map = load_detector_map(small_det_map_csv, det_key)
         print(f"  {det_label}: {len(df_det)} channels with hits")
         plot_efficiency_map(df_det, det_map, test_run,
