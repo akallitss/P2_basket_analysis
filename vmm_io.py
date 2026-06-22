@@ -14,10 +14,16 @@ Data loading and run management utilities for VMM config scan analysis.
 """
 import os
 import re
+import operator
 import uproot
+import numpy as np
 import pandas as pd
 from collections import defaultdict
+from functools import reduce
 from vmm_mapping import vmm_mapping
+
+NS_PER_TICK = 1.0    # 1 GHz VMM clock → 1 tick = 1 ns
+S_PER_TICK  = 1e-9
 
 def get_root_file(run_dir, n_files=2, file_index=1):
     """
@@ -277,6 +283,110 @@ def get_run_groups(df_run_scan):
         "sng1_runs": sng1_runs,
         "pairs"    : pairs
     }
+
+def compute_spill_masks(rates_khz, threshold_khz,
+                        min_spill_bins=0, max_gap_bins=0):
+    """
+    Derive spill-on / spill-off boolean masks from a binned rate array.
+
+    Parameters
+    ----------
+    rates_khz : np.ndarray
+        Binned trigger rate in kHz.
+    threshold_khz : float
+        Bins above this value are classified as spill-on.
+    min_spill_bins : int
+        Minimum consecutive on-bins to keep an on-region.
+        Shorter regions are reclassified as off. 0 disables.
+    max_gap_bins : int
+        Maximum off-gap between two on-regions to bridge (hole-filling).
+        Handles SPS bunch microstructure dips at low beam intensity.
+        0 disables.
+
+    Returns
+    -------
+    on_mask, off_mask : np.ndarray of bool
+    """
+    on_mask = rates_khz > threshold_khz
+
+    if max_gap_bins > 0:
+        padded    = np.concatenate(([False], on_mask, [False]))
+        on_starts = np.where(~padded[:-1] &  padded[1:])[0]
+        on_ends   = np.where( padded[:-1] & ~padded[1:])[0]
+        for i in range(len(on_starts) - 1):
+            gap_len = on_starts[i + 1] - on_ends[i]
+            if gap_len <= max_gap_bins:
+                on_mask[on_ends[i] : on_starts[i + 1]] = True
+
+    if min_spill_bins > 1:
+        padded = np.concatenate(([False], on_mask, [False]))
+        starts = np.where(~padded[:-1] &  padded[1:])[0]
+        ends   = np.where( padded[:-1] & ~padded[1:])[0]
+        for s, e in zip(starts, ends):
+            if (e - s) < min_spill_bins:
+                on_mask[s:e] = False
+
+    return on_mask, ~on_mask
+
+
+def load_sorted_hits(data_dir, run_no, branches,
+                     root_file_index=1,
+                     connected_channels_only=False,
+                     max_time_ticks=2e12):
+    """
+    Load one ROOT file for a run and return a time-sorted hit DataFrame.
+
+    Parameters
+    ----------
+    root_file_index : int
+        Which file within the run directory to load (0-based).
+        Default 1 skips the first file which can have corrupted timestamps
+        at run start.
+    connected_channels_only : bool
+        When True, drop channels not listed in vmm_mapping.
+    max_time_ticks : float
+        Drop hits with timestamps above this value (corrupted entries).
+
+    Returns
+    -------
+    pd.DataFrame or None
+    """
+    run_dir   = get_run_dir(data_dir, run_no)
+    file_path = get_root_file(run_dir,
+                              n_files=root_file_index + 1,
+                              file_index=root_file_index)
+    if file_path is None:
+        return None
+
+    df = load_hits_root(file_path, branches=branches)
+
+    if "time" in df.columns:
+        n_before  = len(df)
+        df        = df[df["time"] < max_time_ticks].copy()
+        n_corrupt = n_before - len(df)
+        if n_corrupt > 0:
+            print(f"  Removed {n_corrupt} hits with corrupted timestamps")
+
+    if connected_channels_only and "ch" in df.columns:
+        masks = []
+        for vmm_id in df["vmm"].unique():
+            channels = get_connected_channels(vmm_id)
+            if channels is None:
+                masks.append(df["vmm"] == vmm_id)
+            else:
+                masks.append(
+                    (df["vmm"] == vmm_id) &
+                    (df["ch"].isin(channels))
+                )
+        if masks:
+            df = df[reduce(operator.or_, masks)]
+
+    if df.empty:
+        print(f"  Run {run_no} file {root_file_index}: no hits after filtering")
+        return None
+
+    return df.sort_values("time").reset_index(drop=True)
+
 
 def main():
     print('bonzo')
