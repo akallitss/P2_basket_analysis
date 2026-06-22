@@ -24,6 +24,7 @@ Workflow
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
 
 from vmm_mapping import vmm_mapping
 from vmm_io import (load_sorted_hits, compute_spill_masks,
@@ -232,6 +233,223 @@ def plot_trigger_detector_dt(dt_dict, run_no, vmm_groups,
         fig.suptitle(
             f"{group_label} — trigger–detector Δt  |  "
             f"Run {run_no}  |  window ±{search_window_ns} ns",
+            fontsize=13, fontweight="bold"
+        )
+        plt.tight_layout()
+        plt.show()
+
+
+# ─────────────────────────────────────────────────────────────
+# PEAK FIT — coincidence window optimisation
+# ─────────────────────────────────────────────────────────────
+
+def _gaussian_plus_bg(x, amplitude, mu, sigma, bg):
+    return amplitude * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + bg
+
+
+def fit_dt_peak(dt_dict, search_window_ns=1000, n_bins=200, n_sigma=3):
+    """
+    Fit Gaussian + flat background to each VMM's Δt distribution.
+
+    Model: f(Δt) = A · exp(-(Δt - μ)² / 2σ²) + B
+
+    The coincidence window is set to [μ - n_sigma·σ, μ + n_sigma·σ].
+    The sideband is placed immediately after the signal window with
+    the same width: [μ + n_sigma·σ + gap, μ + n_sigma·σ + gap + width],
+    where gap = σ and width = 2·n_sigma·σ.
+
+    Parameters
+    ----------
+    dt_dict : dict
+        Output of compute_trigger_detector_dt(): vmm_id → Δt array (ns).
+    search_window_ns : float
+        Half-width of the Δt histogram range (must match the value used
+        when calling compute_trigger_detector_dt).
+    n_bins : int
+        Number of histogram bins.
+    n_sigma : float
+        Half-width of the coincidence window in units of σ (default 3).
+
+    Returns
+    -------
+    dict : vmm_id → {
+        "mu"         : float  — peak centre (ns)
+        "sigma"      : float  — peak width (ns)
+        "amplitude"  : float  — Gaussian amplitude (counts/bin)
+        "bg"         : float  — flat background (counts/bin)
+        "dt_min"     : float  — window lower edge = μ - n_sigma·σ (ns)
+        "dt_max"     : float  — window upper edge = μ + n_sigma·σ (ns)
+        "sb_min"     : float  — sideband lower edge (ns)
+        "sb_max"     : float  — sideband upper edge (ns)
+        "bin_centers": array  — bin centres used for the fit
+        "hist"       : array  — bin counts
+        "success"    : bool
+    }
+    """
+    bin_edges   = np.linspace(-search_window_ns, search_window_ns, n_bins + 1)
+    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+
+    results = {}
+
+    for vmm_id, dt in dt_dict.items():
+        if len(dt) < 20:
+            print(f"  VMM {vmm_id}: too few Δt pairs ({len(dt)}) to fit")
+            results[vmm_id] = {"success": False}
+            continue
+
+        hist, _ = np.histogram(dt, bins=bin_edges)
+        hist     = hist.astype(float)
+
+        # Initial estimates: background = low-percentile level,
+        # peak centre = bin with max counts, peak width = 50 ns
+        bg_init    = float(np.percentile(hist, 20))
+        A_init     = float(hist.max() - bg_init)
+        mu_init    = float(bin_centers[np.argmax(hist)])
+        sigma_init = 50.0
+
+        p0     = [A_init, mu_init, sigma_init, bg_init]
+        bounds = (
+            [0,    -search_window_ns / 2,  5,   0],
+            [np.inf, search_window_ns / 2, 500, np.inf]
+        )
+
+        try:
+            popt, pcov = curve_fit(_gaussian_plus_bg, bin_centers, hist,
+                                   p0=p0, bounds=bounds, maxfev=5000)
+            A_fit, mu_fit, sigma_fit, bg_fit = popt
+            perr = np.sqrt(np.diag(pcov))
+
+            win_half  = n_sigma * sigma_fit
+            dt_min    = mu_fit - win_half
+            dt_max    = mu_fit + win_half
+            gap       = sigma_fit
+            sb_min    = dt_max + gap
+            sb_max    = sb_min + 2 * win_half
+
+            print(f"  VMM {vmm_id}: "
+                  f"μ={mu_fit:+.1f}±{perr[1]:.1f} ns  "
+                  f"σ={sigma_fit:.1f}±{perr[2]:.1f} ns  "
+                  f"signal=[{dt_min:.0f}, {dt_max:.0f}] ns  "
+                  f"sideband=[{sb_min:.0f}, {sb_max:.0f}] ns")
+
+            results[vmm_id] = {
+                "mu"         : mu_fit,
+                "sigma"      : sigma_fit,
+                "amplitude"  : A_fit,
+                "bg"         : bg_fit,
+                "dt_min"     : dt_min,
+                "dt_max"     : dt_max,
+                "sb_min"     : sb_min,
+                "sb_max"     : sb_max,
+                "bin_centers": bin_centers,
+                "hist"       : hist,
+                "success"    : True,
+            }
+
+        except RuntimeError as exc:
+            print(f"  VMM {vmm_id}: fit failed — {exc}")
+            results[vmm_id] = {"success": False}
+
+    return results
+
+
+def plot_dt_peak_fits(peak_fits, run_no, vmm_groups):
+    """
+    Plot the Δt histogram with the Gaussian+background fit overlaid.
+
+    One figure per detector group, one subplot per VMM. Each subplot shows:
+    - Blue bars  : Δt histogram (on-spill triggers only)
+    - Red curve  : fitted Gaussian + flat background
+    - Green band : signal coincidence window [μ - n_sigma·σ, μ + n_sigma·σ]
+    - Orange band: sideband window (equal-width, for accidental subtraction)
+    - Dashed lines: μ (black), window edges (green), sideband edges (orange)
+
+    Use this immediately after fit_dt_peak() to visually verify that:
+    1. The Gaussian describes the peak well (red curve follows blue bars).
+    2. The signal window captures the peak and nothing more.
+    3. The sideband sits in the flat accidental region.
+    """
+    vmm_to_detector = {
+        vid: cfg.get("name", key)
+        for key, cfg in vmm_mapping.items()
+        for vid in cfg["vmm_ids"]
+    }
+
+    for group in vmm_groups:
+        vmm_ids     = [v for v in group["vmm_ids"] if v in peak_fits]
+        group_label = group["label"]
+
+        if not vmm_ids:
+            continue
+
+        n_vmm = len(vmm_ids)
+        fig, axes = plt.subplots(1, n_vmm,
+                                  figsize=(5 * n_vmm, 5),
+                                  sharey=False)
+        if n_vmm == 1:
+            axes = [axes]
+
+        for ax, vmm_id in zip(axes, vmm_ids):
+            fit = peak_fits[vmm_id]
+            det_name = vmm_to_detector.get(vmm_id, "")
+
+            if not fit["success"]:
+                ax.text(0.5, 0.5, "Fit failed",
+                        ha="center", va="center",
+                        transform=ax.transAxes, color="red")
+                ax.set_title(f"VMM {vmm_id} — {det_name}")
+                continue
+
+            bc   = fit["bin_centers"]
+            hist = fit["hist"]
+            x_fine = np.linspace(bc[0], bc[-1], 500)
+            y_fit  = _gaussian_plus_bg(x_fine,
+                                        fit["amplitude"], fit["mu"],
+                                        fit["sigma"],    fit["bg"])
+
+            bw = bc[1] - bc[0]
+            ax.bar(bc, hist, width=bw, color="steelblue",
+                   alpha=0.6, label="Δt data")
+            ax.plot(x_fine, y_fit, color="red",
+                    linewidth=2, label="Gaussian + bg fit")
+
+            # Signal window
+            ax.axvspan(fit["dt_min"], fit["dt_max"],
+                       color="green", alpha=0.15, label="signal window")
+            for edge in (fit["dt_min"], fit["dt_max"]):
+                ax.axvline(edge, color="green",
+                           linestyle="--", linewidth=1.2)
+
+            # Sideband window
+            ax.axvspan(fit["sb_min"], fit["sb_max"],
+                       color="orange", alpha=0.15, label="sideband")
+            for edge in (fit["sb_min"], fit["sb_max"]):
+                ax.axvline(edge, color="orange",
+                           linestyle="--", linewidth=1.2)
+
+            # Peak centre
+            ax.axvline(fit["mu"], color="black",
+                       linestyle=":", linewidth=1.5, label=f"μ={fit['mu']:+.1f} ns")
+
+            info = (f"μ = {fit['mu']:+.1f} ns\n"
+                    f"σ = {fit['sigma']:.1f} ns\n"
+                    f"signal: [{fit['dt_min']:.0f}, {fit['dt_max']:.0f}] ns\n"
+                    f"sideband: [{fit['sb_min']:.0f}, {fit['sb_max']:.0f}] ns")
+            ax.text(0.97, 0.97, info,
+                    ha="right", va="top",
+                    transform=ax.transAxes,
+                    fontsize=8,
+                    bbox=dict(boxstyle="round,pad=0.3",
+                              facecolor="white", alpha=0.8))
+
+            ax.set_xlabel("Δt (ns)")
+            ax.set_ylabel("Counts")
+            ax.set_title(f"VMM {vmm_id} — {det_name}")
+            ax.legend(fontsize=8, loc="upper left")
+            ax.grid(True, alpha=0.3)
+
+        fig.suptitle(
+            f"{group_label} — Δt peak fit  |  Run {run_no}",
             fontsize=13, fontweight="bold"
         )
         plt.tight_layout()
@@ -468,8 +686,9 @@ def main():
     )
     print(f"  {len(t_trig_on):,} on-spill triggers after deduplication")
 
-    # ── Timing diagnostic ───────────────────────────────────
-    print(f"\nComputing trigger–detector Δt (±1000 ns window)...")
+    # ── Step 1: raw Δt histogram ────────────────────────────
+    # Wide window (±1000 ns) to see the full picture: peak + flat background.
+    print(f"\nStep 1 — computing trigger–detector Δt (±1000 ns)...")
     dt_dict = compute_trigger_detector_dt(
         df_hits, t_trig_on,
         search_window_ns=1000
@@ -477,14 +696,43 @@ def main():
     for vmm_id, dt in dt_dict.items():
         print(f"  VMM {vmm_id}: {len(dt):,} pairs in ±1000 ns window")
 
+    # Raw histogram: linear + log scale. Visually identify the peak
+    # position and the flat accidental background before fitting.
     plot_trigger_detector_dt(
         dt_dict, test_run, vmm_groups,
         search_window_ns=1000
     )
 
-    # ── Time-correlated efficiency ──────────────────────────
-    print(f"\nComputing time-correlated efficiency "
-          f"(signal [{dt_min_ns}, {dt_max_ns}] ns)...")
+    # ── Step 2: fit peak → optimise coincidence window ──────
+    # Fits Gaussian + flat background. Prints μ, σ, and the derived
+    # signal/sideband windows for each VMM. Inspect the plot to confirm
+    # the green band covers the peak and the orange band is in the flat region.
+    print(f"\nStep 2 — fitting Δt peak (Gaussian + flat background)...")
+    peak_fits = fit_dt_peak(dt_dict, search_window_ns=1000,
+                             n_bins=200, n_sigma=3)
+
+    plot_dt_peak_fits(peak_fits, run_no=test_run, vmm_groups=vmm_groups)
+
+    # ── Derive window from fit (first successful VMM) ───────
+    # If fits succeed, use the fitted window; otherwise fall back to
+    # the user-configured defaults set at the top of main().
+    fitted = {v: r for v, r in peak_fits.items() if r.get("success")}
+    if fitted:
+        first = next(iter(fitted.values()))
+        dt_min_ns       = first["dt_min"]
+        dt_max_ns       = first["dt_max"]
+        sideband_min_ns = first["sb_min"]
+        sideband_max_ns = first["sb_max"]
+        print(f"\n  Using fitted window: "
+              f"signal=[{dt_min_ns:.0f}, {dt_max_ns:.0f}] ns  "
+              f"sideband=[{sideband_min_ns:.0f}, {sideband_max_ns:.0f}] ns")
+    else:
+        print(f"\n  All fits failed — using default window: "
+              f"signal=[{dt_min_ns}, {dt_max_ns}] ns  "
+              f"sideband=[{sideband_min_ns}, {sideband_max_ns}] ns")
+
+    # ── Step 3: time-correlated efficiency ──────────────────
+    print(f"\nStep 3 — computing time-correlated efficiency...")
     df_eff = compute_time_correlated_efficiency(
         df_hits, t_trig_on,
         dt_min_ns=dt_min_ns,
