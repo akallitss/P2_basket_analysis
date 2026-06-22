@@ -838,7 +838,7 @@ def main():
     # n_files: number of files for efficiency accumulation (Pass 2).
     # Memory safety: one file loaded at a time; only integer counts kept
     # between iterations. Peak memory = one ROOT file regardless of n_files.
-    n_files       = 10
+    n_files       = 2
     diag_file_idx = 1       # file used for Δt diagnostic + peak fit (Pass 1)
     test_run      = 67      # sg=3, snt=200
 
@@ -987,7 +987,7 @@ def main():
         plt.show()
         return
 
-    # ── Step 3: per-VMM efficiency ──────────────────────────
+    # ── Step 3: per-VMM summary (console only) ─────────────
     df_eff = (pd.concat(vmm_dfs)
                 .groupby("vmm_id")[["n_matched", "n_accidental"]]
                 .sum()
@@ -1002,11 +1002,8 @@ def main():
     print(df_eff[["vmm_id", "n_triggers", "n_matched", "n_accidental",
                    "raw_efficiency", "accidental_eff",
                    "true_efficiency"]].to_string(index=False))
-    out_csv = os.path.join(out_dir, f"efficiency_run{test_run}.csv")
-    df_eff.to_csv(out_csv, index=False)
-    print(f"Saved → {out_csv}")
 
-    # ── Step 4: per-pad efficiency map ──────────────────────
+    # ── Step 4: per-channel efficiency + map ────────────────
     df_ch_eff = (pd.concat(ch_dfs)
                    .groupby(["vmm_id", "ch"])[["n_signal", "n_sideband"]]
                    .sum()
@@ -1017,6 +1014,10 @@ def main():
     df_ch_eff["true_efficiency"] = (df_ch_eff["raw_efficiency"]
                                     - df_ch_eff["accidental_eff"])
     del ch_dfs
+
+    out_csv = os.path.join(out_dir, f"efficiency_per_channel_run{test_run}.csv")
+    df_ch_eff.to_csv(out_csv, index=False)
+    print(f"Saved → {out_csv}")
 
     print(f"\nStep 4 — per-pad efficiency map...")
     for det_key in small_detectors:
