@@ -13,10 +13,12 @@ Answers:
 Workflow
 --------
 1. load_sorted_hits()               — load one ROOT file
-2. filter_on_spill_triggers()       — gate trigger timestamps to beam-on
-3. compute_trigger_detector_dt()    — Δt histogram for window diagnostics
-4. plot_trigger_detector_dt()       — visualise Δt (linear + log)
-5. compute_time_correlated_efficiency() — efficiency with sideband subtraction
+2. filter_on_spill_triggers()       — gate trigger timestamps to beam-on only
+3. compute_trigger_detector_dt()    — build Δt histogram over ±1000 ns
+4. plot_trigger_detector_dt()       — raw Δt: linear + log, see peak vs background
+5. fit_dt_peak()                    — fit Gaussian + flat bg → derive μ, σ, window
+6. plot_dt_peak_fits()              — verify fit: green=signal window, orange=sideband
+7. compute_time_correlated_efficiency() — efficiency with fitted window + sideband subtraction
 
 @author: ak271430
 """
@@ -640,11 +642,11 @@ def plot_time_correlated_efficiency(df_coinc, vmm_groups):
 
 def main():
     # ── User configuration ──────────────────────────────────
-    cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
-    data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
+    # cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
+    # data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
 
-    # cnfg_dir = "/drf/projets/clas12/P2/akallits/"
-    # data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+    cnfg_dir = "/drf/projets/clas12/P2/akallits/"
+    data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
 
     root_file_index     = 1
     test_run            = 67       # sg=3, snt=200 — used for diagnostics
