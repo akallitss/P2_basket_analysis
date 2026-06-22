@@ -238,7 +238,7 @@ def plot_trigger_detector_dt(dt_dict, run_no, vmm_groups,
             fontsize=13, fontweight="bold"
         )
         plt.tight_layout()
-        plt.show()
+        plt.show(block=False)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -455,7 +455,7 @@ def plot_dt_peak_fits(peak_fits, run_no, vmm_groups):
             fontsize=13, fontweight="bold"
         )
         plt.tight_layout()
-        plt.show()
+        plt.show(block=False)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -633,7 +633,7 @@ def plot_time_correlated_efficiency(df_coinc, vmm_groups):
         ax.grid(True, alpha=0.3)
         ax.set_ylim(bottom=0)
         plt.tight_layout()
-        plt.show()
+        plt.show(block=False)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -751,6 +751,8 @@ def main():
         out_csv = f"{cnfg_dir}vmm_coinc_efficiency_run{test_run}.csv"
         df_eff.to_csv(out_csv, index=False)
         print(f"\nSaved → {out_csv}")
+
+    input("\nAll plots open — press Enter to close.")
 
 
 if __name__ == "__main__":
