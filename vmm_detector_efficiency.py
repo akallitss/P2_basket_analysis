@@ -28,9 +28,21 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
+import os
+
 from vmm_mapping import vmm_mapping
 from vmm_io import (load_sorted_hits, compute_spill_masks,
                     NS_PER_TICK, S_PER_TICK)
+
+
+def _save_fig(fig, out_dir, stem):
+    """Save figure as PNG and PDF into out_dir if provided."""
+    if out_dir is None:
+        return
+    os.makedirs(out_dir, exist_ok=True)
+    for ext in ("png", "pdf"):
+        fig.savefig(os.path.join(out_dir, f"{stem}.{ext}"),
+                    bbox_inches="tight")
 
 # ── Derived from vmm_mapping ─────────────────────────────────
 detector_vmms = [
@@ -173,7 +185,7 @@ def compute_trigger_detector_dt(df_hits, t_trig,
 
 def plot_trigger_detector_dt(dt_dict, run_no, vmm_groups,
                                search_window_ns=1000,
-                               n_bins=200):
+                               n_bins=200, out_dir=None):
     """
     Plot Δt = t_detector - t_trigger distributions.
 
@@ -238,6 +250,7 @@ def plot_trigger_detector_dt(dt_dict, run_no, vmm_groups,
             fontsize=13, fontweight="bold"
         )
         plt.tight_layout()
+        _save_fig(fig, out_dir, f"dt_raw_{group_label.replace(' ', '_')}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -354,7 +367,7 @@ def fit_dt_peak(dt_dict, search_window_ns=1000, n_bins=200, n_sigma=3):
     return results
 
 
-def plot_dt_peak_fits(peak_fits, run_no, vmm_groups):
+def plot_dt_peak_fits(peak_fits, run_no, vmm_groups, out_dir=None):
     """
     Plot the Δt histogram with the Gaussian+background fit overlaid.
 
@@ -454,6 +467,7 @@ def plot_dt_peak_fits(peak_fits, run_no, vmm_groups):
             fontsize=13, fontweight="bold"
         )
         plt.tight_layout()
+        _save_fig(fig, out_dir, f"dt_fit_{group_label.replace(' ', '_')}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -557,7 +571,7 @@ def compute_time_correlated_efficiency(df_hits, t_trig,
     return pd.DataFrame(results)
 
 
-def plot_time_correlated_efficiency(df_coinc, vmm_groups):
+def plot_time_correlated_efficiency(df_coinc, vmm_groups, out_dir=None):
     """
     Plot true coincidence efficiency vs configuration per VMM,
     grouped by detector.
@@ -631,6 +645,7 @@ def plot_time_correlated_efficiency(df_coinc, vmm_groups):
         ax.grid(True, alpha=0.3)
         ax.set_ylim(bottom=0)
         plt.tight_layout()
+        _save_fig(fig, out_dir, f"efficiency_{group_label.replace(' ', '_')}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -647,6 +662,10 @@ def main():
 
     root_file_index     = 1
     test_run            = 67       # sg=3, snt=200 — used for diagnostics
+
+    out_dir = os.path.join(cnfg_dir, "results", f"run_{test_run}")
+    os.makedirs(out_dir, exist_ok=True)
+    print(f"Results → {out_dir}")
 
     trigger_vmm         = 0
     trigger_ch          = trigger_ref_channels[trigger_vmm]
@@ -699,7 +718,7 @@ def main():
     # position and the flat accidental background before fitting.
     plot_trigger_detector_dt(
         dt_dict, test_run, vmm_groups,
-        search_window_ns=1000
+        search_window_ns=1000, out_dir=out_dir
     )
 
     # ── Step 2: fit peak → optimise coincidence window ──────
@@ -710,7 +729,8 @@ def main():
     peak_fits = fit_dt_peak(dt_dict, search_window_ns=1000,
                              n_bins=200, n_sigma=3)
 
-    plot_dt_peak_fits(peak_fits, run_no=test_run, vmm_groups=vmm_groups)
+    plot_dt_peak_fits(peak_fits, run_no=test_run, vmm_groups=vmm_groups,
+                      out_dir=out_dir)
 
     # ── Derive window from fit (first successful VMM) ───────
     # If fits succeed, use the fitted window; otherwise fall back to
@@ -745,7 +765,7 @@ def main():
         print(df_eff[["vmm_id", "n_triggers", "n_matched", "n_accidental",
                        "raw_efficiency", "accidental_eff",
                        "true_efficiency"]].to_string(index=False))
-        out_csv = f"{cnfg_dir}vmm_coinc_efficiency_run{test_run}.csv"
+        out_csv = os.path.join(out_dir, f"efficiency_run{test_run}.csv")
         df_eff.to_csv(out_csv, index=False)
         print(f"\nSaved → {out_csv}")
 
