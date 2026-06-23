@@ -1102,11 +1102,11 @@ def compare_large_detector_orientations(df_ch_eff, map_csv,
 
 def main():
     # ── User configuration ──────────────────────────────────
-    # cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
-    # data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
+    cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
+    data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
 
-    cnfg_dir = "/drf/projets/clas12/P2/akallits/"
-    data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+    # cnfg_dir = "/drf/projets/clas12/P2/akallits/"
+    # data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
     map_dir  = ("/local/home/ak271430/Documents/PostDocSaclay/"
                 "data/det_mappings/")
 
@@ -1121,8 +1121,9 @@ def main():
     # n_files: number of files for efficiency accumulation (Pass 2).
     # Memory safety: one file loaded at a time; only integer counts kept
     # between iterations. Peak memory = one ROOT file regardless of n_files.
-    n_files       = 2
-    diag_file_idx = 1       # file used for Δt diagnostic + peak fit (Pass 1)
+    # n_files       = 2
+    n_files       = 1
+    diag_file_idx = 0       # file used for Δt diagnostic + peak fit (Pass 1)
     test_run      = 67      # sg=3, snt=200
 
     out_dir = os.path.join(cnfg_dir, "results", f"run_{test_run}")
