@@ -883,8 +883,8 @@ def plot_hit_heatmap(df_pad_stats, det_map, run_no,
     fig, axes = plt.subplots(1, 2, figsize=(18, 8))
 
     panels = [
-        (axes[0], "n_hits",  "Hit count",         plt.cm.YlOrRd),
-        (axes[1], "adc_sum", "Total ADC (charge)", plt.cm.plasma),
+        (axes[0], "n_hits",  "Hit count",         plt.cm.viridis),
+        (axes[1], "adc_sum", "Total ADC (charge)", plt.cm.viridis),
     ]
 
     for ax, col, title, cmap in panels:
