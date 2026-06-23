@@ -15,8 +15,10 @@ fixed angular half-width set at construction time (~5 mm for ~1 cm pads).
 
 Channel mapping is embedded at load time:
   (vmm_id, ch) → pad index
-with support for 'normal' (ch = mec8_pin − 3) or 'flipped' (ch = 66 − mec8_pin)
-orientation, to handle unknown FEB pin-order direction.
+with support for four connector orientations — 'normal', 'flipped'
+(end-to-end pin reverse), 'back' (back-side insertion = adjacent pair swap),
+and 'flipped_back' (both) — to handle unknown FEB pin-order direction and
+connector seating.  See pin_to_ch().
 
 Usage
 -----
@@ -39,6 +41,40 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+
+
+# ─────────────────────────────────────────────────────────────
+# CONNECTOR ORIENTATION
+# ─────────────────────────────────────────────────────────────
+
+# A flat ribbon / FPC connection has two independent geometric toggles:
+#   • end-to-end reverse   ("flipped")  — cable plugged with pin order reversed
+#   • back-side insertion  ("back")     — 2-row connector mirrored about its long
+#                                          axis, swapping adjacent pin pairs
+#                                          (1↔2, 3↔4, …  i.e. ch ^ 1)
+# Both are XOR masks on the base channel ch0 = mec8_pin − 3, so they commute and
+# compose into four orientations.
+ORIENTATIONS = ("normal", "flipped", "back", "flipped_back")
+
+
+def pin_to_ch(mec8_pin, orientation="normal"):
+    """
+    Map a MEC8 pin (3–66) to a VMM channel (0–63) for a given connector
+    orientation.  Returns a channel that may be outside 0–63 for pins 67/68
+    or invalid combinations; callers must range-check.
+
+    orientation : {'normal', 'flipped', 'back', 'flipped_back'}
+        'normal'        → ch = pin − 3
+        'flipped'       → end-to-end reverse        (ch = 63 − ch0 = 66 − pin)
+        'back'          → back-side plug, pair swap  (ch = ch0 ^ 1)
+        'flipped_back'  → both                       (ch = 62 ^ ch0)
+    """
+    ch = mec8_pin - 3                       # base
+    if "flipped" in orientation:            # end-to-end reverse
+        ch = 63 - ch
+    if "back" in orientation and 0 <= ch <= 63:   # back-side pair swap
+        ch = ch ^ 1
+    return ch
 
 
 # ─────────────────────────────────────────────────────────────
@@ -146,9 +182,13 @@ class FanPadDetector:
             {(fpc_connector, mec8_connector): vmm_id}
         fpc_connectors : list of int
             FPC connector numbers that were cabled (subset of 0–9).
-        orientation : {'normal', 'flipped'}
-            'normal'  → ch = mec8_pin − 3   (pin 3 = ch 0)
-            'flipped' → ch = 66 − mec8_pin  (pin 3 = ch 63)
+        orientation : {'normal', 'flipped', 'back', 'flipped_back'}
+            Connector orientation (see pin_to_ch). Two composable toggles:
+            end-to-end reverse ('flipped') and back-side pair-swap ('back').
+            'normal'       → ch = mec8_pin − 3   (pin 3 = ch 0)
+            'flipped'      → ch = 66 − mec8_pin  (pin 3 = ch 63)
+            'back'         → 'normal'  with adjacent channel pairs swapped
+            'flipped_back' → 'flipped' with adjacent channel pairs swapped
         half_width_mm : float
             Half-width of each pad in the angular direction (default 5 mm).
         """
@@ -177,10 +217,7 @@ class FanPadDetector:
             if vmm_id is None:
                 continue
 
-            if orientation == "normal":
-                ch = pin - 3
-            else:
-                ch = 66 - pin
+            ch = pin_to_ch(pin, orientation)
 
             if not (0 <= ch <= 63):
                 continue
