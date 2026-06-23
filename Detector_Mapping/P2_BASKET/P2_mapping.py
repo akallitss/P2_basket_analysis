@@ -443,10 +443,13 @@ def build_mapping(fcu_path, bcu_path, k59v_netlist=None,
         sx = round(strip_pt[0], 4) if strip_pt else ''
         sy = round(strip_pt[1], 4) if strip_pt else ''
 
+        via_pt = net_to_via.get(net)
         row = {
             'pad_number':       pad_number,
             'x':                sx,
             'y':                sy,
+            'via_x':            round(via_pt[0], 4) if via_pt else '',
+            'via_y':            round(via_pt[1], 4) if via_pt else '',
             'connector_number': int(pad['ref'][1:]),
             'connector_pin':    pad['pin'],
             'pin_name':         pad['pinname'],
@@ -506,7 +509,7 @@ def main():
         via_threshold=args.via_threshold,
     )
 
-    fieldnames = ['pad_number', 'x', 'y',
+    fieldnames = ['pad_number', 'x', 'y', 'via_x', 'via_y',
                   'connector_number', 'connector_pin', 'pin_name',
                   'sector', 'strip', 'channel_id',
                   'pin_x', 'pin_y', 'pad_angle',

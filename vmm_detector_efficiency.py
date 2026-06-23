@@ -36,6 +36,7 @@ from vmm_mapping import vmm_mapping
 from vmm_io import (load_sorted_hits, compute_spill_masks,
                     NS_PER_TICK, S_PER_TICK,
                     iter_hits_files, get_run_dir)
+from FanPadDetector import FanPadDetector
 
 
 def _save_fig(fig, out_dir, stem):
@@ -1211,22 +1212,29 @@ def main():
         plot_hit_heatmap(df_det_hits, det_map, test_run,
                          detector_label=det_label, out_dir=out_dir)
 
-    print(f"\nStep 5 — large detector maps...")
+    print(f"\nStep 5 — large detector maps (FanPadDetector)...")
     for det_key in large_detectors:
-        det_label = vmm_mapping[det_key].get("name", det_key)
-        det_vmms  = vmm_mapping[det_key]["vmm_ids"]
-        df_det    = df_ch_eff[df_ch_eff["vmm_id"].isin(det_vmms)]
+        det_label   = vmm_mapping[det_key].get("name", det_key)
+        det_vmms    = vmm_mapping[det_key]["vmm_ids"]
+        mec8_to_vmm = vmm_mapping[det_key]["mec8_to_vmm"]
+        fpc_conns   = vmm_mapping[det_key]["fpc_connectors"]
+        df_det      = df_ch_eff[df_ch_eff["vmm_id"].isin(det_vmms)]
         if df_det.empty:
             print(f"  {det_label}: no hits — skipping map")
             continue
-        det_map = load_large_detector_map(large_det_map_csv, det_key)
-        print(f"  {det_label}: {len(df_det)} channels with hits, "
-              f"{len(det_map)} strips in map")
-        plot_efficiency_map(df_det, det_map, test_run,
-                            detector_label=det_label, out_dir=out_dir)
+        fan_det = FanPadDetector.from_mapping_csv(
+            large_det_map_csv,
+            mec8_to_vmm=mec8_to_vmm,
+            fpc_connectors=fpc_conns,
+            orientation="normal",
+            half_width_mm=5.0,
+        )
+        print(f"  {det_label}: {len(df_det)} channels with hits")
+        fan_det.plot_efficiency_map(df_det, run_no=test_run,
+                                    detector_label=det_label, out_dir=out_dir)
         df_det_hits = df_pad_stats[df_pad_stats["vmm_id"].isin(det_vmms)]
-        plot_hit_heatmap(df_det_hits, det_map, test_run,
-                         detector_label=det_label, out_dir=out_dir)
+        fan_det.plot_hit_heatmap(df_det_hits, run_no=test_run,
+                                 detector_label=det_label, out_dir=out_dir)
 
     plt.show()
 
