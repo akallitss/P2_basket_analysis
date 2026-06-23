@@ -27,10 +27,10 @@ vmm_mapping = {
         # (fpc_connector_number, mec8_connector) → vmm_id
         # fpc 6 and 7 were cabled in run 67; assignment may need swapping
         'mec8_to_vmm': {
-            (6, 0): 12,
-            (6, 1): 13,
-            (7, 0): 14,
-            (7, 1): 15,
+            (6, 1): 12,
+            (6, 0): 13,
+            (7, 1): 14,
+            (7, 0): 15,
         },
         'fpc_connectors': [6, 7],
     },
