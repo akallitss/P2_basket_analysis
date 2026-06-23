@@ -25,7 +25,7 @@ vmm_mapping = {
         'vmm_ids': [12, 13, 14, 15],
         # K59V adapter: each FPC connector → 2 MEC8 connectors → 2 VMMs
         # (fpc_connector_number, mec8_connector) → vmm_id
-        # fpc 6 and 7 were cabled in run 67; assignment may need swapping
+        # fpc 6 and 7 were cabled in run 67
         'mec8_to_vmm': {
             (6, 1): 12,
             (6, 0): 13,
@@ -33,6 +33,9 @@ vmm_mapping = {
             (7, 0): 15,
         },
         'fpc_connectors': [6, 7],
+        # flat ribbon cables plugged with pins reversed: ch = 66 − mec8_pin
+        # inferred from run 67 beam-spot spatial coherence (top-5 spread 50 mm)
+        'orientation': 'flipped',
     },
     'p2_small_1': {
         'name': 'P2 Small Detector 1',

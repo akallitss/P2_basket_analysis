@@ -1324,11 +1324,12 @@ def main():
         if df_det.empty:
             print(f"  {det_label}: no hits — skipping map")
             continue
+        orientation = vmm_mapping[det_key].get("orientation", "normal")
         fan_det = FanPadDetector.from_mapping_csv(
             large_det_map_csv,
             mec8_to_vmm=mec8_to_vmm,
             fpc_connectors=fpc_conns,
-            orientation="normal",
+            orientation=orientation,
             half_width_mm=5.0,
         )
         print(f"  {det_label}: {len(df_det)} channels with hits")
