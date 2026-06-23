@@ -34,7 +34,7 @@ vmm_mapping = {
         },
         'fpc_connectors': [6, 7],
         # flat ribbon cables plugged with pins reversed: ch = 66 − mec8_pin
-        # inferred from run 67 beam-spot spatial coherence (top-5 spread 50 mm)
+        # inferred from run 67 beam-spot spatial coherence (top-5 spread 50 mm vs 152 mm normal)
         'orientation': 'flipped',
     },
     'p2_small_1': {
