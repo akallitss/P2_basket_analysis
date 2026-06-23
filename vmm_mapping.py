@@ -23,8 +23,16 @@ vmm_mapping = {
     'p2_large_1': {
         'name': 'P2 Large Detector',
         'vmm_ids': [12, 13, 14, 15],
-        'connector_ids': [0, 1, 2, 3],
-        'orientation': ['normal', 'normal', 'normal', 'normal'],
+        # K59V adapter: each FPC connector → 2 MEC8 connectors → 2 VMMs
+        # (fpc_connector_number, mec8_connector) → vmm_id
+        # fpc 6 and 7 were cabled in run 67; assignment may need swapping
+        'mec8_to_vmm': {
+            (6, 0): 12,
+            (6, 1): 13,
+            (7, 0): 14,
+            (7, 1): 15,
+        },
+        'fpc_connectors': [6, 7],
     },
     'p2_small_1': {
         'name': 'P2 Small Detector 1',
