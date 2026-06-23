@@ -990,19 +990,23 @@ def compare_large_detector_orientations(df_ch_eff, map_csv,
                                         fpc_connectors, vmm_ids,
                                         run_no, out_dir=None):
     """
-    Plot hit-rate maps for all 8 cable-assignment × pin-orientation combinations.
+    Plot hit-rate maps for all cable-assignment × connector-orientation combos.
 
-    The two degrees of freedom arising from the flat ribbon cables that
-    connect MEC8 connectors to the VMM FEB are:
-      - Pin direction: 'normal' (ch = mec8_pin − 3) or
-                       'flipped' (ch = 66 − mec8_pin)
-      - Port pairing: which mec8 port (0 or 1) feeds which VMM, and
-                      which FPC connector (fpc_a or fpc_b) feeds which
-                      VMM pair
+    Degrees of freedom in the FPC → K59V → MEC8 → ribbon → VMM chain:
+      - Port pairing (4 schemes A–D): which mec8 port (0 or 1) feeds which
+        VMM, and which FPC connector feeds which VMM pair.
+      - Connector orientation (4 per FanPadDetector.pin_to_ch):
+          normal        ch = pin − 3
+          flipped       ch = 66 − pin            (end-to-end reverse)
+          back          normal with adjacent channel pairs swapped (ch ^ 1)
+          flipped_back  flipped with adjacent pairs swapped
+        'back'/'flipped_back' model the connector plugged in from the back
+        side (2-row connector mirrored about its long axis: 1↔2, 3↔4, …).
 
-    This gives 4 cable-assignment schemes (A–D) × 2 pin directions = 8 panels.
-    The correct combination will show a concentrated beam spot;
-    all others scatter hits across unrelated pads.
+    4 assignment schemes × 4 orientations = 16 panels (rows A–D, columns by
+    orientation).  For a localised beam the correct combination shows a
+    concentrated spot; the per-panel hit-weighted spread (mm) quantifies it.
+    NB: for a wide (muon) beam the spread does not discriminate orientation.
 
     Parameters
     ----------
@@ -1012,7 +1016,7 @@ def compare_large_detector_orientations(df_ch_eff, map_csv,
     map_csv : str
         Path to P2_BASKET_mapping.csv.
     fpc_connectors : list of int
-        The two cabled FPC connector numbers, e.g. [6, 7].
+        The two cabled FPC connector numbers, e.g. [4, 5].
     vmm_ids : list of int
         The four VMM ids in assignment order [v0, v1, v2, v3], matching
         vmm_mapping[det_key]['vmm_ids'].
@@ -1022,61 +1026,69 @@ def compare_large_detector_orientations(df_ch_eff, map_csv,
     fa, fb           = fpc_connectors
     v0, v1, v2, v3  = vmm_ids
 
-    combos = [
-        # ── A: current (from vmm_mapping) ────────────────────────
-        ("A-normal",  {(fa, 1): v0, (fa, 0): v1, (fb, 1): v2, (fb, 0): v3}, "normal"),
-        ("A-flipped", {(fa, 1): v0, (fa, 0): v1, (fb, 1): v2, (fb, 0): v3}, "flipped"),
-        # ── B: mec8 ports swapped within each FPC ────────────────
-        ("B-normal",  {(fa, 0): v0, (fa, 1): v1, (fb, 0): v2, (fb, 1): v3}, "normal"),
-        ("B-flipped", {(fa, 0): v0, (fa, 1): v1, (fb, 0): v2, (fb, 1): v3}, "flipped"),
-        # ── C: FPC connectors swapped ─────────────────────────────
-        ("C-normal",  {(fb, 1): v0, (fb, 0): v1, (fa, 1): v2, (fa, 0): v3}, "normal"),
-        ("C-flipped", {(fb, 1): v0, (fb, 0): v1, (fa, 1): v2, (fa, 0): v3}, "flipped"),
-        # ── D: FPC swap + mec8 swap ───────────────────────────────
-        ("D-normal",  {(fb, 0): v0, (fb, 1): v1, (fa, 0): v2, (fa, 1): v3}, "normal"),
-        ("D-flipped", {(fb, 0): v0, (fb, 1): v1, (fa, 0): v2, (fa, 1): v3}, "flipped"),
-    ]
+    assignments = {
+        "A": {(fa, 1): v0, (fa, 0): v1, (fb, 1): v2, (fb, 0): v3},  # current wiring
+        "B": {(fa, 0): v0, (fa, 1): v1, (fb, 0): v2, (fb, 1): v3},  # mec8 ports swapped
+        "C": {(fb, 1): v0, (fb, 0): v1, (fa, 1): v2, (fa, 0): v3},  # FPC connectors swapped
+        "D": {(fb, 0): v0, (fb, 1): v1, (fa, 0): v2, (fa, 1): v3},  # both swapped
+    }
+    orientations = ["normal", "flipped", "back", "flipped_back"]
 
-    fig, axes = plt.subplots(2, 4, figsize=(28, 14))
-    axes = axes.flatten()
+    fig, axes = plt.subplots(len(assignments), len(orientations),
+                             figsize=(26, 24))
 
-    for ax, (label, mec8_to_vmm, orientation) in zip(axes, combos):
-        det = FanPadDetector.from_mapping_csv(
-            map_csv,
-            mec8_to_vmm=mec8_to_vmm,
-            fpc_connectors=fpc_connectors,
-            orientation=orientation,
-            half_width_mm=5.0,
-        )
+    for i, (aname, mec8_to_vmm) in enumerate(assignments.items()):
+        for j, orientation in enumerate(orientations):
+            ax  = axes[i, j]
+            det = FanPadDetector.from_mapping_csv(
+                map_csv,
+                mec8_to_vmm=mec8_to_vmm,
+                fpc_connectors=fpc_connectors,
+                orientation=orientation,
+                half_width_mm=5.0,
+            )
 
-        eff_map = {}
-        for _, row in df_ch_eff.iterrows():
-            key = (int(row["vmm_id"]), int(row["ch"]))
-            idx = det.channel_map.get(key)
-            if idx is not None:
-                eff_map[idx] = max(0.0, float(row["true_efficiency"]))
+            eff_map = {}
+            for _, row in df_ch_eff.iterrows():
+                key = (int(row["vmm_id"]), int(row["ch"]))
+                idx = det.channel_map.get(key)
+                if idx is not None:
+                    eff_map[idx] = max(0.0, float(row["true_efficiency"]))
 
-        n     = len(det.pads)
-        vals  = np.array([eff_map.get(i, np.nan) for i in range(n)])
-        valid = vals[np.isfinite(vals)]
-        vmax  = valid.max() if len(valid) else 1.0
-        cmap  = plt.cm.viridis
-        norm  = plt.Normalize(vmin=0, vmax=vmax)
+            n     = len(det.pads)
+            vals  = np.array([eff_map.get(i_, np.nan) for i_ in range(n)])
+            valid = vals[np.isfinite(vals)]
+            vmax  = valid.max() if len(valid) else 1.0
+            cmap  = plt.cm.viridis
+            norm  = plt.Normalize(vmin=0, vmax=vmax)
 
-        det._draw_pads(ax, vals, cmap, norm)
+            det._draw_pads(ax, vals, cmap, norm)
 
-        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-        sm.set_array([])
-        plt.colorbar(sm, ax=ax, shrink=0.7,
-                     format=plt.FuncFormatter(lambda x, _: f"{x*100:.3f}%"))
-        ax.set_title(label, fontsize=10, fontweight="bold")
+            # hit-weighted spatial spread (mm): small = concentrated spot
+            w  = np.array([eff_map.get(i_, 0.0) for i_ in range(n)])
+            cx = np.array([det.pads[i_].center[0] for i_ in range(n)])
+            cy = np.array([det.pads[i_].center[1] for i_ in range(n)])
+            if w.sum() > 0:
+                mx, my = (w * cx).sum() / w.sum(), (w * cy).sum() / w.sum()
+                spread = np.sqrt((w * ((cx - mx) ** 2 + (cy - my) ** 2)).sum()
+                                 / w.sum())
+            else:
+                spread = float("nan")
+
+            sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+            sm.set_array([])
+            plt.colorbar(sm, ax=ax, shrink=0.7,
+                         format=plt.FuncFormatter(lambda x, _: f"{x*100:.3f}%"))
+            ax.set_title(f"{aname}-{orientation}   spread={spread:.0f} mm",
+                         fontsize=10, fontweight="bold")
 
     fig.suptitle(
         f"P2 Large Detector — cable orientation diagnostic  |  Run {run_no}\n"
-        f"A = current wiring  |  B = mec8 ports swapped  |  "
-        f"C = FPC connectors swapped  |  D = both\n"
-        f"-normal: ch = pin − 3     -flipped: ch = 66 − pin     "
-        f"correct combination shows a concentrated beam spot",
+        f"rows: A = current wiring  |  B = mec8 ports swapped  |  "
+        f"C = FPC connectors swapped  |  D = both       "
+        f"columns: normal / flipped (reverse) / back (pair-swap) / both\n"
+        f"smallest hit-weighted spread = most concentrated beam spot "
+        f"(does not discriminate for a wide muon beam)",
         fontsize=11, fontweight="bold",
     )
     plt.tight_layout()
@@ -1338,7 +1350,7 @@ def main():
         df_det_hits = df_pad_stats[df_pad_stats["vmm_id"].isin(det_vmms)]
         fan_det.plot_hit_heatmap(df_det_hits, run_no=test_run,
                                  detector_label=det_label, out_dir=out_dir)
-        print(f"  {det_label}: generating orientation comparison (8 panels)...")
+        print(f"  {det_label}: generating orientation comparison (16 panels)...")
         compare_large_detector_orientations(
             df_det, large_det_map_csv,
             fpc_connectors=fpc_conns,
