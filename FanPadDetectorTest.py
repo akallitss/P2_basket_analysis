@@ -5,17 +5,14 @@ FanPadDetectorTest.py
 
 Visual geometry tests for FanPadDetector.
 
-Loads the *full* detector (all 10 FPC connectors, 1280 pads) from the
-Gerber-derived CSV and runs two display tests:
+Loads the full detector (all 10 FPC connectors, 1280 pads) from the
+Gerber-derived CSV and plots:
 
   1. Sector layout  — pads coloured by FPC connector number (0–9)
-  2. Strip ordering — pads coloured by strip number within each connector (0–127)
+  2. Strip ordering — pads coloured by strip index within each connector (0–127)
 
 Run from the P2_basket_analysis directory:
     python3 FanPadDetectorTest.py
-
-Note: hit heatmaps, efficiency maps, and orientation comparison are handled
-by vmm_detector_efficiency.py with real run data.
 
 @author: ak271430
 """
@@ -24,7 +21,6 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import matplotlib.cm as mcm
 
 from FanPadDetector import FanPadDetector
 
@@ -34,8 +30,8 @@ MAP_CSV = os.path.join(
     os.path.dirname(__file__),
     "Detector_Mapping", "P2_BASKET", "P2_BASKET_mapping.csv",
 )
-HALF_WIDTH = 5.0   # mm — angular half-width of each pad
-N_CONNECTORS = 10  # full detector
+HALF_WIDTH   = 5.0   # mm
+N_CONNECTORS = 10    # full detector
 
 
 # ── Helpers ────────────────────────────────────────────────────
@@ -76,7 +72,7 @@ def plot_sector_layout(det):
     return fig, ax
 
 
-# ── 2. Strip ordering: pads coloured by strip number (0–127) ───
+# ── 2. Strip ordering: pads coloured by strip index (0–127) ────
 
 def plot_strip_order(det):
     """Draw all pads coloured by strip index within the connector (0–127)."""
@@ -95,7 +91,8 @@ def plot_strip_order(det):
 
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
-    fig.colorbar(sm, ax=ax, shrink=0.75, label="Strip index within connector (0 = strip 1)")
+    fig.colorbar(sm, ax=ax, shrink=0.75,
+                 label="Strip index within connector (0 = strip 1)")
     ax.set_title(f"Full detector — strip ordering within each connector\n"
                  f"({len(det.pads)} pads)",
                  fontsize=12, fontweight="bold")
@@ -112,8 +109,8 @@ def main():
     print(f"Connectors in CSV: {connectors_found}")
     print(f"Strips per connector: {len(det.pads) // len(connectors_found)}")
 
-    fig1, _ = plot_sector_layout(det)
-    fig2, _ = plot_strip_order(det)
+    plot_sector_layout(det)
+    plot_strip_order(det)
 
     plt.tight_layout()
     print("All tests passed")
