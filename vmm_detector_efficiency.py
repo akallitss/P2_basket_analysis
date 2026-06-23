@@ -48,6 +48,15 @@ def _save_fig(fig, out_dir, stem):
                     bbox_inches="tight")
 
 
+def _fmt_compact(val):
+    """Format a large integer compactly: 1.2M, 34.5k, 123."""
+    if val >= 1e6:
+        return f"{val/1e6:.1f}M"
+    if val >= 1e3:
+        return f"{val/1e3:.1f}k"
+    return f"{val:.0f}"
+
+
 def load_detector_map(map_csv, detector_key):
     """
     Load pad-position CSV and resolve (connector, channel) → (vmm_id, ch).
@@ -743,6 +752,28 @@ def compute_channel_efficiency(df_hits, t_trig,
     return pd.DataFrame(results)
 
 
+def compute_pad_hit_stats(df_hits, det_vmm_ids):
+    """
+    Accumulate raw hit count and total ADC per pad (vmm_id, ch).
+
+    Parameters
+    ----------
+    df_hits : pd.DataFrame
+        Hit data with at least columns vmm, ch, adc.
+    det_vmm_ids : list of int
+        VMM IDs to include (excludes trigger VMMs).
+
+    Returns
+    -------
+    pd.DataFrame with columns: vmm_id, ch, n_hits, adc_sum
+    """
+    df = df_hits[df_hits["vmm"].isin(det_vmm_ids)][["vmm", "ch", "adc"]]
+    return (df.groupby(["vmm", "ch"])
+               .agg(n_hits=("adc", "count"), adc_sum=("adc", "sum"))
+               .reset_index()
+               .rename(columns={"vmm": "vmm_id"}))
+
+
 def plot_efficiency_map(df_ch_eff, det_map, run_no,
                         detector_label="", out_dir=None):
     """
@@ -822,6 +853,81 @@ def plot_efficiency_map(df_ch_eff, det_map, run_no,
     plt.tight_layout()
     _save_fig(fig, out_dir,
               f"eff_map_{detector_label.replace(' ', '_')}_run{run_no}")
+
+
+def plot_hit_heatmap(df_pad_stats, det_map, run_no,
+                     detector_label="", out_dir=None):
+    """
+    Plot per-pad hit count and ADC-weighted hit count as 2D colour maps.
+
+    Left panel : raw hit count per pad (n_hits)
+    Right panel: total ADC per pad (adc_sum) — proportional to collected charge
+
+    Pads with no data are drawn in grey.
+
+    Parameters
+    ----------
+    df_pad_stats : pd.DataFrame
+        Accumulated pad statistics: vmm_id, ch, n_hits, adc_sum.
+    det_map : pd.DataFrame
+        Output of load_detector_map(): vmm_id, ch, x_mm, y_mm, size_mm.
+    run_no : int
+    detector_label : str
+    out_dir : str or None
+    """
+    df = det_map.merge(
+        df_pad_stats[["vmm_id", "ch", "n_hits", "adc_sum"]],
+        on=["vmm_id", "ch"], how="left",
+    )
+
+    fig, axes = plt.subplots(1, 2, figsize=(18, 8))
+
+    panels = [
+        (axes[0], "n_hits",  "Hit count",         plt.cm.YlOrRd),
+        (axes[1], "adc_sum", "Total ADC (charge)", plt.cm.plasma),
+    ]
+
+    for ax, col, title, cmap in panels:
+        valid = df[col].dropna()
+        vmax  = valid.max() if not valid.empty else 1.0
+        norm  = plt.Normalize(vmin=0, vmax=vmax)
+
+        for _, row in df.iterrows():
+            half  = row["size_mm"] / 2.0
+            val   = row[col]
+            color = cmap(norm(val)) if pd.notna(val) else "lightgrey"
+            rect  = plt.Rectangle(
+                (row["x_mm"] - half, row["y_mm"] - half),
+                row["size_mm"], row["size_mm"],
+                facecolor=color, edgecolor="black", linewidth=0.4,
+            )
+            ax.add_patch(rect)
+            label = _fmt_compact(val) if pd.notna(val) else "—"
+            ax.text(row["x_mm"], row["y_mm"], label,
+                    ha="center", va="center", fontsize=5.5, color="black")
+
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cb = fig.colorbar(sm, ax=ax, shrink=0.8)
+        cb.set_label(title)
+
+        margin = det_map["size_mm"].max()
+        ax.set_xlim(det_map["x_mm"].min() - margin,
+                    det_map["x_mm"].max() + margin)
+        ax.set_ylim(det_map["y_mm"].min() - margin,
+                    det_map["y_mm"].max() + margin)
+        ax.set_aspect("equal")
+        ax.set_xlabel("X (mm)")
+        ax.set_ylabel("Y (mm)")
+        ax.set_title(title, fontsize=11)
+
+    fig.suptitle(
+        f"{detector_label} — pad hit heatmaps  |  Run {run_no}",
+        fontsize=13, fontweight="bold",
+    )
+    plt.tight_layout()
+    _save_fig(fig, out_dir,
+              f"hit_map_{detector_label.replace(' ', '_')}_run{run_no}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -935,11 +1041,12 @@ def main():
 
     vmm_dfs      = []   # list of small DataFrames: [vmm_id, n_matched, n_accidental]
     ch_dfs       = []   # list of small DataFrames: [vmm_id, ch, n_signal, n_sideband]
+    pad_stat_dfs = []   # list of small DataFrames: [vmm_id, ch, n_hits, adc_sum]
     n_trig_total = 0
 
     for i, df_hits in enumerate(iter_hits_files(
             run_dir, n_files=n_files,
-            branches=["time", "vmm", "ch"],
+            branches=["time", "vmm", "ch", "adc"],
             file_start=diag_file_idx)):
 
         df_hits = (df_hits[df_hits["time"] < 2e12]
@@ -982,6 +1089,7 @@ def main():
             sb_min_ns=sideband_min_ns, sb_max_ns=sideband_max_ns,
         )
         ch_dfs.append(df_ch[["vmm_id", "ch", "n_signal", "n_sideband"]].copy())
+        pad_stat_dfs.append(compute_pad_hit_stats(df_hits, detector_vmms))
 
         del df_hits, df_vmm, df_ch   # one file at a time
 
@@ -1021,11 +1129,17 @@ def main():
                                     - df_ch_eff["accidental_eff"])
     del ch_dfs
 
+    df_pad_stats = (pd.concat(pad_stat_dfs)
+                      .groupby(["vmm_id", "ch"])[["n_hits", "adc_sum"]]
+                      .sum()
+                      .reset_index())
+    del pad_stat_dfs
+
     out_csv = os.path.join(out_dir, f"efficiency_per_channel_run{test_run}.csv")
     df_ch_eff.to_csv(out_csv, index=False)
     print(f"Saved → {out_csv}")
 
-    print(f"\nStep 4 — per-pad efficiency map...")
+    print(f"\nStep 4 — per-pad efficiency map and hit heatmaps...")
     for det_key in small_detectors:
         det_label = vmm_mapping[det_key].get("name", det_key)
         det_vmms  = vmm_mapping[det_key]["vmm_ids"]
@@ -1037,6 +1151,9 @@ def main():
         print(f"  {det_label}: {len(df_det)} channels with hits")
         plot_efficiency_map(df_det, det_map, test_run,
                             detector_label=det_label, out_dir=out_dir)
+        df_det_hits = df_pad_stats[df_pad_stats["vmm_id"].isin(det_vmms)]
+        plot_hit_heatmap(df_det_hits, det_map, test_run,
+                         detector_label=det_label, out_dir=out_dir)
 
     plt.show()
 
