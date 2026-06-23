@@ -334,7 +334,8 @@ class FanPadDetector:
                          detector_label="P2 Large Detector",
                          out_dir=None):
         """
-        Two-panel plot: hit count (left) and total ADC (right) per pad.
+        2×2 plot of hit count (left) and total ADC (right) per pad, with a
+        linear colour scale on the top row and a log scale on the bottom row.
 
         Parameters
         ----------
@@ -345,6 +346,8 @@ class FanPadDetector:
         detector_label : str
         out_dir : str or None
         """
+        from matplotlib.colors import LogNorm
+
         hit_map = {}
         adc_map = {}
         for _, row in df_ch_stats.iterrows():
@@ -358,21 +361,35 @@ class FanPadDetector:
         hit_vals = np.array([hit_map.get(i, np.nan) for i in range(n)])
         adc_vals = np.array([adc_map.get(i, np.nan) for i in range(n)])
 
-        fig, axes = plt.subplots(1, 2, figsize=(18, 9))
+        fig, axes = plt.subplots(2, 2, figsize=(18, 17))
 
-        for ax, vals, title, cmap_obj in [
-            (axes[0], hit_vals, "Hit count",         plt.cm.viridis),
-            (axes[1], adc_vals, "Total ADC (charge)", plt.cm.viridis),
-        ]:
+        for col, (vals, title) in enumerate([
+            (hit_vals, "Hit count"),
+            (adc_vals, "Total ADC (charge)"),
+        ]):
             valid = vals[np.isfinite(vals)]
             vmax  = valid.max() if len(valid) else 1.0
-            norm  = plt.Normalize(vmin=0, vmax=vmax)
-            self._draw_pads(ax, vals, cmap_obj, norm)
 
-            sm = plt.cm.ScalarMappable(cmap=cmap_obj, norm=norm)
+            # ── linear (top row) ──
+            ax_lin = axes[0, col]
+            norm   = plt.Normalize(vmin=0, vmax=vmax)
+            self._draw_pads(ax_lin, vals, plt.cm.viridis, norm)
+            sm = plt.cm.ScalarMappable(cmap=plt.cm.viridis, norm=norm)
             sm.set_array([])
-            fig.colorbar(sm, ax=ax, shrink=0.8, label=title)
-            ax.set_title(title, fontsize=11)
+            fig.colorbar(sm, ax=ax_lin, shrink=0.8, label=title)
+            ax_lin.set_title(f"{title} — linear", fontsize=11)
+
+            # ── log (bottom row); non-positive pads shown as missing ──
+            ax_log   = axes[1, col]
+            log_vals = np.where(np.isfinite(vals) & (vals > 0), vals, np.nan)
+            positive = log_vals[np.isfinite(log_vals)]
+            vmin_log = positive.min() if len(positive) else 1.0
+            log_norm = LogNorm(vmin=vmin_log, vmax=max(vmax, vmin_log * 10))
+            self._draw_pads(ax_log, log_vals, plt.cm.viridis, log_norm)
+            sm = plt.cm.ScalarMappable(cmap=plt.cm.viridis, norm=log_norm)
+            sm.set_array([])
+            fig.colorbar(sm, ax=ax_log, shrink=0.8, label=title)
+            ax_log.set_title(f"{title} — log", fontsize=11)
 
         run_str = f"  |  Run {run_no}" if run_no is not None else ""
         fig.suptitle(f"{detector_label} — pad hit heatmaps{run_str}",
