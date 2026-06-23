@@ -26,18 +26,21 @@ vmm_mapping = {
         # K59V adapter: each FPC connector → 2 MEC8 connectors → 2 VMMs
         # (fpc_connector_number, mec8_connector) → vmm_id
         # physical FPC connectors 4 and 5 were cabled in run 67;
-        # FPC 4 → VMMs 14,15 and FPC 5 → VMMs 12,13 (C-style wiring);
-        # flat ribbon cables plugged with pins reversed: ch = 66 − mec8_pin.
-        # Determined from 8-combination orientation scan: C-flipped gives
-        # tightest beam-spot cluster (top-5 spread 21 mm, centre ≈ 348,241 mm).
+        # FPC 4 → VMMs 12,13 and FPC 5 → VMMs 14,15 (A-style wiring).
+        # Connector orientation 'flipped_back': end-to-end pin reverse AND
+        # back-side insertion (adjacent channel pairs swapped, ch ^ 1).
+        # Chosen by visual inspection of the 16-panel orientation scan
+        # (A-flipped_back shows the most concentrated beam profile). NB: run 67
+        # is a wide muon beam, so the spread metric only weakly distinguishes
+        # orientations (all 16 within 107–132 mm) — revisit with a focused beam.
         'mec8_to_vmm': {
-            (5, 1): 12,
-            (5, 0): 13,
-            (4, 1): 14,
-            (4, 0): 15,
+            (4, 1): 12,
+            (4, 0): 13,
+            (5, 1): 14,
+            (5, 0): 15,
         },
         'fpc_connectors': [4, 5],
-        'orientation': 'flipped',
+        'orientation': 'flipped_back',
     },
     'p2_small_1': {
         'name': 'P2 Small Detector 1',
