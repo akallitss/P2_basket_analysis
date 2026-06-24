@@ -879,6 +879,71 @@ def compute_pad_hit_stats(df_hits, det_vmm_ids):
                .rename(columns={"vmm": "vmm_id"}))
 
 
+def compute_pad_hit_stats_coincident(df_hits, det_vmm_ids, t_trig,
+                                     dt_min_ns, dt_max_ns,
+                                     sb_min_ns, sb_max_ns):
+    """
+    Per-pad hit count and total ADC, restricted to trigger-coincident hits.
+
+    Unlike compute_pad_hit_stats (all on-spill singles), this keeps only hits
+    whose time falls in the signal window [dt_min, dt_max] of at least one
+    on-spill trigger — i.e. beam-correlated hits. It also tallies the sideband
+    window so accidentals can be subtracted downstream, giving a hit map that
+    shows the beam profile (the same physics as the efficiency map but in
+    counts / collected charge).
+
+    A hit at time t is in a window iff some trigger t_trig satisfies
+    t - dt_max <= t_trig <= t - dt_min, found by searchsorted on sorted t_trig.
+
+    Returns
+    -------
+    pd.DataFrame with columns:
+        vmm_id, ch, n_hits_sig, adc_sig, n_hits_sb, adc_sb
+    """
+    cols = ["vmm_id", "ch", "n_hits_sig", "adc_sig", "n_hits_sb", "adc_sb"]
+    df = df_hits[df_hits["vmm"].isin(det_vmm_ids)]
+    if df.empty or len(t_trig) == 0:
+        return pd.DataFrame(columns=cols)
+
+    t_trig = np.sort(np.asarray(t_trig))
+    t      = df["time"].values
+    adc    = df["adc"].values
+
+    in_sig = (np.searchsorted(t_trig, t - dt_min_ns, side="right")
+              > np.searchsorted(t_trig, t - dt_max_ns))
+    in_sb  = (np.searchsorted(t_trig, t - sb_min_ns, side="right")
+              > np.searchsorted(t_trig, t - sb_max_ns))
+
+    sub = df[["vmm", "ch"]].copy()
+    sub["n_hits_sig"] = in_sig.astype(np.int64)
+    sub["adc_sig"]    = np.where(in_sig, adc, 0)
+    sub["n_hits_sb"]  = in_sb.astype(np.int64)
+    sub["adc_sb"]     = np.where(in_sb, adc, 0)
+    return (sub.groupby(["vmm", "ch"])
+               [["n_hits_sig", "adc_sig", "n_hits_sb", "adc_sb"]]
+               .sum()
+               .reset_index()
+               .rename(columns={"vmm": "vmm_id"}))
+
+
+def beam_correlated_pad_stats(df_coinc, scale):
+    """
+    Collapse accumulated signal/sideband pad stats into a single n_hits/adc_sum
+    table (signal minus scaled sideband), ready for plot_hit_heatmap.
+
+    Parameters
+    ----------
+    df_coinc : pd.DataFrame
+        Output of compute_pad_hit_stats_coincident, summed over files.
+    scale : float
+        Signal/sideband width ratio applied to the sideband before subtraction.
+    """
+    out = df_coinc.copy()
+    out["n_hits"]  = (out["n_hits_sig"] - scale * out["n_hits_sb"]).clip(lower=0)
+    out["adc_sum"] = (out["adc_sig"]    - scale * out["adc_sb"]).clip(lower=0)
+    return out[["vmm_id", "ch", "n_hits", "adc_sum"]]
+
+
 def compute_pad_adc_hist(df_hits, det_vmm_ids, bin_width=8, n_bins=128):
     """
     Accumulate a 2D (pad, ADC) histogram as a compact count table.
@@ -1441,6 +1506,7 @@ def main():
     vmm_dfs      = []   # list of small DataFrames: [vmm_id, n_matched, n_accidental]
     ch_dfs       = []   # list of small DataFrames: [vmm_id, ch, n_signal, n_sideband]
     pad_stat_dfs = []   # list of small DataFrames: [vmm_id, ch, n_hits, adc_sum]
+    coinc_stat_dfs = [] # beam-correlated pad stats (signal + sideband tallies)
     adc_hist_dfs = []   # list of small DataFrames: [vmm_id, ch, adc_bin, counts]
     n_trig_total = 0
 
@@ -1499,6 +1565,11 @@ def main():
         )
         ch_dfs.append(df_ch[["vmm_id", "ch", "n_signal", "n_sideband"]].copy())
         pad_stat_dfs.append(compute_pad_hit_stats(df_hits, detector_vmms))
+        coinc_stat_dfs.append(compute_pad_hit_stats_coincident(
+            df_hits, detector_vmms, t_trig,
+            dt_min_ns=dt_min_ns, dt_max_ns=dt_max_ns,
+            sb_min_ns=sideband_min_ns, sb_max_ns=sideband_max_ns,
+        ))
 
         del df_hits, df_vmm, df_ch   # one file at a time
 
@@ -1550,6 +1621,19 @@ def main():
                      .reset_index()) if adc_hist_dfs else None
     del adc_hist_dfs
 
+    # Beam-correlated (trigger-coincident) pad stats: signal minus scaled
+    # sideband → n_hits / adc_sum that show the beam profile.
+    coinc_scale  = ((dt_max_ns - dt_min_ns)
+                    / (sideband_max_ns - sideband_min_ns))
+    df_coinc_raw = (pd.concat(coinc_stat_dfs)
+                      .groupby(["vmm_id", "ch"])
+                      [["n_hits_sig", "adc_sig", "n_hits_sb", "adc_sb"]]
+                      .sum()
+                      .reset_index()) if coinc_stat_dfs else None
+    df_pad_coinc = (beam_correlated_pad_stats(df_coinc_raw, coinc_scale)
+                    if df_coinc_raw is not None else None)
+    del coinc_stat_dfs
+
     out_csv = os.path.join(out_dir, f"efficiency_per_channel_run{test_run}.csv")
     df_ch_eff.to_csv(out_csv, index=False)
     print(f"Saved → {out_csv}")
@@ -1569,6 +1653,11 @@ def main():
         df_det_hits = df_pad_stats[df_pad_stats["vmm_id"].isin(det_vmms)]
         plot_hit_heatmap(df_det_hits, det_map, test_run,
                          detector_label=det_label, out_dir=out_dir)
+        if df_pad_coinc is not None:
+            df_det_coinc = df_pad_coinc[df_pad_coinc["vmm_id"].isin(det_vmms)]
+            plot_hit_heatmap(df_det_coinc, det_map, test_run,
+                             detector_label=f"{det_label} beam-correlated",
+                             out_dir=out_dir)
         if df_adc_hist is not None:
             plot_adc_distributions(
                 df_adc_hist, run_no=test_run, detector_label=det_label,
@@ -1599,6 +1688,11 @@ def main():
         df_det_hits = df_pad_stats[df_pad_stats["vmm_id"].isin(det_vmms)]
         fan_det.plot_hit_heatmap(df_det_hits, run_no=test_run,
                                  detector_label=det_label, out_dir=out_dir)
+        if df_pad_coinc is not None:
+            df_det_coinc = df_pad_coinc[df_pad_coinc["vmm_id"].isin(det_vmms)]
+            fan_det.plot_hit_heatmap(
+                df_det_coinc, run_no=test_run,
+                detector_label=f"{det_label} beam-correlated", out_dir=out_dir)
         if df_adc_hist is not None:
             plot_adc_distributions(
                 df_adc_hist, run_no=test_run, detector_label=det_label,
