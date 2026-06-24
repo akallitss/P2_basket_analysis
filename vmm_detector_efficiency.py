@@ -879,6 +879,43 @@ def compute_pad_hit_stats(df_hits, det_vmm_ids):
                .rename(columns={"vmm": "vmm_id"}))
 
 
+def compute_pad_adc_hist(df_hits, det_vmm_ids, bin_width=8, n_bins=128):
+    """
+    Accumulate a 2D (pad, ADC) histogram as a compact count table.
+
+    For every (vmm_id, ch) pad the per-hit ADC values are binned into
+    fixed-width ADC bins. The return value is small (one row per populated
+    pad×adc-bin cell), so it can be concatenated across many files without
+    holding raw hits in memory — same streaming strategy as the other Pass-2
+    accumulators.
+
+    Parameters
+    ----------
+    df_hits : pd.DataFrame
+        Hit data with at least columns vmm, ch, adc.
+    det_vmm_ids : list of int
+        VMM IDs to include (excludes trigger VMMs).
+    bin_width : int
+        ADC bin width (VMM ADC is 10-bit, 0–1023).
+    n_bins : int
+        Number of ADC bins; bins cover [0, n_bins*bin_width).
+
+    Returns
+    -------
+    pd.DataFrame with columns: vmm_id, ch, adc_bin, counts
+    """
+    df = df_hits.loc[df_hits["vmm"].isin(det_vmm_ids),
+                     ["vmm", "ch", "adc"]].copy()
+    if df.empty:
+        return pd.DataFrame(columns=["vmm_id", "ch", "adc_bin", "counts"])
+    df["adc_bin"] = np.clip((df["adc"] // bin_width).astype(int),
+                            0, n_bins - 1)
+    return (df.groupby(["vmm", "ch", "adc_bin"])
+              .size()
+              .reset_index(name="counts")
+              .rename(columns={"vmm": "vmm_id"}))
+
+
 def plot_efficiency_map(df_ch_eff, det_map, run_no,
                         detector_label="", out_dir=None):
     """
@@ -1033,6 +1070,129 @@ def plot_hit_heatmap(df_pad_stats, det_map, run_no,
     plt.tight_layout()
     _save_fig(fig, out_dir,
               f"hit_map_{detector_label.replace(' ', '_')}_run{run_no}")
+
+
+def plot_adc_distributions(df_adc_hist, run_no, detector_label, vmm_ids,
+                           bin_width=8, n_bins=128, adc_cut=None, adc_max=None,
+                           out_dir=None):
+    """
+    Plot ADC distributions as 2D (pad/channel, ADC) heatmaps in jet colour.
+
+    Two figures are produced:
+      1. Per-detector — x = pad number (VMM-ordered channel index across all
+         VMMs of the detector), y = ADC, colour = hit counts (log scale).
+         Dashed lines + labels mark the VMM boundaries.
+      2. Per-VMM — one panel per VMM, x = channel (0–63), y = ADC.
+
+    Parameters
+    ----------
+    df_adc_hist : pd.DataFrame
+        Accumulated count table: vmm_id, ch, adc_bin, counts
+        (output of compute_pad_adc_hist, summed over files).
+    run_no : int
+        Run number for titles/filenames.
+    detector_label : str
+        Human-readable detector name.
+    vmm_ids : list of int
+        VMM IDs belonging to this detector, in display order.
+    bin_width, n_bins : int
+        Must match the values used in compute_pad_adc_hist.
+    adc_cut : int or None
+        If given, draw a dashed reference line at the lower amplitude cut.
+    adc_max : int or None
+        If given, draw a dashed reference line at the upper amplitude cut.
+    out_dir : str or None
+        Directory for saving PNG/PDF. None → no save.
+    """
+    from matplotlib.colors import LogNorm
+
+    vmm_ids = list(vmm_ids)
+    df = df_adc_hist[df_adc_hist["vmm_id"].isin(vmm_ids)]
+    if df.empty:
+        print(f"  {detector_label}: no ADC data — skipping ADC distribution")
+        return
+
+    adc_max = n_bins * bin_width
+    pos_of  = {v: i for i, v in enumerate(vmm_ids)}
+
+    cmap = plt.cm.jet.copy()
+    cmap.set_bad("white")          # empty (zero-count) cells shown white
+
+    # ── Figure 1: per-detector, pad number vs ADC ───────────
+    n_pads = len(vmm_ids) * 64
+    mat    = np.zeros((n_bins, n_pads))
+    pads   = (df["vmm_id"].map(pos_of).to_numpy() * 64
+              + df["ch"].to_numpy()).astype(int)
+    np.add.at(mat, (df["adc_bin"].to_numpy().astype(int), pads),
+              df["counts"].to_numpy())
+
+    vmax = max(mat.max(), 1.0)
+    disp = np.where(mat > 0, mat, np.nan)
+
+    fig, ax = plt.subplots(figsize=(15, 6))
+    im = ax.imshow(disp, origin="lower", aspect="auto", cmap=cmap,
+                   norm=LogNorm(vmin=1, vmax=vmax),
+                   extent=[0, n_pads, 0, adc_max])
+    for i in range(1, len(vmm_ids)):
+        ax.axvline(i * 64, color="k", lw=0.7, ls="--", alpha=0.6)
+    for i, v in enumerate(vmm_ids):
+        ax.text(i * 64 + 32, adc_max * 0.97, f"VMM {v}",
+                ha="center", va="top", fontsize=9,
+                bbox=dict(boxstyle="round,pad=0.2", fc="white", alpha=0.7))
+    if adc_cut is not None:
+        ax.axhline(adc_cut, color="magenta", lw=1.2, ls="--",
+                   label=f"ADC cut = {adc_cut}")
+    if adc_max is not None:
+        ax.axhline(adc_max, color="magenta", lw=1.2, ls="--",
+                   label=f"ADC max = {adc_max}")
+    if adc_cut is not None or adc_max is not None:
+        ax.legend(loc="upper right", fontsize=8)
+    cb = fig.colorbar(im, ax=ax)
+    cb.set_label("Hit counts")
+    ax.set_xlabel("Pad number (VMM-ordered channel index)")
+    ax.set_ylabel("ADC")
+    ax.set_title(
+        f"{detector_label} — ADC distribution per pad  |  Run {run_no}",
+        fontsize=12, fontweight="bold",
+    )
+    plt.tight_layout()
+    _save_fig(fig, out_dir,
+              f"adc_dist_pad_{detector_label.replace(' ', '_')}_run{run_no}")
+
+    # ── Figure 2: per-VMM, channel vs ADC ───────────────────
+    nv   = len(vmm_ids)
+    ncol = min(nv, 2)
+    nrow = int(np.ceil(nv / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(8 * ncol, 4.2 * nrow),
+                             squeeze=False)
+    for k, v in enumerate(vmm_ids):
+        ax  = axes[k // ncol][k % ncol]
+        sub = df[df["vmm_id"] == v]
+        m   = np.zeros((n_bins, 64))
+        np.add.at(m, (sub["adc_bin"].to_numpy().astype(int),
+                      sub["ch"].to_numpy().astype(int)),
+                  sub["counts"].to_numpy())
+        d   = np.where(m > 0, m, np.nan)
+        im  = ax.imshow(d, origin="lower", aspect="auto", cmap=cmap,
+                        norm=LogNorm(vmin=1, vmax=vmax),
+                        extent=[0, 64, 0, adc_max])
+        if adc_cut is not None:
+            ax.axhline(adc_cut, color="magenta", lw=1.0, ls="--")
+        if adc_max is not None:
+            ax.axhline(adc_max, color="magenta", lw=1.0, ls="--")
+        ax.set_title(f"VMM {v}", fontsize=11)
+        ax.set_xlabel("Channel")
+        ax.set_ylabel("ADC")
+        fig.colorbar(im, ax=ax, label="Hit counts")
+    for k in range(nv, nrow * ncol):
+        axes[k // ncol][k % ncol].axis("off")
+    fig.suptitle(
+        f"{detector_label} — ADC distribution per VMM channel  |  Run {run_no}",
+        fontsize=13, fontweight="bold",
+    )
+    plt.tight_layout()
+    _save_fig(fig, out_dir,
+              f"adc_dist_vmm_{detector_label.replace(' ', '_')}_run{run_no}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1204,6 +1364,10 @@ def main():
     adc_max         = 600
     adc_max_vmms    = vmm_mapping["p2_large_1"]["vmm_ids"]
 
+    # ADC-distribution binning (pad/channel vs ADC heatmaps, jet colour).
+    adc_bin_width   = 8     # VMM ADC is 10-bit (0–1023)
+    adc_n_bins      = 200   # → bins cover [0, 1024)
+
     # ── Pass 1: diagnostic from one file ────────────────────
     # Load a single file to fit the coincidence peak and derive the
     # signal/sideband windows used in Pass 2.
@@ -1277,6 +1441,7 @@ def main():
     vmm_dfs      = []   # list of small DataFrames: [vmm_id, n_matched, n_accidental]
     ch_dfs       = []   # list of small DataFrames: [vmm_id, ch, n_signal, n_sideband]
     pad_stat_dfs = []   # list of small DataFrames: [vmm_id, ch, n_hits, adc_sum]
+    adc_hist_dfs = []   # list of small DataFrames: [vmm_id, ch, adc_bin, counts]
     n_trig_total = 0
 
     for i, df_hits in enumerate(iter_hits_files(
@@ -1290,6 +1455,12 @@ def main():
         if df_hits.empty:
             del df_hits
             continue
+
+        # ADC spectrum accumulated BEFORE the cut so the full distribution
+        # (including the region below adc_cut) stays visible.
+        adc_hist_dfs.append(compute_pad_adc_hist(
+            df_hits, detector_vmms,
+            bin_width=adc_bin_width, n_bins=adc_n_bins))
 
         df_hits = apply_adc_cut(df_hits, adc_cut, trigger_vmm,
                                 adc_max=adc_max, adc_max_vmms=adc_max_vmms)
@@ -1373,6 +1544,12 @@ def main():
                       .reset_index())
     del pad_stat_dfs
 
+    df_adc_hist = (pd.concat(adc_hist_dfs)
+                     .groupby(["vmm_id", "ch", "adc_bin"])["counts"]
+                     .sum()
+                     .reset_index()) if adc_hist_dfs else None
+    del adc_hist_dfs
+
     out_csv = os.path.join(out_dir, f"efficiency_per_channel_run{test_run}.csv")
     df_ch_eff.to_csv(out_csv, index=False)
     print(f"Saved → {out_csv}")
@@ -1392,6 +1569,11 @@ def main():
         df_det_hits = df_pad_stats[df_pad_stats["vmm_id"].isin(det_vmms)]
         plot_hit_heatmap(df_det_hits, det_map, test_run,
                          detector_label=det_label, out_dir=out_dir)
+        if df_adc_hist is not None:
+            plot_adc_distributions(
+                df_adc_hist, run_no=test_run, detector_label=det_label,
+                vmm_ids=det_vmms, bin_width=adc_bin_width, n_bins=adc_n_bins,
+                adc_cut=adc_cut, out_dir=out_dir)
 
     print(f"\nStep 5 — large detector maps (FanPadDetector)...")
     for det_key in large_detectors:
@@ -1417,6 +1599,11 @@ def main():
         df_det_hits = df_pad_stats[df_pad_stats["vmm_id"].isin(det_vmms)]
         fan_det.plot_hit_heatmap(df_det_hits, run_no=test_run,
                                  detector_label=det_label, out_dir=out_dir)
+        if df_adc_hist is not None:
+            plot_adc_distributions(
+                df_adc_hist, run_no=test_run, detector_label=det_label,
+                vmm_ids=det_vmms, bin_width=adc_bin_width, n_bins=adc_n_bins,
+                adc_cut=adc_cut, adc_max=adc_max, out_dir=out_dir)
         print(f"  {det_label}: generating orientation comparison (16 panels)...")
         compare_large_detector_orientations(
             df_det, large_det_map_csv,
