@@ -37,8 +37,8 @@ N_CONNECTORS = 10    # full detector
 # ── Helpers ────────────────────────────────────────────────────
 
 def _set_ax_limits(ax, pads, margin=20):
-    all_x = [p.outer_x for p in pads] + [p.via_x for p in pads]
-    all_y = [p.outer_y for p in pads] + [p.via_y for p in pads]
+    all_x = [p.cx for p in pads]
+    all_y = [p.cy for p in pads]
     ax.set_xlim(min(all_x) - margin, max(all_x) + margin)
     ax.set_ylim(min(all_y) - margin, max(all_y) + margin)
     ax.set_aspect("equal")
