@@ -6,12 +6,13 @@ FanPadDetector.py
 
 Geometry model for the P2 BASKET fan-pad Micromegas detector.
 
-Each pad is a rectangle defined by two radial endpoints:
-  - outer  (x, y)       : B_Cu trace endpoint (far from connector)
-  - inner  (via_x, via_y): via position (F_Cu ↔ B_Cu transition)
-
-The rectangle is oriented along the via→outer direction (radial), with a
-fixed angular half-width set at construction time (~5 mm for ~1 cm pads).
+Each pad is drawn as its true Gerber rectangle: centred on the measured pad
+centroid (pad_cx, pad_cy), sized to the measured pad extent (pad_w tangential,
+pad_h radial ≈ 12.0 × 11.6 mm) and rotated to the per-sector pad_angle.  This
+reproduces the physical layout including the real ~0.4 mm inter-pad gap.  These
+columns are produced by P2_mapping.parse_pad_regions from the F_Cu region fills;
+if they are absent the model falls back to the strip endpoint (x, y) with a
+synthetic square of side pad_size_mm.
 
 Channel mapping is embedded at load time:
   (vmm_id, ch) → pad index
@@ -29,7 +30,7 @@ Usage
         mec8_to_vmm = {(6, 1): 12, (6, 0): 13, (7, 1): 14, (7, 0): 15},
         fpc_connectors = [6, 7],
         orientation = "normal",   # or "flipped"
-        half_width_mm = 5.0,
+        pad_size_mm = 14.0,       # pad pitch → pads tile edge-to-edge
     )
     fig, axes = det.plot_hit_heatmap(df_hits_per_channel)
     fig, axes = det.plot_efficiency_map(df_ch_eff)
@@ -77,67 +78,116 @@ def pin_to_ch(mec8_pin, orientation="normal"):
     return ch
 
 
+def _fanpad_from_row(row, columns, vmm_id, ch, apex, fallback_size):
+    """
+    Build a FanPad from a mapping-CSV row.
+
+    Uses the true Gerber pad geometry (pad_cx/pad_cy centroid, pad_w/pad_h
+    extent) when those columns are present; otherwise falls back to the strip
+    endpoint (x, y) with a synthetic square of side ``fallback_size``.
+    """
+    angle = (np.deg2rad(float(row["pad_angle"]))
+             if "pad_angle" in columns and pd.notna(row["pad_angle"]) else None)
+    via_x = (float(row["via_x"])
+             if "via_x" in columns and pd.notna(row["via_x"]) else None)
+    via_y = (float(row["via_y"])
+             if "via_y" in columns and pd.notna(row["via_y"]) else None)
+
+    has_geo = (all(c in columns for c in ("pad_cx", "pad_cy", "pad_w", "pad_h"))
+               and pd.notna(row["pad_cx"]))
+    if has_geo:
+        cx, cy = float(row["pad_cx"]), float(row["pad_cy"])
+        w,  h  = float(row["pad_w"]),  float(row["pad_h"])
+    else:
+        cx, cy = float(row["x"]), float(row["y"])
+        w = h  = fallback_size
+
+    return FanPad(cx, cy, w, h, angle, vmm_id, ch,
+                  via_x=via_x, via_y=via_y, apex=apex)
+
+
 # ─────────────────────────────────────────────────────────────
 # PAD PRIMITIVE
 # ─────────────────────────────────────────────────────────────
 
 class FanPad:
     """
-    Single fan-shaped detector pad defined by its two radial endpoints.
+    Single detector pad drawn as its true Gerber rectangle.
+
+    The pad centre (``pad_cx, pad_cy``), tangential/radial extents
+    (``pad_w``/``pad_h``) and orientation (``pad_angle``) all come from the
+    F_Cu region fill measured directly from the Gerber (see
+    P2_mapping.parse_pad_regions).  Drawing each pad at its real centroid with
+    its real size reproduces the physical layout — including the genuine ~0.4 mm
+    inter-pad gap — rather than tiling synthetic squares.
 
     Parameters
     ----------
-    outer_x, outer_y : float
-        Outer endpoint (B_Cu trace end, far from the FPC connector).
-    via_x, via_y : float
-        Inner endpoint (via position, near the FPC connector side).
-    half_width : float
-        Half-width in the angular direction (mm).
-    vmm_id : int
-    ch : int
+    cx, cy : float
+        True pad centroid (mm) from the Gerber region fill.
+    w, h : float
+        Pad extent (mm) along the pad_angle axis (w, tangential) and
+        perpendicular to it (h, radial).
+    angle : float or None
+        Pad orientation in radians (per-sector pad_angle).
+    vmm_id, ch : int
         VMM id and channel that read this pad.
+    via_x, via_y : float or None
+        Via position; used only as an orientation fallback.
+    apex : (float, float) or None
+        Fan apex; used only as an orientation fallback.
     """
-    __slots__ = ("outer_x", "outer_y", "via_x", "via_y",
-                 "half_width", "vmm_id", "ch")
+    __slots__ = ("cx", "cy", "w", "h", "angle",
+                 "via_x", "via_y", "apex", "vmm_id", "ch")
 
-    def __init__(self, outer_x, outer_y, via_x, via_y,
-                 half_width, vmm_id, ch):
-        self.outer_x   = outer_x
-        self.outer_y   = outer_y
-        self.via_x     = via_x
-        self.via_y     = via_y
-        self.half_width = half_width
-        self.vmm_id    = vmm_id
-        self.ch        = ch
+    def __init__(self, cx, cy, w, h, angle, vmm_id, ch,
+                 via_x=None, via_y=None, apex=None):
+        self.cx     = cx
+        self.cy     = cy
+        self.w      = w
+        self.h      = h
+        self.angle  = angle
+        self.vmm_id = vmm_id
+        self.ch     = ch
+        self.via_x  = via_x
+        self.via_y  = via_y
+        self.apex   = apex
 
     @property
     def center(self):
-        return (0.5 * (self.outer_x + self.via_x),
-                0.5 * (self.outer_y + self.via_y))
-
-    @property
-    def half_length(self):
-        return 0.5 * np.hypot(self.outer_x - self.via_x,
-                               self.outer_y - self.via_y)
+        return (self.cx, self.cy)
 
     @property
     def rotation(self):
-        """Angle (rad) from via toward outer endpoint."""
-        return np.arctan2(self.outer_y - self.via_y,
-                          self.outer_x - self.via_x)
+        """
+        Angle (rad) used to orient the pad rectangle.
+
+        Priority:
+          1. ``angle`` — the per-sector pad_angle from the mapping CSV.
+          2. apex→centre — smooth radial fallback.
+          3. via→centre — last-resort per-pad fallback.
+        """
+        if self.angle is not None:
+            return self.angle
+        if self.apex is not None:
+            return np.arctan2(self.cy - self.apex[1],
+                              self.cx - self.apex[0])
+        if self.via_x is not None:
+            return np.arctan2(self.cy - self.via_y,
+                              self.cx - self.via_x)
+        return 0.0
 
     def vertices(self):
-        """4 corners of the pad rectangle in detector coordinates."""
-        cx, cy = self.center
-        hl = self.half_length
-        hw = self.half_width
+        """4 corners of the pad rectangle (pad_w × pad_h) in detector coords."""
+        hw  = 0.5 * self.w
+        hh  = 0.5 * self.h
         rot = self.rotation
         corners = np.array([
-            [-hl, -hw], [hl, -hw], [hl, hw], [-hl, hw],
+            [-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh],
         ], dtype=float)
         c, s = np.cos(rot), np.sin(rot)
         R = np.array([[c, -s], [s, c]])
-        return corners @ R.T + np.array([cx, cy])
+        return corners @ R.T + np.array([self.cx, self.cy])
 
 
 # ─────────────────────────────────────────────────────────────
@@ -170,7 +220,8 @@ class FanPadDetector:
 
     @classmethod
     def from_mapping_csv(cls, csv_path, mec8_to_vmm, fpc_connectors,
-                         orientation="normal", half_width_mm=5.0):
+                         orientation="normal", pad_size_mm=14.0,
+                         half_width_mm=None):
         """
         Build detector from P2_BASKET_mapping.csv.
 
@@ -189,9 +240,15 @@ class FanPadDetector:
             'flipped'      → ch = 66 − mec8_pin  (pin 3 = ch 63)
             'back'         → 'normal'  with adjacent channel pairs swapped
             'flipped_back' → 'flipped' with adjacent channel pairs swapped
-        half_width_mm : float
-            Half-width of each pad in the angular direction (default 5 mm).
+        pad_size_mm : float
+            Full side length of each square pad (mm). Default 14 mm (slightly
+            above the ~11-12 mm pitch) so neighbouring pads tile edge-to-edge.
+        half_width_mm : float or None
+            Deprecated alias kept for backward compatibility; if given,
+            pad_size_mm = 2 × half_width_mm.
         """
+        if half_width_mm is not None:
+            pad_size_mm = 2.0 * half_width_mm
         df = pd.read_csv(csv_path)
         df = df[df["connector_number"].isin(fpc_connectors)].copy()
         df = df.dropna(subset=["x", "y", "via_x", "via_y",
@@ -222,15 +279,8 @@ class FanPadDetector:
             if not (0 <= ch <= 63):
                 continue
 
-            pad = FanPad(
-                outer_x   = float(row["x"]),
-                outer_y   = float(row["y"]),
-                via_x     = float(row["via_x"]),
-                via_y     = float(row["via_y"]),
-                half_width = half_width_mm,
-                vmm_id    = vmm_id,
-                ch        = ch,
-            )
+            pad = _fanpad_from_row(row, df.columns, vmm_id, ch,
+                                   det.apex, pad_size_mm)
             idx = len(det.pads)
             det.pads.append(pad)
             det.channel_map[(vmm_id, ch)] = idx
@@ -240,8 +290,8 @@ class FanPadDetector:
         return det
 
     @classmethod
-    def from_mapping_csv_full(cls, csv_path, half_width_mm=5.0,
-                              fpc_connectors=None):
+    def from_mapping_csv_full(cls, csv_path, pad_size_mm=14.0,
+                              fpc_connectors=None, half_width_mm=None):
         """
         Load the full detector geometry for display and geometry testing.
 
@@ -252,11 +302,16 @@ class FanPadDetector:
         ----------
         csv_path : str
             Path to CSV generated by P2_mapping.py (must have via_x, via_y).
-        half_width_mm : float
-            Half-width of each pad in the angular direction (default 5 mm).
+        pad_size_mm : float
+            Full side length of each square pad (mm). Default 14 mm (slightly
+            above the ~11-12 mm pitch) so neighbouring pads tile edge-to-edge.
         fpc_connectors : list of int or None
             Subset of connectors to load (default: all present in the CSV).
+        half_width_mm : float or None
+            Deprecated alias; if given, pad_size_mm = 2 × half_width_mm.
         """
+        if half_width_mm is not None:
+            pad_size_mm = 2.0 * half_width_mm
         df = pd.read_csv(csv_path)
         if fpc_connectors is not None:
             df = df[df["connector_number"].isin(fpc_connectors)].copy()
@@ -277,15 +332,8 @@ class FanPadDetector:
             strip = int(row["strip"]) if "strip" in df.columns else 1
             ch    = strip - 1          # 0-indexed strip within connector (0–127)
 
-            pad = FanPad(
-                outer_x    = float(row["x"]),
-                outer_y    = float(row["y"]),
-                via_x      = float(row["via_x"]),
-                via_y      = float(row["via_y"]),
-                half_width = half_width_mm,
-                vmm_id     = fpc,
-                ch         = ch,
-            )
+            pad = _fanpad_from_row(row, df.columns, fpc, ch,
+                                   det.apex, pad_size_mm)
             idx = len(det.pads)
             det.pads.append(pad)
             det.channel_map[(fpc, ch)] = idx
@@ -319,8 +367,8 @@ class FanPadDetector:
             ax.add_patch(poly)
 
         # Auto-set limits
-        all_x = [p.outer_x for p in self.pads] + [p.via_x for p in self.pads]
-        all_y = [p.outer_y for p in self.pads] + [p.via_y for p in self.pads]
+        all_x = [p.cx for p in self.pads]
+        all_y = [p.cy for p in self.pads]
         margin = 20
         ax.set_xlim(min(all_x) - margin, max(all_x) + margin)
         ax.set_ylim(min(all_y) - margin, max(all_y) + margin)
