@@ -49,6 +49,59 @@ def _save_fig(fig, out_dir, stem):
                     bbox_inches="tight")
 
 
+def apply_adc_cut(df_hits, adc_cut, trigger_vmm, adc_max=None,
+                  adc_max_vmms=None, verbose=True):
+    """
+    Apply an amplitude (ADC) window to detector hits, keeping all trigger hits.
+
+    Detector hits with adc < adc_cut are dropped (lower cut). Optionally an
+    upper cut (adc > adc_max) is applied as well — restricted to the VMMs in
+    adc_max_vmms if given, otherwise to all detector hits. Trigger-VMM hits are
+    always exempt so the efficiency denominator (trigger count) is unaffected.
+
+    Parameters
+    ----------
+    df_hits : pd.DataFrame
+        Hit data; must contain an 'adc' column for the cut to apply.
+    adc_cut : int or None
+        Minimum ADC to keep for detector hits. None disables the lower cut.
+    trigger_vmm : int
+        VMM id of the trigger; its hits are never cut.
+    adc_max : int or None
+        Maximum ADC to keep. None disables the upper cut.
+    adc_max_vmms : list of int or None
+        VMM ids the upper cut applies to. None → all detector hits.
+
+    Returns
+    -------
+    pd.DataFrame
+    """
+    if "adc" not in df_hits.columns or (adc_cut is None and adc_max is None):
+        return df_hits
+
+    is_trig = df_hits["vmm"] == trigger_vmm
+    keep    = pd.Series(True, index=df_hits.index)
+    if adc_cut is not None:
+        keep &= is_trig | (df_hits["adc"] >= adc_cut)
+    if adc_max is not None:
+        in_scope = (df_hits["vmm"].isin(adc_max_vmms)
+                    if adc_max_vmms is not None else ~is_trig)
+        keep &= is_trig | ~in_scope | (df_hits["adc"] <= adc_max)
+
+    out = df_hits[keep].copy()
+    if verbose:
+        n0, n1 = len(df_hits), len(out)
+        if adc_max is None:
+            window = f"detector adc >= {adc_cut}"
+        else:
+            scope  = (f"VMM {adc_max_vmms}" if adc_max_vmms is not None
+                      else "detector")
+            window = f"detector adc >= {adc_cut}, {scope} adc <= {adc_max}"
+        print(f"  ADC cut ({window}, trigger exempt): "
+              f"kept {n1:,}/{n0:,} hits ({100*n1/n0:.1f}%)")
+    return out
+
+
 def _fmt_compact(val):
     """Format a large integer compactly: 1.2M, 34.5k, 123."""
     if val >= 1e6:
@@ -1143,18 +1196,28 @@ def main():
     sideband_min_ns = 400
     sideband_max_ns = 650
 
+    # Amplitude cut: keep only detector hits with adc >= adc_cut (trigger
+    # exempt). Applied in both passes so every plot reflects the cut.
+    adc_cut         = 120
+    # Upper ADC cut for the large detector only: keep large-detector hits with
+    # adc <= adc_max (i.e. ADC window [adc_cut, adc_max] for VMMs 12–15).
+    adc_max         = 600
+    adc_max_vmms    = vmm_mapping["p2_large_1"]["vmm_ids"]
+
     # ── Pass 1: diagnostic from one file ────────────────────
     # Load a single file to fit the coincidence peak and derive the
     # signal/sideband windows used in Pass 2.
     print(f"\nPass 1 — diagnostic (file index {diag_file_idx}, run {test_run})...")
     df_hits_diag = load_sorted_hits(
         data_dir, test_run,
-        branches=["time", "vmm", "ch"],
+        branches=["time", "vmm", "ch", "adc"],
         root_file_index=diag_file_idx,
     )
     if df_hits_diag is None or df_hits_diag.empty:
         print("No data loaded — check data_dir and test_run.")
         return
+    df_hits_diag = apply_adc_cut(df_hits_diag, adc_cut, trigger_vmm,
+                                 adc_max=adc_max, adc_max_vmms=adc_max_vmms)
 
     t_trig_diag = filter_on_spill_triggers(
         df_hits_diag,
@@ -1227,6 +1290,9 @@ def main():
         if df_hits.empty:
             del df_hits
             continue
+
+        df_hits = apply_adc_cut(df_hits, adc_cut, trigger_vmm,
+                                adc_max=adc_max, adc_max_vmms=adc_max_vmms)
 
         t_trig = filter_on_spill_triggers(
             df_hits,
