@@ -131,6 +131,98 @@ def parse_fcu_attributes(filepath):
     return signal_pads, net_to_via
 
 
+# ── F_Cu pad-region parser (true pad outline & size) ───────────────────────────
+
+def _poly_area_centroid(poly):
+    """Signed-area magnitude and centroid of a closed polygon (shoelace)."""
+    x = poly[:, 0]
+    y = poly[:, 1]
+    cross = x * np.roll(y, -1) - np.roll(x, -1) * y
+    A = cross.sum() / 2.0
+    if abs(A) < 1e-9:
+        c = poly.mean(axis=0)
+        return 0.0, c[0], c[1]
+    cx = ((x + np.roll(x, -1)) * cross).sum() / (6 * A)
+    cy = ((y + np.roll(y, -1)) * cross).sum() / (6 * A)
+    return abs(A), cx, cy
+
+
+def pad_oriented_size(poly, angle_deg):
+    """
+    Pad extent in its own frame: width (tangential) and height (radial),
+    obtained by rotating the outline by −pad_angle and taking the bounding box.
+    """
+    ang = np.deg2rad(angle_deg)
+    c, s = np.cos(-ang), np.sin(-ang)
+    u = c * poly[:, 0] - s * poly[:, 1]
+    v = s * poly[:, 0] + c * poly[:, 1]
+    return float(u.max() - u.min()), float(v.max() - v.min())
+
+
+def parse_pad_regions(filepath):
+    """
+    Parse F_Cu G36/G37 region fills to recover the true detector pad outlines.
+
+    Each readout pad is a copper region fill tagged with its signal net
+    (/Sector<s>/Sig<m>).  The same net also tags the via-stub and trace fills, so
+    the pad is selected as the region whose area falls in the physical pad band
+    (~130 mm², side ~11.5 mm).  This yields the real pad centroid and outline —
+    the strip-endpoint (x, y) used elsewhere sits ~11 mm away on the routing
+    trace, not on the pad itself.
+
+    Returns
+    -------
+    net_to_pad : dict
+        {net_name: (cx, cy, area_mm2, poly)} with poly an (N, 2) array of the
+        pad-outline vertices in mm.
+    """
+    scale = 1e-6
+    current_net = None
+    in_region   = False
+    verts       = []
+    regions     = {}   # net → list of (area, cx, cy, poly)
+
+    with open(filepath) as fh:
+        for raw in fh:
+            line = raw.strip()
+
+            m = re.search(r'%TO\.N,(.+?)\*%', line)
+            if m:
+                current_net = m.group(1)
+                continue
+            if '%TD*%' in line:
+                current_net = None
+                continue
+            if line.startswith('G36'):
+                in_region = True
+                verts = []
+                continue
+            if line.startswith('G37'):
+                in_region = False
+                if current_net and 'Sig' in current_net and len(verts) >= 3:
+                    poly = np.array(verts)
+                    a, cx, cy = _poly_area_centroid(poly)
+                    regions.setdefault(current_net, []).append((a, cx, cy, poly))
+                continue
+            if in_region:
+                m = re.match(r'X(-?\d+)Y(-?\d+)D0[12]\*', line)
+                if m:
+                    verts.append((int(m.group(1)) * scale,
+                                  int(m.group(2)) * scale))
+
+    net_to_pad = {}
+    for net, regs in regions.items():
+        pad_band = [r for r in regs if 80.0 < r[0] < 400.0]
+        if pad_band:
+            a, cx, cy, poly = max(pad_band, key=lambda r: r[0])
+        else:   # fallback: region closest to the typical pad area
+            a, cx, cy, poly = min(regs, key=lambda r: abs(r[0] - 132.0))
+        net_to_pad[net] = (round(cx, 4), round(cy, 4), round(a, 3), poly)
+
+    print(f"INFO: {len(net_to_pad)} pad regions extracted from F_Cu region fills")
+    return net_to_pad
+
+
 # ── B_Cu polyline parser ───────────────────────────────────────────────────────
 
 def parse_bcu_polylines(filepath, trace_max_diam=0.2):
@@ -423,6 +515,9 @@ def build_mapping(fcu_path, bcu_path, k59v_netlist=None,
     print(f"  → {len(signal_pads)} signal connector pads, "
           f"{len(net_to_via)} signal via positions")
 
+    print("INFO: Parsing F_Cu pad region fills (true pad outlines) …")
+    net_to_pad = parse_pad_regions(fcu_path)
+
     print("INFO: Matching B_Cu traces to via positions …")
     net_to_strip = find_strip_endpoints(bcu_path, net_to_via,
                                         min_span_mm=min_span_mm,
@@ -460,6 +555,22 @@ def build_mapping(fcu_path, bcu_path, k59v_netlist=None,
             'pin_y':            round(pad['y'], 4),
             'pad_angle':        pad['angle'],
         }
+
+        # True pad geometry from the F_Cu region fill (centroid, area, oriented
+        # size). pad_cx/pad_cy are the real pad centre; pad_w (tangential) and
+        # pad_h (radial) are the pad extent in the pad_angle frame.
+        pad_geo = net_to_pad.get(net)
+        if pad_geo:
+            cx, cy, area, poly = pad_geo
+            w, h = pad_oriented_size(poly, pad['angle'])
+            row['pad_cx']   = cx
+            row['pad_cy']   = cy
+            row['pad_area'] = area
+            row['pad_w']    = round(w, 4)
+            row['pad_h']    = round(h, 4)
+        else:
+            row['pad_cx'] = row['pad_cy'] = row['pad_area'] = ''
+            row['pad_w']  = row['pad_h']  = ''
 
         if strip_to_mec8:
             mec8 = strip_to_mec8.get(pad['strip'])
@@ -513,6 +624,7 @@ def main():
                   'connector_number', 'connector_pin', 'pin_name',
                   'sector', 'strip', 'channel_id',
                   'pin_x', 'pin_y', 'pad_angle',
+                  'pad_cx', 'pad_cy', 'pad_area', 'pad_w', 'pad_h',
                   'radius', 'phi', 'delta_phi']
     if args.k59v:
         fieldnames += ['mec8_connector', 'mec8_pin']
