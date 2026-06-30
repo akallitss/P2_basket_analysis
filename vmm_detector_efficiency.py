@@ -14,7 +14,7 @@ Workflow
 --------
 1. load_sorted_hits()               — load one ROOT file
 2. filter_on_spill_triggers()       — gate trigger timestamps to beam-on only
-3. compute_trigger_detector_dt()    — build Δt histogram over ±1000 ns
+3. compute_trigger_detector_dt()    — build Δt histogram over ±500 ns
 4. plot_trigger_detector_dt()       — raw Δt: linear + log, see peak vs background
 5. fit_dt_peak()                    — fit Gaussian + flat bg → derive μ, σ, window
 6. plot_dt_peak_fits()              — verify fit: green=signal window, orange=sideband
@@ -335,7 +335,7 @@ def select_on_spill_hits(df_hits, edges, on_mask, verbose=True):
 # ─────────────────────────────────────────────────────────────
 
 def compute_trigger_detector_dt(df_hits, t_trig,
-                                  search_window_ns=1000):
+                                  search_window_ns=500):
     """
     For each trigger timestamp, find all detector hits within
     ±search_window_ns and record Δt = t_det - t_trig (in ns).
@@ -350,7 +350,7 @@ def compute_trigger_detector_dt(df_hits, t_trig,
         Obtain from filter_on_spill_triggers().
     search_window_ns : float
         Half-width of the search window in ns.
-        Default 1000 ns = ±1 μs, wide enough to see any offset.
+        Default 500 ns = ±1 μs, wide enough to see any offset.
 
     Returns
     -------
@@ -386,7 +386,7 @@ def compute_trigger_detector_dt(df_hits, t_trig,
 
 
 def plot_trigger_detector_dt(dt_dict, run_no, vmm_groups,
-                               search_window_ns=1000,
+                               search_window_ns=500,
                                n_bins=200, out_dir=None):
     """
     Plot Δt = t_detector - t_trigger distributions.
@@ -463,7 +463,7 @@ def _gaussian_plus_bg(x, amplitude, mu, sigma, bg):
     return amplitude * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + bg
 
 
-def fit_dt_peak(dt_dict, search_window_ns=1000, n_bins=200, n_sigma=3):
+def fit_dt_peak(dt_dict, search_window_ns=500, n_bins=200, n_sigma=3):
     """
     Fit Gaussian + flat background to each VMM's Δt distribution.
 
@@ -1553,7 +1553,7 @@ def compare_large_detector_orientations(df_ch_eff, map_csv,
                 mec8_to_vmm=mec8_to_vmm,
                 fpc_connectors=fpc_connectors,
                 orientation=orientation,
-                half_width_mm=5.0,
+                pad_size_mm=14.0,
             )
 
             eff_map = {}
@@ -1610,11 +1610,11 @@ def compare_large_detector_orientations(df_ch_eff, map_csv,
 
 def main():
     # ── User configuration ──────────────────────────────────
-    cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
-    data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
+    # cnfg_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/"
+    # data_dir = "/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/VMM-alinx-data/5kHz-muons-config-scan/"
 
-    # cnfg_dir = "/drf/projets/clas12/P2/akallits/"
-    # data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
+    cnfg_dir = "/drf/projets/clas12/P2/akallits/"
+    data_dir = "/drf/projets/clas12/cern_202511_p2_alinx/"
     map_dir  = ("/local/home/ak271430/Documents/PostDocSaclay/"
                 "data/det_mappings/")
 
@@ -1629,10 +1629,11 @@ def main():
     # n_files: number of files for efficiency accumulation (Pass 2).
     # Memory safety: one file loaded at a time; only integer counts kept
     # between iterations. Peak memory = one ROOT file regardless of n_files.
-    # n_files       = 2
-    n_files       = 1
+    n_files       = 5
+    # n_files       = 1
     diag_file_idx = 0       # file used for Δt diagnostic + peak fit (Pass 1)
-    test_run      = 67      # sg=3, snt=200
+    # test_run      = 67      # sg=3, snt=200
+    test_run      = 63
 
     out_dir = os.path.join(cnfg_dir, "results", f"run_{test_run}")
     os.makedirs(out_dir, exist_ok=True)
@@ -1656,7 +1657,8 @@ def main():
     adc_cut         = 120
     # Upper ADC cut for the large detector only: keep large-detector hits with
     # adc <= adc_max (i.e. ADC window [adc_cut, adc_max] for VMMs 12–15).
-    adc_max         = 600
+    # adc_max         = 600
+    adc_max         = None
     adc_max_vmms    = vmm_mapping["p2_large_1"]["vmm_ids"]
 
     # ADC-distribution binning (pad/channel vs ADC heatmaps, jet colour).
@@ -1690,20 +1692,20 @@ def main():
     print(f"  {len(t_trig_diag):,} on-spill triggers")
 
     # Step 1: raw Δt histogram
-    print(f"\nStep 1 — trigger–detector Δt (±1000 ns)...")
+    print(f"\nStep 1 — trigger–detector Δt (±500 ns)...")
     dt_dict = compute_trigger_detector_dt(
-        df_hits_diag, t_trig_diag, search_window_ns=1000
+        df_hits_diag, t_trig_diag, search_window_ns=500
     )
     for vmm_id, dt in dt_dict.items():
-        print(f"  VMM {vmm_id}: {len(dt):,} pairs in ±1000 ns window")
+        print(f"  VMM {vmm_id}: {len(dt):,} pairs in ±500 ns window")
     plot_trigger_detector_dt(
         dt_dict, test_run, vmm_groups,
-        search_window_ns=1000, out_dir=out_dir,
+        search_window_ns=500, out_dir=out_dir,
     )
 
     # Step 2: fit peak → derive coincidence window
     print(f"\nStep 2 — fitting Δt peak (Gaussian + flat background)...")
-    peak_fits = fit_dt_peak(dt_dict, search_window_ns=1000,
+    peak_fits = fit_dt_peak(dt_dict, search_window_ns=500,
                              n_bins=200, n_sigma=3)
     plot_dt_peak_fits(peak_fits, run_no=test_run, vmm_groups=vmm_groups,
                       out_dir=out_dir)
@@ -1927,7 +1929,7 @@ def main():
             mec8_to_vmm=mec8_to_vmm,
             fpc_connectors=fpc_conns,
             orientation=orientation,
-            half_width_mm=5.0,
+            pad_size_mm=14.0,
         )
         print(f"  {det_label}: {len(df_det)} channels with hits")
         fan_det.plot_efficiency_map(df_det, run_no=test_run,
