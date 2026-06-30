@@ -235,29 +235,22 @@ def filter_on_spill_triggers(df_hits, trigger_vmm, trigger_ch,
     np.ndarray
         Sorted, deduplicated trigger timestamps (ticks) in on-spill bins.
     """
+    edges, on_mask = compute_spill_time_mask(
+        df_hits, trigger_vmm, trigger_ch,
+        spill_threshold_khz=spill_threshold_khz,
+        bin_width_ms=bin_width_ms,
+        min_spill_s=min_spill_s, max_gap_s=max_gap_s,
+    )
+    if edges is None:
+        return np.array([])
+
     t_trig_all = df_hits[
         (df_hits["vmm"] == trigger_vmm) &
         (df_hits["ch"]  == trigger_ch)
     ]["time"].values
 
-    if len(t_trig_all) < 2:
-        print(f"  Too few trigger hits on VMM {trigger_vmm} ch {trigger_ch}")
-        return np.array([])
-
-    bin_width_s   = bin_width_ms * 1e-3
-    t_s           = t_trig_all * S_PER_TICK
-    t_start       = t_s.min()
-    edges         = np.arange(t_start, t_s.max() + bin_width_s, bin_width_s)
-    counts, edges = np.histogram(t_s, bins=edges)
-    rate_khz      = counts / bin_width_s / 1e3
-
-    min_spill_bins = max(1, int(min_spill_s / bin_width_s))
-    max_gap_bins   = max(0, int(max_gap_s   / bin_width_s))
-    on_mask, _     = compute_spill_masks(rate_khz, spill_threshold_khz,
-                                          min_spill_bins=min_spill_bins,
-                                          max_gap_bins=max_gap_bins)
-
-    bin_idx   = np.clip(np.digitize(t_s, edges) - 1, 0, len(on_mask) - 1)
+    bin_idx   = np.clip(np.digitize(t_trig_all * S_PER_TICK, edges) - 1,
+                        0, len(on_mask) - 1)
     t_trig_on = t_trig_all[on_mask[bin_idx]]
 
     n_total = len(t_trig_all)
@@ -266,6 +259,75 @@ def filter_on_spill_triggers(df_hits, trigger_vmm, trigger_ch,
           f"({100 * n_on / n_total:.1f}%)")
 
     return np.sort(np.unique(t_trig_on))
+
+
+def compute_spill_time_mask(df_hits, trigger_vmm, trigger_ch,
+                            spill_threshold_khz=1.0, bin_width_ms=1.0,
+                            min_spill_s=1.0, max_gap_s=2.0):
+    """
+    Build the on-spill time-bin mask from the trigger hit rate.
+
+    Bins the trigger-channel hit rate into bin_width_ms bins and classifies
+    each bin on/off-spill via compute_spill_masks. Shared by
+    filter_on_spill_triggers (to gate triggers) and select_on_spill_hits (to
+    gate detector hits) so both use the exact same spill definition.
+
+    Returns
+    -------
+    edges : np.ndarray or None
+        Histogram bin edges (seconds). None if too few trigger hits.
+    on_mask : np.ndarray of bool or None
+        On-spill flag per bin (len = len(edges) - 1).
+    """
+    t_trig_all = df_hits[
+        (df_hits["vmm"] == trigger_vmm) &
+        (df_hits["ch"]  == trigger_ch)
+    ]["time"].values
+
+    if len(t_trig_all) < 2:
+        print(f"  Too few trigger hits on VMM {trigger_vmm} ch {trigger_ch}")
+        return None, None
+
+    bin_width_s   = bin_width_ms * 1e-3
+    t_s           = t_trig_all * S_PER_TICK
+    edges         = np.arange(t_s.min(), t_s.max() + bin_width_s, bin_width_s)
+    counts, edges = np.histogram(t_s, bins=edges)
+    rate_khz      = counts / bin_width_s / 1e3
+
+    min_spill_bins = max(1, int(min_spill_s / bin_width_s))
+    max_gap_bins   = max(0, int(max_gap_s   / bin_width_s))
+    on_mask, _     = compute_spill_masks(rate_khz, spill_threshold_khz,
+                                          min_spill_bins=min_spill_bins,
+                                          max_gap_bins=max_gap_bins)
+    return edges, on_mask
+
+
+def select_on_spill_hits(df_hits, edges, on_mask, verbose=True):
+    """
+    Keep only hits whose timestamp falls in an on-spill time bin.
+
+    Applies the spill mask at the hit level (not just to triggers), so the
+    raw occupancy / hit-heatmap counts exclude off-spill beam-off noise the
+    same way the trigger-coincident maps do.
+
+    Parameters
+    ----------
+    df_hits : pd.DataFrame
+        Hit data with a 'time' column (ticks).
+    edges, on_mask : np.ndarray
+        Output of compute_spill_time_mask. If edges is None the input is
+        returned unchanged.
+    """
+    if edges is None:
+        return df_hits
+    bin_idx = np.clip(np.digitize(df_hits["time"].values * S_PER_TICK, edges)
+                      - 1, 0, len(on_mask) - 1)
+    out = df_hits[on_mask[bin_idx]]
+    if verbose:
+        n0, n1 = len(df_hits), len(out)
+        frac = 100 * n1 / n0 if n0 else 0.0
+        print(f"  On-spill hit mask: kept {n1:,}/{n0:,} hits ({frac:.1f}%)")
+    return out
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1548,6 +1610,19 @@ def main():
             del df_hits
             continue
         n_trig_total += n_trig
+
+        # Hit-level spill mask: restrict ALL downstream per-pad counts —
+        # including the raw hit heatmap — to in-spill hits, the same beam-on
+        # window the triggers define. Efficiency maps are unaffected (their
+        # hits are already gated by coincidence with on-spill triggers); this
+        # mainly removes the off-spill beam-off noise from the raw occupancy.
+        _edges, _on = compute_spill_time_mask(
+            df_hits, trigger_vmm, trigger_ch,
+            spill_threshold_khz=spill_threshold_khz,
+            bin_width_ms=bin_width_ms,
+            min_spill_s=min_spill_s, max_gap_s=max_gap_s,
+        )
+        df_hits = select_on_spill_hits(df_hits, _edges, _on)
 
         # per-VMM counts (Step 3)
         df_vmm = compute_time_correlated_efficiency(
