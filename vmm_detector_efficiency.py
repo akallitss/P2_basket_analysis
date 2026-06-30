@@ -1322,6 +1322,174 @@ def plot_adc_distributions(df_adc_hist, run_no, detector_label, vmm_ids,
               f"adc_dist_vmm_{detector_label.replace(' ', '_')}_run{run_no}")
 
 
+def _hist_percentile(col_counts, bin_width, q):
+    """Percentile q (0–1) of an ADC distribution given as bin counts."""
+    tot = col_counts.sum()
+    if tot <= 0:
+        return np.nan
+    cdf = np.cumsum(col_counts)
+    idx = int(np.searchsorted(cdf, q * tot))
+    idx = min(idx, len(col_counts) - 1)
+    return (idx + 0.5) * bin_width
+
+
+def plot_adc_neighbor_median(df_adc_hist, run_no, detector_label, vmm_ids,
+                             bin_width=8, n_bins=200, neigh_window=4,
+                             n_sigma=3.5, min_adc_dev=24.0,
+                             sat_adc=1000.0, sat_n_sigma=4.0,
+                             min_sat_excess=0.03, out_dir=None):
+    """
+    Per-VMM ADC distribution with a running neighbour-channel median, used to
+    flag noisy channels and saturation/spark channels.
+
+    For each VMM channel the ADC distribution (from df_adc_hist) is summarised
+    by its median ADC. A running median over a window of ±neigh_window
+    *neighbouring channels* (excluding the channel itself) gives the local
+    reference; a channel is flagged NOISY when its median ADC deviates from the
+    neighbour median by more than max(n_sigma × neighbour-MAD, min_adc_dev).
+
+    Saturation/spark is detected the SAME neighbour-relative way, not by an
+    absolute threshold: every VMM channel has the normal saturation pile-up at
+    the 1023 rail, so an absolute "fraction above sat_adc" flags everyone. We
+    instead flag a channel whose saturation fraction is an *upward* outlier vs
+    its neighbours, i.e. sat_frac − neighbour_median > max(sat_n_sigma ×
+    neighbour-MAD, min_sat_excess). That isolates genuine sparks/anomalous
+    pile-up while ignoring the common rail.
+
+    Each VMM panel shows the channel×ADC heatmap (background) with the
+    per-channel median (white) and neighbour running median (cyan) overlaid,
+    and flagged channels marked. Flagged channels are also printed and returned.
+
+    Parameters
+    ----------
+    df_adc_hist : pd.DataFrame
+        Accumulated count table vmm_id, ch, adc_bin, counts.
+    bin_width, n_bins : int
+        Must match compute_pad_adc_hist.
+    neigh_window : int
+        Half-width (in channels) of the neighbour median window.
+    n_sigma, min_adc_dev : float
+        Noisy-channel threshold (robust MAD-based, with an absolute floor).
+    sat_adc : float
+        ADC level above which hits count as saturated.
+    sat_n_sigma, min_sat_excess : float
+        Saturation/spark threshold: a channel's saturation fraction must exceed
+        its neighbour median by max(sat_n_sigma × neighbour-MAD, min_sat_excess).
+    out_dir : str or None
+
+    Returns
+    -------
+    dict
+        {vmm_id: {"noisy": [ch...], "saturated": [ch...]}}
+    """
+    from matplotlib.colors import LogNorm
+
+    vmm_ids = list(vmm_ids)
+    df = df_adc_hist[df_adc_hist["vmm_id"].isin(vmm_ids)]
+    if df.empty:
+        print(f"  {detector_label}: no ADC data — skipping neighbour median")
+        return {}
+
+    adc_top = n_bins * bin_width
+    sat_bin = int(sat_adc // bin_width)
+
+    cmap = plt.cm.jet.copy()
+    cmap.set_bad("white")
+
+    nv   = len(vmm_ids)
+    ncol = min(nv, 2)
+    nrow = int(np.ceil(nv / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(9 * ncol, 4.6 * nrow),
+                             squeeze=False)
+    flags = {}
+
+    for k, v in enumerate(vmm_ids):
+        ax  = axes[k // ncol][k % ncol]
+        sub = df[df["vmm_id"] == v]
+        m   = np.zeros((n_bins, 64))
+        np.add.at(m, (sub["adc_bin"].to_numpy().astype(int),
+                      sub["ch"].to_numpy().astype(int)),
+                  sub["counts"].to_numpy())
+
+        # per-channel median ADC + saturation fraction
+        tot      = m.sum(axis=0)
+        med      = np.array([_hist_percentile(m[:, c], bin_width, 0.5)
+                             for c in range(64)])
+        sat_fr   = np.array([m[sat_bin:, c].sum() / tot[c] if tot[c] > 0 else 0.0
+                             for c in range(64)])
+
+        # running neighbour median (exclude self) + robust scatter, computed
+        # for both the median ADC (noise) and the saturation fraction (spark)
+        def _running_neighbour(series, valid):
+            nmed = np.full(64, np.nan)
+            ndev = np.full(64, np.nan)
+            for c in range(64):
+                lo, hi = max(0, c - neigh_window), min(63, c + neigh_window)
+                idx = [j for j in range(lo, hi + 1)
+                       if j != c and valid[j]]
+                if idx:
+                    vals = series[idx]
+                    nmed[c] = np.median(vals)
+                    ndev[c] = 1.4826 * np.median(np.abs(vals - nmed[c]))
+            return nmed, ndev
+
+        active = tot > 0
+        neigh_med, neigh_dev = _running_neighbour(med, active & np.isfinite(med))
+        neigh_sat, neigh_sat_dev = _running_neighbour(sat_fr, active)
+
+        thresh   = np.maximum(n_sigma * np.nan_to_num(neigh_dev), min_adc_dev)
+        noisy    = np.where(active & np.isfinite(med) & np.isfinite(neigh_med)
+                            & (np.abs(med - neigh_med) > thresh))[0]
+
+        # saturation/spark: upward outlier of sat_fr vs neighbours (one-sided)
+        sat_thresh = np.maximum(sat_n_sigma * np.nan_to_num(neigh_sat_dev),
+                                min_sat_excess)
+        saturated = np.where(active & np.isfinite(neigh_sat)
+                             & (sat_fr - neigh_sat > sat_thresh))[0]
+        flags[v] = {"noisy": noisy.tolist(), "saturated": saturated.tolist()}
+
+        # heatmap background
+        disp = np.where(m > 0, m, np.nan)
+        im = ax.imshow(disp, origin="lower", aspect="auto", cmap=cmap,
+                       norm=LogNorm(vmin=1, vmax=max(m.max(), 1.0)),
+                       extent=[0, 64, 0, adc_top])
+        ch = np.arange(64) + 0.5
+        ax.plot(ch, med, color="white", lw=1.3, label="channel median")
+        ax.plot(ch, neigh_med, color="cyan", lw=1.3, ls="--",
+                label=f"neighbour median (±{neigh_window} ch)")
+        ax.axhline(sat_adc, color="magenta", lw=0.9, ls=":",
+                   label=f"saturation ≥ {sat_adc:.0f}")
+        if len(noisy):
+            ax.plot(ch[noisy], med[noisy], "o", mfc="none", mec="red",
+                    mew=1.4, ms=8, label="noisy")
+        if len(saturated):
+            ax.plot(ch[saturated], np.full(len(saturated), adc_top * 0.96),
+                    "v", color="orange", ms=7, label="saturated/spark")
+        ax.set_xlim(0, 64)
+        ax.set_ylim(0, adc_top)
+        ax.set_title(f"VMM {v}  —  noisy: {noisy.tolist()}  "
+                     f"sat: {saturated.tolist()}", fontsize=9)
+        ax.set_xlabel("Channel")
+        ax.set_ylabel("ADC")
+        ax.legend(loc="upper right", fontsize=7, framealpha=0.8)
+        fig.colorbar(im, ax=ax, label="Hit counts")
+
+        print(f"  VMM {v}: noisy ch={noisy.tolist()}  "
+              f"saturated ch={saturated.tolist()}")
+
+    for k in range(nv, nrow * ncol):
+        axes[k // ncol][k % ncol].axis("off")
+    fig.suptitle(
+        f"{detector_label} — ADC vs neighbour-channel median  |  Run {run_no}",
+        fontsize=13, fontweight="bold",
+    )
+    plt.tight_layout()
+    _save_fig(fig, out_dir,
+              f"adc_neighbor_median_{detector_label.replace(' ', '_')}"
+              f"_run{run_no}")
+    return flags
+
+
 # ─────────────────────────────────────────────────────────────
 # LARGE DETECTOR ORIENTATION DIAGNOSTIC
 # ─────────────────────────────────────────────────────────────
@@ -1738,6 +1906,10 @@ def main():
                 df_adc_hist, run_no=test_run, detector_label=det_label,
                 vmm_ids=det_vmms, bin_width=adc_bin_width, n_bins=adc_n_bins,
                 adc_cut=adc_cut, out_dir=out_dir)
+            plot_adc_neighbor_median(
+                df_adc_hist, run_no=test_run, detector_label=det_label,
+                vmm_ids=det_vmms, bin_width=adc_bin_width, n_bins=adc_n_bins,
+                out_dir=out_dir)
 
     print(f"\nStep 5 — large detector maps (FanPadDetector)...")
     for det_key in large_detectors:
@@ -1773,6 +1945,10 @@ def main():
                 df_adc_hist, run_no=test_run, detector_label=det_label,
                 vmm_ids=det_vmms, bin_width=adc_bin_width, n_bins=adc_n_bins,
                 adc_cut=adc_cut, adc_max=adc_max, out_dir=out_dir)
+            plot_adc_neighbor_median(
+                df_adc_hist, run_no=test_run, detector_label=det_label,
+                vmm_ids=det_vmms, bin_width=adc_bin_width, n_bins=adc_n_bins,
+                out_dir=out_dir)
         print(f"  {det_label}: generating orientation comparison (16 panels)...")
         compare_large_detector_orientations(
             df_det, large_det_map_csv,
