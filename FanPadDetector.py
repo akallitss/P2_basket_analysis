@@ -78,6 +78,45 @@ def pin_to_ch(mec8_pin, orientation="normal"):
     return ch
 
 
+# ─────────────────────────────────────────────────────────────
+# STRIP-BASED CHANNEL ORDERING  (validated against M3 tracks)
+# ─────────────────────────────────────────────────────────────
+
+# The cosmic-bench DREAM readout was validated against M3 telescope tracks
+# (cosmic_bench_analysis/p2_mapping.py, 03_m3_alignment.py): the order of the
+# 64 channels inside a connector half is 'reverse'. Unlike pin_to_ch, these
+# strategies treat the VMM channel as the within-half index and read the
+# geometry straight from the CSV's own `strip` column, so they are immune to
+# the 2-pin (ground) discontinuity in the MEC8 pin numbering — that gap makes
+# the validated order impossible to reproduce with any single ch = f(mec8_pin)
+# orientation.
+STRIP_STRATEGIES = ("reverse", "linear", "pairswap")
+
+
+def strip_to_ch(strip, strategy="reverse"):
+    """
+    Map a physical strip (1–128) to a VMM channel (0–63), treating the VMM
+    channel as the within-connector-half index.
+
+    base = 1 for the bottom half (strips 1–64), 65 for the top half
+    (strips 65–128); within = strip − base (0–63).
+
+    strategy : {'reverse', 'linear', 'pairswap'}
+        'reverse'  → ch = 63 − within   ** VALIDATED against M3 tracks **
+        'linear'   → ch = within
+        'pairswap' → ch = within ^ 1
+    """
+    base   = 1 if strip <= 64 else 65
+    within = strip - base
+    if strategy == "reverse":
+        return 63 - within
+    if strategy == "linear":
+        return within
+    if strategy == "pairswap":
+        return within ^ 1
+    raise ValueError(f"unknown strip strategy {strategy!r}")
+
+
 def _fanpad_from_row(row, columns, vmm_id, ch, apex, fallback_size):
     """
     Build a FanPad from a mapping-CSV row.
@@ -221,9 +260,22 @@ class FanPadDetector:
     @classmethod
     def from_mapping_csv(cls, csv_path, mec8_to_vmm, fpc_connectors,
                          orientation="normal", pad_size_mm=14.0,
-                         half_width_mm=None):
+                         half_width_mm=None, strategy=None):
         """
         Build detector from P2_BASKET_mapping.csv.
+
+        The channel→pad ordering is chosen by one of two independent families:
+
+        * ``strategy`` in {'reverse', 'linear', 'pairswap'} — the VMM channel is
+          the within-connector-half index and the geometry is read from the
+          CSV's ``strip`` column (see strip_to_ch). ``'reverse'`` is the order
+          validated against M3 tracks in the cosmic-bench DREAM readout; prefer
+          it. Immune to the MEC8 2-pin numbering gap.
+        * ``strategy=None`` (default) — legacy behaviour: the channel is derived
+          from ``mec8_pin`` via ``pin_to_ch(pin, orientation)``. Kept so the
+          ``orientation`` diagnostic (normal/flipped/back/flipped_back) still
+          works, but note no ``ch = f(mec8_pin)`` formula can reproduce the
+          validated order exactly.
 
         Parameters
         ----------
@@ -234,28 +286,34 @@ class FanPadDetector:
         fpc_connectors : list of int
             FPC connector numbers that were cabled (subset of 0–9).
         orientation : {'normal', 'flipped', 'back', 'flipped_back'}
-            Connector orientation (see pin_to_ch). Two composable toggles:
-            end-to-end reverse ('flipped') and back-side pair-swap ('back').
-            'normal'       → ch = mec8_pin − 3   (pin 3 = ch 0)
-            'flipped'      → ch = 66 − mec8_pin  (pin 3 = ch 63)
-            'back'         → 'normal'  with adjacent channel pairs swapped
-            'flipped_back' → 'flipped' with adjacent channel pairs swapped
+            Pin-based connector orientation (used only when strategy is None;
+            see pin_to_ch).
         pad_size_mm : float
             Full side length of each square pad (mm). Default 14 mm (slightly
             above the ~11-12 mm pitch) so neighbouring pads tile edge-to-edge.
         half_width_mm : float or None
             Deprecated alias kept for backward compatibility; if given,
             pad_size_mm = 2 × half_width_mm.
+        strategy : {'reverse', 'linear', 'pairswap'} or None
+            Strip-based within-half ordering. Overrides ``orientation`` when set.
         """
         if half_width_mm is not None:
             pad_size_mm = 2.0 * half_width_mm
+
+        use_strip = strategy in STRIP_STRATEGIES
+        if strategy is not None and not use_strip:
+            raise ValueError(f"unknown strip strategy {strategy!r}; "
+                             f"choose one of {STRIP_STRATEGIES} or None")
+
         df = pd.read_csv(csv_path)
         df = df[df["connector_number"].isin(fpc_connectors)].copy()
-        df = df.dropna(subset=["x", "y", "via_x", "via_y",
-                                "mec8_connector", "mec8_pin"])
+        subset = ["x", "y", "via_x", "via_y", "mec8_connector", "mec8_pin"]
+        if use_strip:
+            subset.append("strip")
+        df = df.dropna(subset=subset)
 
         det = cls()
-        det.orientation = orientation
+        det.orientation = strategy if use_strip else orientation
 
         # Recover apex from polar coordinates if available
         if "phi" in df.columns and "radius" in df.columns:
@@ -268,13 +326,15 @@ class FanPadDetector:
         for _, row in df.iterrows():
             fpc  = int(row["connector_number"])
             mec8 = int(row["mec8_connector"])
-            pin  = int(row["mec8_pin"])
 
             vmm_id = mec8_to_vmm.get((fpc, mec8))
             if vmm_id is None:
                 continue
 
-            ch = pin_to_ch(pin, orientation)
+            if use_strip:
+                ch = strip_to_ch(int(row["strip"]), strategy)
+            else:
+                ch = pin_to_ch(int(row["mec8_pin"]), orientation)
 
             if not (0 <= ch <= 63):
                 continue
@@ -286,7 +346,7 @@ class FanPadDetector:
             det.channel_map[(vmm_id, ch)] = idx
 
         print(f"FanPadDetector: loaded {len(det.pads)} pads "
-              f"(orientation={orientation})")
+              f"({'strategy' if use_strip else 'orientation'}={det.orientation})")
         return det
 
     @classmethod
