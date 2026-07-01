@@ -40,6 +40,16 @@ vmm_mapping = {
             (5, 0): 15,
         },
         'fpc_connectors': [4, 5],
+        # Channel→pad ordering. 'strategy' (strip-based) takes precedence over
+        # 'orientation' (pin-based). 'reverse' is the within-half order
+        # validated against M3 tracks in the cosmic-bench DREAM readout
+        # (cosmic_bench_analysis/p2_mapping.py, session 2026-07-01): it reads
+        # the geometry from the CSV's own `strip` column, so it is not subject
+        # to the MEC8 2-pin numbering gap that no ch=f(mec8_pin) orientation
+        # can reproduce. 'orientation' is retained only for the pin-based
+        # 16-panel comparison diagnostic (weak/inconclusive on the wide run-67
+        # muon beam).
+        'strategy': 'reverse',
         'orientation': 'flipped_back',
     },
     'p2_small_1': {
