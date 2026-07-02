@@ -32,11 +32,12 @@ import uproot
 
 import p2_qa_config as qa
 import p2_mapping as pmap
+import p2_sparks as ps
 
 _BRANCHES = ['eventId', 'trigger_timestamp_ns', 'channel', 'amplitude', 'feu']
 
 
-def load_hits(cfg, channel_table):
+def load_hits(cfg, channel_table, spark_veto=None):
     files = sorted(glob.glob(os.path.join(cfg.combined_hits_dir, '*.root')))
     feu_set = set(channel_table.attrs['feus'])
     parts = []
@@ -44,6 +45,10 @@ def load_hits(cfg, channel_table):
         arr = uproot.open(f'{fp}:hits').arrays(_BRANCHES, library='pd')
         parts.append(arr[arr['feu'].isin(feu_set)].copy())
     df = pd.concat(parts, ignore_index=True)
+    if spark_veto is not None:
+        df, n_rm = spark_veto.apply(df)
+        print(f'Spark veto: dropped {n_rm:,} hits in {len(spark_veto.sparks)} '
+              f'sparks ({100*(1-spark_veto.live_fraction()):.2f}% deadtime).')
     df = pmap.attach_pads_to_hits(df, channel_table)
     df = df[df['mapped'] & df['pad_cx'].notna()].copy()
     return df
@@ -54,7 +59,7 @@ def _pad_range(df, pad=15):
             [df['pad_cy'].min() - pad, df['pad_cy'].max() + pad]]
 
 
-def plot_surface_hitmap(df, out_dir, cfg):
+def plot_surface_hitmap(df, out_dir, cfg, suffix=''):
     rng = _pad_range(df)
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
     for ax, norm, tag in [(axes[0], None, 'linear'),
@@ -67,7 +72,7 @@ def plot_surface_hitmap(df, out_dir, cfg):
     fig.suptitle(f'{cfg.DET_NAME} pad surface hitmap — {cfg.RUN}/{cfg.SUB_RUN}\n'
                  f'{len(df):,} hits from {df["eventId"].nunique():,} events')
     fig.tight_layout()
-    fig.savefig(f'{out_dir}/surface_hitmap.png', dpi=150, bbox_inches='tight')
+    fig.savefig(f'{out_dir}/surface_hitmap{suffix}.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
 
 
@@ -80,7 +85,7 @@ def pad_firing(df, n_events, channel_table):
     return out.reset_index()
 
 
-def plot_pad_firing(fdf, out_dir, cfg, summary):
+def plot_pad_firing(fdf, out_dir, cfg, summary, suffix=''):
     fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
     live = fdf[fdf['fire_frac'] > 0]
     sc = axes[0].scatter(live['pad_cx'], live['pad_cy'], c=live['fire_frac'],
@@ -101,7 +106,7 @@ def plot_pad_firing(fdf, out_dir, cfg, summary):
     axes[1].set_title('Firing-fraction distribution')
     fig.suptitle(f'{cfg.DET_NAME} per-pad firing fraction — {cfg.RUN}/{cfg.SUB_RUN}')
     fig.tight_layout()
-    fig.savefig(f'{out_dir}/pad_firing_fraction.png', dpi=150, bbox_inches='tight')
+    fig.savefig(f'{out_dir}/pad_firing_fraction{suffix}.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
 
     top = fdf.sort_values('fire_frac', ascending=False).head(10)
@@ -118,7 +123,7 @@ def multiplicity(df):
     return mult
 
 
-def plot_multiplicity(df, mult, out_dir, cfg, summary):
+def plot_multiplicity(df, mult, out_dir, cfg, summary, suffix=''):
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
     bins = np.arange(0, max(int(mult['npad'].max()), 10) + 2)
     # per-FEU multiplicity
@@ -135,7 +140,7 @@ def plot_multiplicity(df, mult, out_dir, cfg, summary):
     axes[1].set_title('Total pad multiplicity')
     fig.suptitle(f'{cfg.DET_NAME} event multiplicity — {cfg.RUN}/{cfg.SUB_RUN}')
     fig.tight_layout()
-    fig.savefig(f'{out_dir}/event_multiplicity.png', dpi=150, bbox_inches='tight')
+    fig.savefig(f'{out_dir}/event_multiplicity{suffix}.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
 
     for thr in (5, 10, 20):
@@ -145,7 +150,7 @@ def plot_multiplicity(df, mult, out_dir, cfg, summary):
                    f'mean: {mult["npad"].mean():.2f}, max: {int(mult["npad"].max())}')
 
 
-def plot_mult_vs_time(mult, out_dir, cfg):
+def plot_mult_vs_time(mult, out_dir, cfg, suffix=''):
     from scipy.stats import binned_statistic
     t = (mult['ts'] - mult['ts'].min()) / 1e9
     mean_m, edges, _ = binned_statistic(t, mult['npad'], statistic='mean', bins=80)
@@ -156,7 +161,7 @@ def plot_mult_vs_time(mult, out_dir, cfg):
     ax.set_title(f'{cfg.DET_NAME} mean multiplicity vs time — {cfg.RUN}/{cfg.SUB_RUN}')
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    fig.savefig(f'{out_dir}/multiplicity_vs_time.png', dpi=150, bbox_inches='tight')
+    fig.savefig(f'{out_dir}/multiplicity_vs_time{suffix}.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
 
 
@@ -165,31 +170,42 @@ def main():
     ap.add_argument('run_key', nargs='?', default=qa.DEFAULT_RUN)
     ap.add_argument('--strategy', default='reverse',
                     choices=['linear', 'reverse', 'pairswap'])
+    ap.add_argument('--veto-sparks', action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help='drop events taken during an HV spark (default on).')
     args = ap.parse_args()
 
     cfg = qa.get_config(args.run_key)
     print(cfg)
     out_dir = cfg.out_dir('05_detector_deep_qa')
+    sfx = cfg.product_suffix(args.veto_sparks)
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
-                                  strategy=args.strategy)
-    df = load_hits(cfg, ct)
+                                  strategy=args.strategy,
+                                  drop_connectors=cfg.DEAD_CONNECTORS)
+    if cfg.DEAD_CONNECTORS:
+        print(f'  dropped dead connectors: {list(cfg.DEAD_CONNECTORS)}')
+    n_pads = ct['channel_id'].nunique()
+    sv = ps.SparkVeto.from_cfg(cfg) if args.veto_sparks else None
+    df = load_hits(cfg, ct, spark_veto=sv)
     n_events = df['eventId'].nunique()
     summary = [f'Deep QA — {cfg.DET_NAME}  {cfg.RUN}/{cfg.SUB_RUN}',
+               f'  spark veto: {"ON" if args.veto_sparks else "OFF"}'
+               + (f' ({100*(1-sv.live_fraction()):.2f}% deadtime removed)' if sv else ''),
                f'  events with any pad hit: {n_events:,}',
                f'  total pad hits: {len(df):,}  ({len(df)/n_events:.2f} hits/event)',
-               f'  distinct pads fired: {df["channel_id"].nunique()} / 1280']
+               f'  distinct pads fired: {df["channel_id"].nunique()} / {n_pads}']
 
-    plot_surface_hitmap(df, out_dir, cfg)
+    plot_surface_hitmap(df, out_dir, cfg, sfx)
     fdf = pad_firing(df, n_events, ct)
-    plot_pad_firing(fdf, out_dir, cfg, summary)
+    plot_pad_firing(fdf, out_dir, cfg, summary, sfx)
     mult = multiplicity(df)
-    plot_multiplicity(df, mult, out_dir, cfg, summary)
-    plot_mult_vs_time(mult, out_dir, cfg)
+    plot_multiplicity(df, mult, out_dir, cfg, summary, sfx)
+    plot_mult_vs_time(mult, out_dir, cfg, sfx)
 
     txt = '\n'.join(summary)
     print(txt)
-    with open(f'{out_dir}/deep_qa_summary.txt', 'w') as f:
+    with open(f'{out_dir}/deep_qa_summary{sfx}.txt', 'w') as f:
         f.write(txt + '\n')
     print(f'\nDeep QA written to: {out_dir}')
 
