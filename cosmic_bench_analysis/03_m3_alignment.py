@@ -61,6 +61,7 @@ import uproot
 import p2_qa_config as qa
 import p2_mapping as pmap
 import p2_align as pa
+import p2_sparks as ps
 
 # M3RefTracking lives in the nTof_x17 analysis repo (same reader m3_comparison uses).
 _M3_PKG = os.path.expanduser(
@@ -69,7 +70,7 @@ if _M3_PKG not in sys.path:
     sys.path.insert(0, _M3_PKG)
 from M3RefTracking import M3RefTracking  # noqa: E402
 
-_HIT_BRANCHES = ['eventId', 'channel', 'amplitude', 'feu']
+_HIT_BRANCHES = ['eventId', 'trigger_timestamp_ns', 'channel', 'amplitude', 'feu']
 
 
 # --------------------------------------------------------------------------- #
@@ -91,7 +92,8 @@ def load_m3_positions(m3_dir, z, chi2_cut=1.5):
     return df
 
 
-def load_p2_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False):
+def load_p2_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
+                      spark_veto=None):
     """Per-event charge-weighted P2 pad centroid (or leading-pad position)."""
     files = sorted(glob.glob(os.path.join(hits_dir, '*.root')))
     if not files:
@@ -102,6 +104,10 @@ def load_p2_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False):
         arr = uproot.open(f'{fp}:hits').arrays(_HIT_BRANCHES, library='pd')
         parts.append(arr[arr['feu'].isin(feu_set)].copy())
     hits = pd.concat(parts, ignore_index=True)
+    if spark_veto is not None:
+        hits, n_rm = spark_veto.apply(hits)
+        print(f'Spark veto: dropped {n_rm:,} hits in {len(spark_veto.sparks)} '
+              f'sparks ({100*(1-spark_veto.live_fraction()):.2f}% deadtime).')
     if min_amp > 0:
         hits = hits[hits['amplitude'] >= min_amp]
 
@@ -257,7 +263,7 @@ def joint_zt_align(ep_matched, x_pad, y_pad, mirror,
             float(r_yy[0])), (z_grid, thetas, fom2d)
 
 
-def plot_zscan(grid, z_best, t_best, out_dir, tag):
+def plot_zscan(grid, z_best, t_best, out_dir, tag, suffix=''):
     z_grid, thetas, fom2d = grid
     fig, (ax, axl) = plt.subplots(1, 2, figsize=(15, 5.5),
                                   gridspec_kw={'width_ratios': [1.5, 1]})
@@ -279,7 +285,7 @@ def plot_zscan(grid, z_best, t_best, out_dir, tag):
     axl.grid(True, alpha=0.3); axl.legend(fontsize=8)
     fig.suptitle(f'P2↔M3 z-height alignment — {tag}', fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
-    p = os.path.join(out_dir, 'z_theta_scan.png')
+    p = os.path.join(out_dir, f'z_theta_scan{suffix}.png')
     fig.savefig(p, dpi=140, bbox_inches='tight')
     plt.close(fig)
     print(f'  saved {p}')
@@ -288,7 +294,7 @@ def plot_zscan(grid, z_best, t_best, out_dir, tag):
 # --------------------------------------------------------------------------- #
 # Plots
 # --------------------------------------------------------------------------- #
-def plot_scan(scan, best, out_dir, tag):
+def plot_scan(scan, best, out_dir, tag, suffix=''):
     fig, axes = plt.subplots(1, 2, figsize=(15, 5.5), sharey=True)
     for ax, mirror in zip(axes, (+1, -1)):
         thetas, r_xx, r_yy, fom = scan[mirror]
@@ -307,13 +313,13 @@ def plot_scan(scan, best, out_dir, tag):
     axes[0].set_ylabel('Pearson correlation')
     fig.suptitle(f'P2↔M3 rotation scan — {tag}', fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
-    p = os.path.join(out_dir, 'rotation_scan.png')
+    p = os.path.join(out_dir, f'rotation_scan{suffix}.png')
     fig.savefig(p, dpi=140, bbox_inches='tight')
     plt.close(fig)
     print(f'  saved {p}')
 
 
-def plot_best_corr(x_m3, y_m3, x_pad, y_pad, best, out_dir, tag):
+def plot_best_corr(x_m3, y_m3, x_pad, y_pad, best, out_dir, tag, suffix=''):
     mirror, theta, r_xx, r_yy, _ = best
     rad = np.radians(theta)
     xp0 = x_pad - x_pad.mean()
@@ -335,7 +341,7 @@ def plot_best_corr(x_m3, y_m3, x_pad, y_pad, best, out_dir, tag):
     fig.suptitle(f'P2↔M3 at best angle θ={theta:.1f}°, mirror={mirror} — {tag}',
                  fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
-    p = os.path.join(out_dir, 'best_angle_corr.png')
+    p = os.path.join(out_dir, f'best_angle_corr{suffix}.png')
     fig.savefig(p, dpi=140, bbox_inches='tight')
     plt.close(fig)
     print(f'  saved {p}')
@@ -366,6 +372,9 @@ def main():
     ap.add_argument('--leading-pad', action='store_true',
                     help='use the highest-amplitude pad instead of the '
                          'charge-weighted centroid.')
+    ap.add_argument('--veto-sparks', action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help='drop events taken during an HV spark (default on).')
     args = ap.parse_args()
 
     cfg = qa.get_config(args.run_key)
@@ -374,13 +383,15 @@ def main():
 
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
-                                  strategy=args.strategy)
+                                  strategy=args.strategy,
+                                  drop_connectors=cfg.DEAD_CONNECTORS)
 
     # matched sample carries the FULL M3 endpoints so tracks can be reprojected
     # to any z during the height scan.
+    sv = ps.SparkVeto.from_cfg(cfg) if args.veto_sparks else None
     ep = pa.load_m3_endpoints(cfg.m3_tracking_dir, args.chi2_cut)
     p2 = load_p2_centroids(cfg.combined_hits_dir, ct, args.min_amp,
-                           args.leading_pad)
+                           args.leading_pad, spark_veto=sv)
     m = ep.merge(p2, on='eventId', how='inner')
     x0, y0 = pa.project_to_z(m, args.z)
     if args.m3_fiducial > 0:
@@ -394,6 +405,7 @@ def main():
     x_pad = m['x_pad'].to_numpy()
     y_pad = m['y_pad'].to_numpy()
     tag = f'{cfg.DET_TAG} {cfg.RUN}/{cfg.SUB_RUN} [{args.strategy}]'
+    sfx = cfg.product_suffix(args.veto_sparks)
 
     # -- joint z x theta alignment (scan z, re-optimise angle at each z, iterate) --
     z_used = args.z
@@ -407,7 +419,7 @@ def main():
         (z_used, t_z, fom_z, rxx_z, ryy_z), _ = best_joint
         print(f'z-height fit: z* = {z_used:.1f} mm, θ* = {t_z:.2f}°, '
               f'mirror {best_mir:+d}, FOM {fom_z:.4f} (r_x {rxx_z:.3f}, r_y {ryy_z:.3f})')
-        plot_zscan(best_grid, z_used, t_z, out_dir, tag)
+        plot_zscan(best_grid, z_used, t_z, out_dir, tag, sfx)
 
     # project the matched tracks to the fitted plane for the angle products
     xm, ym = pa.project_to_z(m, z_used)
@@ -417,8 +429,8 @@ def main():
     mirror, theta, r_xx, r_yy, fom = best
     theta_pc, refl_pc, scale_pc, rmse_pc = procrustes(x_m3, y_m3, x_pad, y_pad)
 
-    plot_scan(scan, best, out_dir, tag)
-    plot_best_corr(x_m3, y_m3, x_pad, y_pad, best, out_dir, tag)
+    plot_scan(scan, best, out_dir, tag, sfx)
+    plot_best_corr(x_m3, y_m3, x_pad, y_pad, best, out_dir, tag, sfx)
 
     summary = [
         f'P2<->M3 alignment  {tag}',
@@ -442,7 +454,7 @@ def main():
         f'  residual RMSE         : {rmse_pc:.1f} mm',
     ]
     print('\n'.join(summary))
-    sp = os.path.join(out_dir, 'alignment_summary.txt')
+    sp = os.path.join(out_dir, f'alignment_summary{sfx}.txt')
     with open(sp, 'w') as fh:
         fh.write('\n'.join(summary) + '\n')
     print(f'  saved {sp}')
