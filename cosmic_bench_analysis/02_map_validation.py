@@ -44,8 +44,10 @@ import uproot
 
 import p2_qa_config as qa
 import p2_mapping as pmap
+import p2_sparks as ps
 
-_HIT_BRANCHES = ['eventId', 'channel', 'amplitude', 'saturated', 'feu', 'time']
+_HIT_BRANCHES = ['eventId', 'trigger_timestamp_ns', 'channel', 'amplitude',
+                 'saturated', 'feu', 'time']
 
 
 # --------------------------------------------------------------------------- #
@@ -107,7 +109,7 @@ def _pad_scatter(ax, full, value, title, cbar_label, cmap='viridis',
     plt.colorbar(sc, ax=ax, label=cbar_label, fraction=0.046, pad=0.04)
 
 
-def plot_pad_occupancy(full, out_dir, tag):
+def plot_pad_occupancy(full, out_dir, tag, suffix=''):
     fig = plt.figure(figsize=(15, 10))
     gs = fig.add_gridspec(2, 2, height_ratios=[1.4, 1])
 
@@ -144,25 +146,25 @@ def plot_pad_occupancy(full, out_dir, tag):
 
     fig.suptitle(f'P2 pad-map validation — {tag}', fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.97))
-    p = os.path.join(out_dir, 'pad_occupancy.png')
+    p = os.path.join(out_dir, f'pad_occupancy{suffix}.png')
     fig.savefig(p, dpi=140, bbox_inches='tight')
     plt.close(fig)
     print(f'  saved {p}')
 
 
-def plot_pad_amplitude(full, out_dir, tag):
+def plot_pad_amplitude(full, out_dir, tag, suffix=''):
     fig, ax = plt.subplots(figsize=(9, 8))
     _pad_scatter(ax, full, 'mean_amp', 'Mean pulse height per pad',
                  'mean amplitude [ADC]', cmap='plasma', mask_zero=True)
     fig.suptitle(f'P2 pad-map validation — mean amplitude — {tag}', fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
-    p = os.path.join(out_dir, 'pad_amplitude.png')
+    p = os.path.join(out_dir, f'pad_amplitude{suffix}.png')
     fig.savefig(p, dpi=140, bbox_inches='tight')
     plt.close(fig)
     print(f'  saved {p}')
 
 
-def plot_dead_map(full, out_dir, tag):
+def plot_dead_map(full, out_dir, tag, suffix=''):
     fig, ax = plt.subplots(figsize=(9, 8))
     silent = full[full['n_hits'] == 0]
     active = full[full['n_hits'] > 0]
@@ -178,14 +180,15 @@ def plot_dead_map(full, out_dir, tag):
     ax.legend(loc='upper right', fontsize=8)
     fig.suptitle(f'P2 pad-map validation — dead-pad map — {tag}', fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
-    p = os.path.join(out_dir, 'dead_pad_map.png')
+    p = os.path.join(out_dir, f'dead_pad_map{suffix}.png')
     fig.savefig(p, dpi=140, bbox_inches='tight')
     plt.close(fig)
     print(f'  saved {p}')
 
 
 def plot_strategy_compare(hits, cfg, out_dir, tag,
-                          strategies=('linear', 'reverse', 'pairswap')):
+                          strategies=('linear', 'reverse', 'pairswap'),
+                          suffix=''):
     fig, axes = plt.subplots(1, len(strategies),
                              figsize=(6 * len(strategies), 6.5))
     if len(strategies) == 1:
@@ -193,7 +196,8 @@ def plot_strategy_compare(hits, cfg, out_dir, tag,
     for ax, strat in zip(axes, strategies):
         ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                       det_type=cfg.DET_TYPE,
-                                      det_name=cfg.DET_NAME, strategy=strat)
+                                      det_name=cfg.DET_NAME, strategy=strat,
+                                      drop_connectors=cfg.DEAD_CONNECTORS)
         full = per_pad_stats(hits, ct)
         _pad_scatter(ax, full, 'n_hits', f'strategy = {strat}',
                      'hits', log=True, mask_zero=True)
@@ -201,7 +205,7 @@ def plot_strategy_compare(hits, cfg, out_dir, tag,
                  '(the correct ordering gives a smooth, physical illumination)',
                  fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
-    p = os.path.join(out_dir, 'strategy_compare.png')
+    p = os.path.join(out_dir, f'strategy_compare{suffix}.png')
     fig.savefig(p, dpi=140, bbox_inches='tight')
     plt.close(fig)
     print(f'  saved {p}')
@@ -218,6 +222,9 @@ def main():
                          'main products (default reverse, validated vs M3)')
     ap.add_argument('--compare-strategies', action='store_true',
                     help='also render pad occupancy for every ordering side by side')
+    ap.add_argument('--veto-sparks', action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help='drop events taken during an HV spark (default on).')
     args = ap.parse_args()
 
     cfg = qa.get_config(args.run_key)
@@ -226,12 +233,20 @@ def main():
 
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
-                                  strategy=args.strategy)
+                                  strategy=args.strategy,
+                                  drop_connectors=cfg.DEAD_CONNECTORS)
     print(f'Mapping: {cfg.DET_NAME}  FEUs {ct.attrs["feus"]}  '
           f'strategy={args.strategy}  '
           f'{int(ct["mapped"].sum())}/{len(ct)} channels resolved to pads')
+    if cfg.DEAD_CONNECTORS:
+        print(f'  dropped dead connectors: {list(cfg.DEAD_CONNECTORS)}')
 
     hits = load_p2_hits(cfg.combined_hits_dir, ct.attrs['feus'])
+    if args.veto_sparks:
+        sv = ps.SparkVeto.from_cfg(cfg)
+        hits, n_rm = sv.apply(hits)
+        print(f'Spark veto: dropped {n_rm:,} hits in {len(sv.sparks)} sparks '
+              f'({100*(1-sv.live_fraction()):.2f}% deadtime).')
     full = per_pad_stats(hits, ct)
 
     n_active = int((full['n_hits'] > 0).sum())
@@ -241,13 +256,14 @@ def main():
     print(full.groupby('connector_N')['n_hits'].sum().to_string())
 
     tag = f'{cfg.DET_TAG} {cfg.RUN}/{cfg.SUB_RUN} [{args.strategy}]'
-    plot_pad_occupancy(full, out_dir, tag)
-    plot_pad_amplitude(full, out_dir, tag)
-    plot_dead_map(full, out_dir, tag)
+    sfx = cfg.product_suffix(args.veto_sparks)
+    plot_pad_occupancy(full, out_dir, tag, sfx)
+    plot_pad_amplitude(full, out_dir, tag, sfx)
+    plot_dead_map(full, out_dir, tag, sfx)
     if args.compare_strategies:
-        plot_strategy_compare(hits, cfg, out_dir, tag)
+        plot_strategy_compare(hits, cfg, out_dir, tag, suffix=sfx)
 
-    stats_csv = os.path.join(out_dir, 'map_validation_stats.csv')
+    stats_csv = os.path.join(out_dir, f'map_validation_stats{sfx}.csv')
     full.sort_values('channel_id').to_csv(stats_csv, index=False)
     print(f'  saved {stats_csv}')
     print('Done.')
