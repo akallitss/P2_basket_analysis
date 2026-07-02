@@ -131,6 +131,10 @@ def main():
     pcx, pcy = T.apply(padc['pad_cx'].to_numpy(), padc['pad_cy'].to_numpy())
     pad_xy = np.column_stack([pcx, pcy])
     tree = cKDTree(pad_xy)
+    # persist the pad footprint (M3 frame) so the sliding map (stage 10) can
+    # define its zone from the real detector shape rather than a ray bounding box.
+    pd.DataFrame({'x': pcx, 'y': pcy}).to_csv(
+        f'{out_dir}/pad_footprint{sfx}.csv', index=False)
 
     # --- ray list (every clean M3 single track) with hit/miss flags ---
     d = m3.rename(columns={'x_m3': 'x', 'y_m3': 'y'}).copy()
