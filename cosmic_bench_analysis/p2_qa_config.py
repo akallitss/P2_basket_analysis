@@ -108,6 +108,10 @@ class _Config:
     def run_config_path(self):
         return os.path.join(self.run_dir, 'run_config.json')
 
+    def subrun_dir(self, sub_run):
+        """Path to a specific sub_run under this run (for multi-subrun scans)."""
+        return os.path.join(self.run_dir, sub_run)
+
     @property
     def combined_hits_dir(self):
         return os.path.join(self.sub_run_dir, 'combined_hits_root')
@@ -167,6 +171,15 @@ RUNS = {
         sub_run='efficiency_long_run_p2_det1',
         det_name='P2_1',
         dead_connectors=(10,)),   # connector 10 disconnected on P2 det1
+
+    # Mesh-HV scan (mesh 365->420 V in 5 V steps, drift = mesh + 180 V), one
+    # sub_run per HV point (mesh_<NNN>V_drift_<MMM>V).
+    'det1_hvscan': _Config(
+        'det1_hvscan',
+        run='p2_det1_mesh_hv_scan_7-2-26',
+        sub_run='hv_scan',
+        det_name='P2_1',
+        dead_connectors=(10,)),
 }
 
 
