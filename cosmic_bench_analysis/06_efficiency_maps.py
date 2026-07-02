@@ -45,6 +45,7 @@ from scipy.spatial import cKDTree
 import p2_qa_config as qa
 import p2_mapping as pmap
 import p2_align as pa
+import p2_sparks as ps
 
 BINS = 40
 
@@ -74,21 +75,41 @@ def main():
                     help='override the M3 projection plane z [mm]; default uses '
                          'run_config det_center z. Use the z fitted by '
                          '03_m3_alignment (e.g. 246) for best alignment.')
+    ap.add_argument('--veto-sparks', action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help='drop rays/events taken during an HV spark (default on).')
     args = ap.parse_args()
 
     cfg = qa.get_config(args.run_key)
     print(cfg)
     out_dir = cfg.out_dir('06_efficiency')
+    sfx = cfg.product_suffix(args.veto_sparks)
     det_z = args.z if args.z is not None else _det_plane_z(cfg)
     R = args.r
 
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
-                                  strategy=args.strategy)
+                                  strategy=args.strategy,
+                                  drop_connectors=cfg.DEAD_CONNECTORS)
+    if cfg.DEAD_CONNECTORS:
+        print(f'  dropped dead connectors: {list(cfg.DEAD_CONNECTORS)}')
 
     # --- inputs ---
     m3 = pa.load_m3_positions(cfg.m3_tracking_dir, det_z, args.chi2_cut)
     p2, hit_events = pa.load_p2_centroids(cfg.combined_hits_dir, ct)
+
+    # --- HV spark veto: drop rays/events taken during a mesh discharge -------
+    if args.veto_sparks:
+        sv = ps.SparkVeto.from_cfg(cfg)
+        bad = sv.vetoed_ids_from_hits(cfg.combined_hits_dir, ct.attrs['feus'])
+        n0m, n0p = len(m3), len(p2)
+        m3 = m3[~m3['eventId'].isin(bad)].copy()
+        p2 = p2[~p2['eventId'].isin(bad)].copy()
+        hit_events = hit_events - bad
+        print(f'Spark veto: {len(sv.sparks)} sparks, '
+              f'{100*(1-sv.live_fraction()):.2f}% deadtime; dropped '
+              f'{n0m-len(m3):,} rays and {n0p-len(p2):,} P2 events.')
+
     print(f'M3 single-track rays: {len(m3):,} | P2 events with centroid: {len(p2):,}')
 
     # --- fit the pad->M3 transform on matched events (fiducial only for the fit) ---
@@ -157,7 +178,7 @@ def main():
         for h in lg.legend_handles:
             h.set_alpha(1)
         fig.tight_layout()
-        fig.savefig(f'{out_dir}/scatter_{name}.png', dpi=150, bbox_inches='tight')
+        fig.savefig(f'{out_dir}/scatter_{name}{sfx}.png', dpi=150, bbox_inches='tight')
         plt.close(fig)
 
     # binned efficiency maps (over active-area rays)
@@ -178,7 +199,7 @@ def main():
         ax.set_title(f'{cfg.DET_NAME} efficiency map — {ttl}  (>=5 rays/bin)\n'
                      f'{cfg.RUN}/{cfg.SUB_RUN}')
         fig.tight_layout()
-        fig.savefig(f'{out_dir}/map_{name}.png', dpi=150, bbox_inches='tight')
+        fig.savefig(f'{out_dir}/map_{name}{sfx}.png', dpi=150, bbox_inches='tight')
         plt.close(fig)
 
     # radial residual (core + tail) for active-area rays that had a P2 event
@@ -197,7 +218,7 @@ def main():
     fig.suptitle(f'{cfg.DET_NAME} radial residual (active area, median {med:.1f} mm) '
                  f'— {cfg.RUN}/{cfg.SUB_RUN}')
     fig.tight_layout()
-    fig.savefig(f'{out_dir}/radial_residual.png', dpi=150, bbox_inches='tight')
+    fig.savefig(f'{out_dir}/radial_residual{sfx}.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
 
     # reconstructed positions in the pad (detector) frame, for well-reco rays
@@ -209,7 +230,7 @@ def main():
     ax.set_title(f'{cfg.DET_NAME} pad positions of well-reco tracks (|r|<={R:g}mm)\n'
                  f'{cfg.RUN}/{cfg.SUB_RUN}  ({len(recop):,} events)')
     fig.tight_layout()
-    fig.savefig(f'{out_dir}/reco_positions_detector.png', dpi=150, bbox_inches='tight')
+    fig.savefig(f'{out_dir}/reco_positions_detector{sfx}.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
 
     # projections of non-reconstructed muons (in active area, no within-R hit)
@@ -222,7 +243,7 @@ def main():
     ax.set_title(f'{cfg.DET_NAME} projections of NON-reconstructed muons\n'
                  f'{cfg.RUN}/{cfg.SUB_RUN}  ({len(nonreco):,} rays)')
     fig.tight_layout()
-    fig.savefig(f'{out_dir}/nonreco_ray_positions.png', dpi=150, bbox_inches='tight')
+    fig.savefig(f'{out_dir}/nonreco_ray_positions{sfx}.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
 
     # breakdown: where do active-area crossing muons go?
@@ -241,7 +262,7 @@ def main():
                  f'{cfg.RUN}/{cfg.SUB_RUN}  (N={n:,})')
     ax.grid(True, alpha=0.3, axis='y')
     fig.tight_layout()
-    fig.savefig(f'{out_dir}/efficiency_breakdown.png', dpi=150, bbox_inches='tight')
+    fig.savefig(f'{out_dir}/efficiency_breakdown{sfx}.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
 
     # summary
@@ -261,9 +282,9 @@ def main():
         f'  median |r| residual       : {med:.1f} mm',
     ]
     print('\n'.join(summary))
-    with open(f'{out_dir}/efficiency_summary.txt', 'w') as f:
+    with open(f'{out_dir}/efficiency_summary{sfx}.txt', 'w') as f:
         f.write('\n'.join(summary) + '\n')
-    d.to_csv(f'{out_dir}/ray_hit_miss_list.csv', index=False)
+    d.to_csv(f'{out_dir}/ray_hit_miss_list{sfx}.csv', index=False)
     print(f'\nWritten to: {out_dir}')
 
 
