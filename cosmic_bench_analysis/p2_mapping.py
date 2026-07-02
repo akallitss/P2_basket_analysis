@@ -157,18 +157,25 @@ def _within_to_strip(within, half, strategy='linear'):
 # Full resolver: build a per-(feu,channel) pad lookup table
 # --------------------------------------------------------------------------- #
 def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
-                        strategy='reverse'):
+                        strategy='reverse', drop_connectors=()):
     """Return a DataFrame with one row per instrumented (feu, channel).
 
     Columns: feu, channel, dream_conn, within, connector_N, half, sector,
              strip, channel_id, pad_cx, pad_cy, radius, phi, mec8_connector,
              mapped (bool: channel_id found in the pad map).
+
+    drop_connectors : iterable of physical connector numbers (1..10) that are
+        disconnected/dead. Their channels are omitted entirely, so their hits do
+        not map to pads and their pads never appear in the analysis.
     """
     wiring, feus, name = parse_dream_wiring(run_config_path, det_type, det_name)
     pad = load_pad_map(map_csv)
+    drop = set(int(c) for c in drop_connectors)
 
     rows = []
     for (feu, dream_conn), (n, half) in wiring.items():
+        if n in drop:
+            continue
         sector = n - 1
         for within in range(CH_PER_CONNECTOR):
             channel = (dream_conn - 1) * CH_PER_CONNECTOR + within
@@ -189,6 +196,7 @@ def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
     tab.attrs['det_name'] = name
     tab.attrs['feus'] = feus
     tab.attrs['strategy'] = strategy
+    tab.attrs['drop_connectors'] = sorted(drop)
     return tab
 
 
