@@ -66,7 +66,9 @@ def det_tag_from_run(run_name: str) -> str:
 class _Config:
     def __init__(self, key, run, sub_run, det_name='P2_1',
                  det_type='P2', ref_det_type='m3', data_root=DATA_ROOT,
-                 map_csv=MAP_CSV_PATH):
+                 map_csv=MAP_CSV_PATH, dead_connectors=(),
+                 spark_channel='1:0', spark_imon_thr=2.0,
+                 spark_guard_before=2.0, spark_guard_after=10.0):
         self.KEY = key
         self.DATA_ROOT = data_root
         self.RUN = run
@@ -76,6 +78,18 @@ class _Config:
         self.REF_DET_TYPE = ref_det_type    # reference tracker det_type (m3 telescope)
         self.MAP_CSV_PATH = map_csv
         self.DET_TAG = det_tag_from_run(run)
+        # Physical connectors (1..10) that are disconnected/dead on this
+        # detector. They are dropped from the pad map so they do not show up as
+        # spurious dead regions or bias the efficiency (a track pointing at a
+        # dead connector is not a real 'miss').
+        self.DEAD_CONNECTORS = tuple(dead_connectors)
+        # --- HV spark flagging (hv_monitor.csv) ---------------------------- #
+        # The mesh HV channel discharges (sparks) as brief imon spikes. Events
+        # taken during a spark + its recovery are vetoed from every stage.
+        self.SPARK_CHANNEL = spark_channel       # CAEN 'board:chan' of the mesh
+        self.SPARK_IMON_THR = spark_imon_thr     # imon >= this [uA] is a spark
+        self.SPARK_GUARD_BEFORE = spark_guard_before   # veto pad before [s]
+        self.SPARK_GUARD_AFTER = spark_guard_after     # veto pad after [s]
 
         # Analysis/ tree, keyed by detector -> run -> sub_run.
         self.OUT_BASE = os.path.join(data_root, 'Analysis',
@@ -99,6 +113,12 @@ class _Config:
         return os.path.join(self.sub_run_dir, 'combined_hits_root')
 
     @property
+    def hits_root_dir(self):
+        """Per-FEU hits_root files (pre-combination). These carry the
+        'pedestals' TTree (per-channel mean/rms) that the combined files drop."""
+        return os.path.join(self.sub_run_dir, 'hits_root')
+
+    @property
     def m3_tracking_dir(self):
         return os.path.join(self.sub_run_dir, 'm3_tracking_root')
 
@@ -111,6 +131,25 @@ class _Config:
         d = os.path.join(self.OUT_BASE, *parts)
         os.makedirs(d, exist_ok=True)
         return d
+
+    @property
+    def dead_suffix(self):
+        """Filename tag noting the dropped dead connectors, e.g.
+        '_without_connector_10' (empty string if none are dropped). Appended to
+        product filenames so it is obvious a plot excludes a dead connector."""
+        if not self.DEAD_CONNECTORS:
+            return ''
+        conns = '_'.join(str(c) for c in sorted(self.DEAD_CONNECTORS))
+        word = 'connector' if len(self.DEAD_CONNECTORS) == 1 else 'connectors'
+        return f'_without_{word}_{conns}'
+
+    SPARK_SUFFIX = '_spark_vetoed'
+
+    def product_suffix(self, veto_sparks=False):
+        """Filename tag for a stage's products: always notes dropped dead
+        connectors, and appends the spark-veto tag when the veto is applied.
+        Keeps spark-vetoed products from overwriting the un-vetoed ones."""
+        return self.dead_suffix + (self.SPARK_SUFFIX if veto_sparks else '')
 
     def __repr__(self):
         return (f'<P2 cfg {self.KEY}: {self.DET_TAG} {self.RUN}/{self.SUB_RUN} '
@@ -126,7 +165,8 @@ RUNS = {
         'det1_long',
         run='p2_det1_long_run_6-30-26',
         sub_run='efficiency_long_run_p2_det1',
-        det_name='P2_1'),
+        det_name='P2_1',
+        dead_connectors=(10,)),   # connector 10 disconnected on P2 det1
 }
 
 
