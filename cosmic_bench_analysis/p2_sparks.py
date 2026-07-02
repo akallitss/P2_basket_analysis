@@ -163,7 +163,13 @@ class SparkVeto:
 
     @classmethod
     def from_cfg(cls, cfg):
-        hv = load_hv(cfg.hv_monitor_csv, cfg.SPARK_CHANNEL)
+        return cls.from_csv(cfg.hv_monitor_csv, cfg)
+
+    @classmethod
+    def from_csv(cls, hv_csv, cfg):
+        """Build a veto from an explicit hv_monitor.csv path using cfg's spark
+        parameters (for multi-subrun scans, each with its own HV monitor)."""
+        hv = load_hv(hv_csv, cfg.SPARK_CHANNEL)
         sparks = detect_sparks(hv, cfg.SPARK_IMON_THR)
         intervals = veto_intervals(sparks, cfg.SPARK_GUARD_BEFORE,
                                    cfg.SPARK_GUARD_AFTER)
