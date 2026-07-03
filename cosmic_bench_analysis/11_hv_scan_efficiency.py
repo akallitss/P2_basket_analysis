@@ -7,7 +7,7 @@ P2 detector efficiency (and resolution) vs mesh HV, adapted from
 nTof_x17/mx_june_cosmic_qa/10_hv_scan_efficiency.py.
 
 The mesh-HV scan run (p2_det1_mesh_hv_scan_7-2-26) has one sub_run per HV point,
-named mesh_<NNN>V_drift_<MMM>V (mesh 365..420 V in 5 V steps, drift = mesh+180).
+named mesh_<NNN>V_drift_<MMM>V (mesh 345..420 V in 5 V steps, drift = mesh+180).
 Each sub_run holds combined_hits_root / m3_tracking_root / hv_monitor.csv but NO
 run_config -> the det1 long-run wiring is borrowed (cfg.run_config_ref).
 
