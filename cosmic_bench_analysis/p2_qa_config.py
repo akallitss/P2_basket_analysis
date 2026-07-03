@@ -172,7 +172,7 @@ RUNS = {
         det_name='P2_1',
         dead_connectors=(10,)),   # connector 10 disconnected on P2 det1
 
-    # Mesh-HV scan (mesh 365->420 V in 5 V steps, drift = mesh + 180 V), one
+    # Mesh-HV scan (mesh 345->420 V in 5 V steps, drift = mesh + 180 V), one
     # sub_run per HV point (mesh_<NNN>V_drift_<MMM>V).
     'det1_hvscan': _Config(
         'det1_hvscan',
