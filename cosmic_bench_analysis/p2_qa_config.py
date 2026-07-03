@@ -179,7 +179,8 @@ RUNS = {
         run='p2_det1_mesh_hv_scan_7-2-26',
         sub_run='hv_scan',
         det_name='P2_1',
-        dead_connectors=(10,)),
+        # connectors 1 and 10 both disconnected during the HV scan
+        dead_connectors=(1, 10)),
 }
 
 
