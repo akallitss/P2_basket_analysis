@@ -34,6 +34,14 @@ drops every event whose trigger time falls inside a vetoed interval, so sparks
 are removed identically from every stage. `live_fraction` reports the surviving
 live-time for efficiency normalisation.
 
+Burst veto
+----------
+P2-internal discharges the mesh current misses appear in the DAQ as *burst
+events* where tens of pads fire at once (real muon clusters are 1-3 pads,
+median 1). Both `apply` and `vetoed_ids_from_hits` additionally veto events
+with >= cfg.BURST_NPADS hits (default 20); the count of bursts found is kept in
+`last_burst_events` for stage printouts.
+
 Typical use in a stage
 ----------------------
     sp = p2_sparks.SparkVeto.from_cfg(cfg)          # detect + build intervals
@@ -151,7 +159,7 @@ class SparkVeto:
     """Detected sparks + veto intervals for one run, ready to apply to hits."""
 
     def __init__(self, hv, sparks, intervals, channel, i_thr,
-                 guard_before, guard_after):
+                 guard_before, guard_after, burst_npads=20):
         self.hv = hv
         self.sparks = sparks
         self.intervals = intervals
@@ -160,6 +168,10 @@ class SparkVeto:
         self.guard_before = guard_before
         self.guard_after = guard_after
         self.t_run = float(hv['t'].max()) if len(hv) else 0.0
+        # P2-internal discharges invisible to the mesh current: burst events
+        # where >= burst_npads pads fire at once (muon clusters are 1-3 pads).
+        self.burst_npads = burst_npads
+        self.last_burst_events = 0     # bursts found by the last apply/ids call
 
     @classmethod
     def from_cfg(cls, cfg):
@@ -174,7 +186,8 @@ class SparkVeto:
         intervals = veto_intervals(sparks, cfg.SPARK_GUARD_BEFORE,
                                    cfg.SPARK_GUARD_AFTER)
         return cls(hv, sparks, intervals, cfg.SPARK_CHANNEL, cfg.SPARK_IMON_THR,
-                   cfg.SPARK_GUARD_BEFORE, cfg.SPARK_GUARD_AFTER)
+                   cfg.SPARK_GUARD_BEFORE, cfg.SPARK_GUARD_AFTER,
+                   burst_npads=getattr(cfg, 'BURST_NPADS', 20))
 
     # -- veto application --------------------------------------------------- #
     @property
@@ -191,11 +204,25 @@ class SparkVeto:
         t = np.asarray(trigger_ns, dtype=float) / 1e9
         return ~_in_intervals(t, self.intervals)
 
-    def apply(self, df, ts_col='trigger_timestamp_ns'):
-        """Return (kept_df, n_removed_rows), dropping rows in a spark window."""
-        if not self.intervals or ts_col not in df.columns:
+    def _burst_ids(self, df, id_col='eventId'):
+        """Set of eventIds with >= burst_npads hits in df (discharge bursts)."""
+        if not self.burst_npads or id_col not in df.columns or not len(df):
+            return set()
+        n = df.groupby(id_col).size()
+        return set(n[n >= self.burst_npads].index.astype(int))
+
+    def apply(self, df, ts_col='trigger_timestamp_ns', id_col='eventId'):
+        """Return (kept_df, n_removed_rows), dropping rows in a spark window
+        and rows of discharge-like burst events (>= burst_npads pads at once)."""
+        keep = np.ones(len(df), dtype=bool)
+        if self.intervals and ts_col in df.columns:
+            keep &= self.event_mask(df[ts_col].to_numpy())
+        burst = self._burst_ids(df, id_col)
+        self.last_burst_events = len(burst)
+        if burst:
+            keep &= ~df[id_col].isin(burst).to_numpy()
+        if keep.all():
             return df, 0
-        keep = self.event_mask(df[ts_col].to_numpy())
         return df[keep].copy(), int((~keep).sum())
 
     def vetoed_event_ids(self, df, ts_col='trigger_timestamp_ns',
@@ -214,17 +241,23 @@ class SparkVeto:
         import glob
         import os
         import uproot
-        if not self.intervals:
+        if not self.intervals and not self.burst_npads:
             return set()
         feu_set = set(feus)
-        ids = []
+        ids = set()
+        n_burst = 0
         for fp in sorted(glob.glob(os.path.join(hits_dir, '*.root'))):
             a = uproot.open(f'{fp}:hits').arrays(
                 ['eventId', 'trigger_timestamp_ns', 'feu'], library='pd')
             a = a[a['feu'].isin(feu_set)]
-            bad = ~self.event_mask(a['trigger_timestamp_ns'].to_numpy())
-            ids.extend(a.loc[bad, 'eventId'].astype(int).tolist())
-        return set(ids)
+            if self.intervals:
+                bad = ~self.event_mask(a['trigger_timestamp_ns'].to_numpy())
+                ids.update(a.loc[bad, 'eventId'].astype(int).tolist())
+            burst = self._burst_ids(a)
+            n_burst += len(burst)
+            ids.update(burst)
+        self.last_burst_events = n_burst
+        return ids
 
     # -- reporting ---------------------------------------------------------- #
     def summary(self):
@@ -241,4 +274,7 @@ class SparkVeto:
         if n:
             lines.append(f'  peak imon (max)     : {self.sparks["peak_imon"].max():.2f} uA')
             lines.append(f'  total spark charge  : {self.sparks["charge"].sum():.1f} uC')
+        if self.burst_npads:
+            lines.append(f'  burst veto          : events with >= {self.burst_npads} '
+                         'pads (P2-internal discharges, applied per stage)')
         return '\n'.join(lines)

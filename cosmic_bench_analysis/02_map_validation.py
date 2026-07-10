@@ -246,7 +246,8 @@ def main():
         sv = ps.SparkVeto.from_cfg(cfg)
         hits, n_rm = sv.apply(hits)
         print(f'Spark veto: dropped {n_rm:,} hits in {len(sv.sparks)} sparks '
-              f'({100*(1-sv.live_fraction()):.2f}% deadtime).')
+              f'({100*(1-sv.live_fraction()):.2f}% deadtime) + '
+              f'{sv.last_burst_events} burst events (>= {sv.burst_npads} pads).')
     full = per_pad_stats(hits, ct)
 
     n_active = int((full['n_hits'] > 0).sum())

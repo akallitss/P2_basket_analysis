@@ -56,7 +56,9 @@ def load_hits(cfg, ct, veto_sparks=True):
     if veto_sparks:
         sv = ps.SparkVeto.from_cfg(cfg)
         h, n_rm = sv.apply(h)
-        print(f'HV spark veto: dropped {n_rm:,} hits ({100*(1-sv.live_fraction()):.2f}% deadtime).')
+        print(f'HV spark veto: dropped {n_rm:,} hits '
+              f'({100*(1-sv.live_fraction()):.2f}% deadtime) + '
+              f'{sv.last_burst_events} burst events (>= {sv.burst_npads} pads).')
     h = pmap.attach_pads_to_hits(h, ct)
     h = h[h['mapped'] & h['pad_cx'].notna()].copy()
     return h

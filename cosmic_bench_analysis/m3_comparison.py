@@ -47,7 +47,12 @@ RUNS = {
 }
 
 COLORS   = {'Non-ZS': 'steelblue', 'ZS': 'tomato'}
-CHI2_CUT = 1.5
+# Tracking-v2 recommended recipe: Chi2X,Chi2Y < CHI2_CUT AND NClusX,NClusY >= MIN_NCLUS.
+# (Matches p2_qa_config.M3_CHI2_CUT / M3_MIN_NCLUS; kept local so this standalone
+# ZS/non-ZS diagnostic has no pipeline dependency.) MIN_NCLUS drops the exact
+# 2-point-per-coordinate fits whose denormal-tiny chi2 slips through a chi2-only cut.
+CHI2_CUT = 5.0
+MIN_NCLUS = 3
 EVTTIME_TO_S = 1e-8   # evttime is in 10 ns ticks → seconds
 
 PLOTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plots')
@@ -84,9 +89,11 @@ def load_runs(chi2_cut=CHI2_CUT):
     raw, good = {}, {}
     for label, ray_dir in RUNS.items():
         print(f'\n--- Loading {label} (no cuts) ---')
-        raw[label]  = M3RefTracking(ray_dir, single_track=False, chi2_cut=chi2_cut)
+        raw[label]  = M3RefTracking(ray_dir, single_track=False, chi2_cut=chi2_cut,
+                                    min_nclus=MIN_NCLUS)
         print(f'--- Loading {label} (with quality cuts) ---')
-        good[label] = M3RefTracking(ray_dir, single_track=True,  chi2_cut=chi2_cut)
+        good[label] = M3RefTracking(ray_dir, single_track=True,  chi2_cut=chi2_cut,
+                                    min_nclus=MIN_NCLUS)
     return raw, good
 
 # ---------------------------------------------------------------------------

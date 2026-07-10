@@ -22,6 +22,7 @@ import uproot
 import awkward as ak
 
 import p2_mapping as pmap
+from p2_qa_config import M3_CHI2_CUT, M3_MIN_NCLUS
 
 _M3_PKG = os.path.expanduser(
     '~/Documents/PostDocSaclay/nTof_x17/cosmic_bench_analysis')
@@ -33,10 +34,14 @@ _HIT_BRANCHES = ['eventId', 'channel', 'amplitude', 'feu']
 
 
 # --------------------------------------------------------------------------- #
-def load_m3_positions(m3_dir, z, chi2_cut=1.5, single_track=True):
-    """Single-track M3 impact positions at plane z, keyed by eventId."""
+def load_m3_positions(m3_dir, z, chi2_cut=M3_CHI2_CUT, single_track=True,
+                      min_nclus=M3_MIN_NCLUS):
+    """Single-track M3 impact positions at plane z, keyed by eventId.
+
+    The good-track recipe is `Chi2X,Chi2Y < chi2_cut` AND (for tracking-v2 rays)
+    `NClusX,NClusY >= min_nclus`; see p2_qa_config.M3_CHI2_CUT / M3_MIN_NCLUS."""
     m3 = M3RefTracking(os.path.join(m3_dir, ''), single_track=single_track,
-                       chi2_cut=chi2_cut)
+                       chi2_cut=chi2_cut, min_nclus=min_nclus)
     x, y, evn = m3.get_xy_positions(z)
     df = pd.DataFrame({'eventId': np.asarray(evn, dtype=np.int64),
                        'x_m3': np.asarray(x, dtype=float),
@@ -45,11 +50,23 @@ def load_m3_positions(m3_dir, z, chi2_cut=1.5, single_track=True):
     return df.drop_duplicates('eventId')
 
 
-def load_m3_endpoints(m3_dir, chi2_cut=1.5):
+def load_event_times(m3_dir):
+    """Per-event elapsed time [s] since run start, from the m3 tracking files.
+    `evttime` is trigger_timestamp_ns/10, so *1e-8 gives seconds."""
+    files = sorted(glob.glob(os.path.join(m3_dir, '*.root')))
+    parts = []
+    for fp in files:
+        a = uproot.open(f'{fp}:T').arrays(['evn', 'evttime'], library='np')
+        parts.append(pd.DataFrame({'eventId': a['evn'].astype(np.int64),
+                                   't_sec': a['evttime'] * 1e-8}))
+    return pd.concat(parts, ignore_index=True).drop_duplicates('eventId')
+
+
+def load_m3_endpoints(m3_dir, chi2_cut=M3_CHI2_CUT, min_nclus=M3_MIN_NCLUS):
     """Single-track M3 line endpoints (X/Y at Z_Up and Z_Down) per eventId, so a
     track can be reprojected to ANY z cheaply for the z alignment scan."""
     m3 = M3RefTracking(os.path.join(m3_dir, ''), single_track=True,
-                       chi2_cut=chi2_cut)
+                       chi2_cut=chi2_cut, min_nclus=min_nclus)
     rd = m3.ray_data
 
     def col(name):

@@ -34,7 +34,11 @@ if _M3_PKG not in sys.path:
 import awkward as ak  # noqa: E402
 from M3RefTracking import M3RefTracking, get_ray_data, get_xy_angles  # noqa: E402
 
-CHI2_CUT = 20.0  # matches the reference micro-TPC main()
+# Tracking-v2 recommended recipe: Chi2X,Chi2Y < CHI2_CUT AND NClusX,NClusY >= MIN_NCLUS.
+# The old naive chi2<20 let 2-point-per-coordinate fits (exact -> denormal-tiny chi2)
+# slip through; MIN_NCLUS drops them. Single source of truth in p2_qa_config.
+CHI2_CUT = qa.M3_CHI2_CUT
+MIN_NCLUS = qa.M3_MIN_NCLUS
 
 
 def _det_plane_z(cfg):
@@ -86,7 +90,7 @@ def plot_chi2(cfg, m3_dir, out_dir):
 
 
 def plot_angles_and_positions(cfg, m3_dir, out_dir, det_z):
-    rays = M3RefTracking(m3_dir, chi2_cut=CHI2_CUT)
+    rays = M3RefTracking(m3_dir, chi2_cut=CHI2_CUT, min_nclus=MIN_NCLUS)
     n_clean = len(ak.to_numpy(rays.ray_data['X_Up']))
 
     x_ang, y_ang, _ = get_xy_angles(rays.ray_data)
