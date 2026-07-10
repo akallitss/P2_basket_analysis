@@ -27,6 +27,7 @@ under test gets its own folder:
 The detector number (detN) is taken from the run name (e.g. 'p2_det1_...' -> 'det1').
 """
 
+import json
 import os
 import re
 import sys
@@ -45,6 +46,20 @@ MAP_CSV_PATH = os.path.join(
     REPO_ROOT, 'Detector_Mapping', 'P2_BASKET', 'P2_BASKET_mapping.csv')
 
 DEFAULT_RUN = 'det1_long'
+
+# --------------------------------------------------------------------------- #
+# M3 reference-tracking consumer cut (tracking v2)
+# --------------------------------------------------------------------------- #
+# Recommended recipe for a "good" M3 ray after the tracking-v2 reconstruction:
+#     NClusX >= M3_MIN_NCLUS  &&  NClusY >= M3_MIN_NCLUS  &&  Chi2X,Chi2Y < M3_CHI2_CUT
+# The v2 reco changed the chi2 scale, so the old thresholds (1.5 / 20) are stale.
+# The NClus requirement is essential: a 2-point-per-coordinate fit is exact, so it
+# carries a denormal-tiny (not exactly zero) chi2 and slips through a naive chi2
+# cut -- NClus>=3 forces a genuine 3-4 layer fit. These match the M3RefTracking
+# defaults; we pass them explicitly so the recipe does not silently ride on the
+# reader's defaults.
+M3_CHI2_CUT = 5.0
+M3_MIN_NCLUS = 3
 
 
 def setup_paths() -> None:
@@ -68,7 +83,8 @@ class _Config:
                  det_type='P2', ref_det_type='m3', data_root=DATA_ROOT,
                  map_csv=MAP_CSV_PATH, dead_connectors=(),
                  spark_channel='1:0', spark_imon_thr=2.0,
-                 spark_guard_before=2.0, spark_guard_after=10.0):
+                 spark_guard_before=2.0, spark_guard_after=10.0,
+                 burst_npads=20, det_tag=None, match_r=20.0, plane_z=None):
         self.KEY = key
         self.DATA_ROOT = data_root
         self.RUN = run
@@ -77,7 +93,10 @@ class _Config:
         self.DET_TYPE = det_type            # detector-under-test det_type in run_config
         self.REF_DET_TYPE = ref_det_type    # reference tracker det_type (m3 telescope)
         self.MAP_CSV_PATH = map_csv
-        self.DET_TAG = det_tag_from_run(run)
+        # Explicit det_tag override for runs whose name contains several
+        # detector tags (e.g. 'p2_det1_det2_...'), where the regex would
+        # always pick the first one.
+        self.DET_TAG = det_tag or det_tag_from_run(run)
         # Physical connectors (1..10) that are disconnected/dead on this
         # detector. They are dropped from the pad map so they do not show up as
         # spurious dead regions or bias the efficiency (a track pointing at a
@@ -90,6 +109,18 @@ class _Config:
         self.SPARK_IMON_THR = spark_imon_thr     # imon >= this [uA] is a spark
         self.SPARK_GUARD_BEFORE = spark_guard_before   # veto pad before [s]
         self.SPARK_GUARD_AFTER = spark_guard_after     # veto pad after [s]
+        # P2-internal discharges the mesh-current veto misses show up as burst
+        # events where tens of pads fire at once (real muon clusters are 1-3
+        # pads, median 1). Events with >= this many pads are vetoed together
+        # with the HV sparks. Set to 0/None to disable.
+        self.BURST_NPADS = burst_npads
+        # Track-hit match radius [mm] used by the efficiency stages (06/11/12).
+        # Pick it on the plateau of 12_validation's eff-vs-R knob test.
+        self.MATCH_R = float(match_r)
+        # Measured detector plane z [mm] (03_m3_alignment z-scan). When set it
+        # overrides the run_config det_center z in det_plane_z() — the fitted
+        # plane wins over the nominal one if they disagree.
+        self.PLANE_Z = plane_z
 
         # Analysis/ tree, keyed by detector -> run -> sub_run.
         self.OUT_BASE = os.path.join(data_root, 'Analysis',
@@ -129,6 +160,23 @@ class _Config:
     @property
     def hv_monitor_csv(self):
         return os.path.join(self.sub_run_dir, 'hv_monitor.csv')
+
+    def det_plane_z(self, default=232.0):
+        """Detector plane z [mm] for M3 projection. Priority: the measured
+        PLANE_Z from the 03 z-scan (if registered), else the run_config
+        det_center z of DET_NAME, else `default`. This keeps every stage on
+        the fitted plane when it disagrees with the nominal mounting height
+        (P2_1 at p1_z ~232, P2_2 nominal 702 / fitted 712)."""
+        if self.PLANE_Z is not None:
+            return float(self.PLANE_Z)
+        try:
+            with open(self.run_config_path) as f:
+                for d in json.load(f)['detectors']:
+                    if d.get('name') == self.DET_NAME:
+                        return float(d['det_center_coords']['z'])
+        except (OSError, KeyError, ValueError, TypeError):
+            pass
+        return default
 
     # -- output helper ------------------------------------------------------ #
     def out_dir(self, *parts):
@@ -171,6 +219,76 @@ RUNS = {
         sub_run='efficiency_long_run_p2_det1',
         det_name='P2_1',
         dead_connectors=(10,)),   # connector 10 disconnected on P2 det1
+
+    # Second P2 detector-1 long efficiency run (fetched 2026-07-06), taken at a
+    # single working point (mesh 440 V, drift 600 V) -- NOT an HV scan. Same
+    # detector as det1_long; connectors 1 and 10 were both disconnected.
+    'det1_long2': _Config(
+        'det1_long2',
+        run='p2_det1_long_run_7-4-26',
+        sub_run='mesh_440V_drift_600V',
+        det_name='P2_1',
+        dead_connectors=(1, 10)),
+
+    # Third P2 detector-1 long efficiency run (fetched 2026-07-08), same single
+    # working point as det1_long2 (mesh 440 V, drift 600 V). Connectors 1 and
+    # 10 still disconnected.
+    'det1_long3': _Config(
+        'det1_long3',
+        run='p2_det1_long_run_7-7-26',
+        sub_run='mesh_440V_drift_600V',
+        det_name='P2_1',
+        dead_connectors=(1, 10)),
+
+    # Combined P2_1 + P2_2 long run 7-9-26 (10 h at mesh 430 V / drift 600 V,
+    # drift gap 170 V), first run with detector 2 installed at p2_z. Data can
+    # be fetched mid-run; products grow as the on-the-fly processor catches up.
+    # One registry entry per detector, same run/sub_run:
+    'det1_long4': _Config(
+        'det1_long4',
+        run='p2_det1_det2_long_run_mesh_scan_7-9-26',
+        sub_run='long_run_mesh_430V_drift_600V',
+        det_name='P2_1',
+        det_tag='det1',
+        spark_channel='1:0',       # P2_1 mesh = CAEN card 1 ch 0
+        dead_connectors=(1, 10)),  # same disconnections as det1_long2/3
+    'det2_long1': _Config(
+        'det2_long1',
+        run='p2_det1_det2_long_run_mesh_scan_7-9-26',
+        sub_run='long_run_mesh_430V_drift_600V',
+        det_name='P2_2',
+        det_tag='det2',
+        spark_channel='1:2',       # P2_2 mesh = CAEN card 1 ch 2
+        # Connector 1 is physically disconnected from the detector; connectors
+        # 8-10 sit on FEU 8, which is excluded from the run (crashes the DAQ).
+        # Live readout = connectors 2-7 (deduced from track-hit correlation,
+        # hit-level fit: scale 0.92, median residual 11 mm).
+        dead_connectors=(1, 8, 9, 10),
+        match_r=40.0,      # eff-vs-R plateau (12_validation knob test)
+        plane_z=712.0),    # 03 z-scan fit; nominal p2_z would be 702
+
+    # Mesh-HV scan tacked onto the 7-9-26 combined run: scan_mesh_<NNN>V
+    # sub_runs, mesh 430->395 V in 5 V steps with the drift stepped in tandem
+    # (drift gap fixed at 170 V). The long_run_mesh_430V sub_run is picked up
+    # by find_subruns too and acts as a high-stats 430 V point.
+    'det1_hvscan2': _Config(
+        'det1_hvscan2',
+        run='p2_det1_det2_long_run_mesh_scan_7-9-26',
+        sub_run='hv_scan',
+        det_name='P2_1',
+        det_tag='det1',
+        spark_channel='1:0',
+        dead_connectors=(1, 10)),
+    'det2_hvscan1': _Config(
+        'det2_hvscan1',
+        run='p2_det1_det2_long_run_mesh_scan_7-9-26',
+        sub_run='hv_scan',
+        det_name='P2_2',
+        det_tag='det2',
+        spark_channel='1:2',
+        dead_connectors=(1, 8, 9, 10),   # see det2_long1
+        match_r=40.0,
+        plane_z=712.0),
 
     # Mesh-HV scan (mesh 345->420 V in 5 V steps, drift = mesh + 180 V), one
     # sub_run per HV point (mesh_<NNN>V_drift_<MMM>V).

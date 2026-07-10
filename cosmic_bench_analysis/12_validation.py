@@ -60,14 +60,9 @@ import p2_sparks as ps
 # helpers (mirror the pipeline)
 # --------------------------------------------------------------------------- #
 def det_plane_z(cfg):
-    """Same lookup 06_efficiency_maps.py uses (name key, 232 fallback)."""
-    with open(cfg.run_config_path) as f:
-        for d in json.load(f)['detectors']:
-            if d.get('name') == cfg.DET_NAME or d.get('det_name') == cfg.DET_NAME:
-                c = d.get('det_center_coords')
-                if c and 'z' in c:
-                    return float(c['z'])
-    return 232.0
+    """Same z the pipeline stages use: measured PLANE_Z (03 z-scan) wins over
+    the run_config det_center z."""
+    return cfg.det_plane_z()
 
 
 def robust_sigma(v):
@@ -148,9 +143,10 @@ def main():
     ap.add_argument('run_key', nargs='?', default='det1_long')
     ap.add_argument('--strategy', default='reverse',
                     choices=['linear', 'reverse', 'pairswap'])
-    ap.add_argument('--r', type=float, default=20.0)
+    ap.add_argument('--r', type=float, default=None,
+                    help='match radius [mm]; default = run-config MATCH_R.')
     ap.add_argument('--active-r', type=float, default=30.0)
-    ap.add_argument('--chi2-cut', type=float, default=1.5)
+    ap.add_argument('--chi2-cut', type=float, default=qa.M3_CHI2_CUT)
     ap.add_argument('--fit-fiducial', type=float, default=300.0)
     ap.add_argument('--z', type=float, default=None,
                     help='M3 projection z; default = 06 lookup (run_config / 232).')
@@ -162,7 +158,8 @@ def main():
     out = cfg.out_dir('12_validation')
     sfx = cfg.product_suffix(args.veto_sparks)
     z0 = args.z if args.z is not None else det_plane_z(cfg)
-    R0, AR0 = args.r, args.active_r
+    R0 = args.r if args.r is not None else cfg.MATCH_R
+    AR0 = args.active_r
     verdicts = []   # (test, status, message)
 
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,

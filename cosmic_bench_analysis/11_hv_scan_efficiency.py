@@ -102,12 +102,14 @@ def main():
     ap.add_argument('run_key', nargs='?', default='det1_hvscan')
     ap.add_argument('--strategy', default='reverse',
                     choices=['linear', 'reverse', 'pairswap'])
-    ap.add_argument('--r', type=float, default=20.0, help='match radius [mm].')
+    ap.add_argument('--r', type=float, default=None,
+                    help='match radius [mm]; default = run-config MATCH_R.')
     ap.add_argument('--active-r', type=float, default=30.0,
                     help='ray is in the active area if within this of a pad [mm].')
-    ap.add_argument('--z', type=float, default=246.0,
-                    help='M3 projection plane z [mm] (default 246, long-run fit).')
-    ap.add_argument('--chi2-cut', type=float, default=1.5)
+    ap.add_argument('--z', type=float, default=None,
+                    help='M3 projection plane z [mm]; default = run-config '
+                         'det_plane_z (measured PLANE_Z wins over nominal).')
+    ap.add_argument('--chi2-cut', type=float, default=qa.M3_CHI2_CUT)
     ap.add_argument('--fit-fiducial', type=float, default=300.0,
                     help='|x_m3|,|y_m3| window used only to fit the transform.')
     ap.add_argument('--min-valid', type=int, default=50,
@@ -118,6 +120,11 @@ def main():
 
     cfg = qa.get_config(args.run_key)
     print(cfg)
+    if args.r is None:
+        args.r = cfg.MATCH_R
+    if args.z is None:
+        args.z = cfg.det_plane_z()
+    print(f'match radius R = {args.r:g} mm, projection z = {args.z:g} mm')
     out_dir = cfg.out_dir('11_hv_scan_efficiency')
     suffix = cfg.product_suffix(args.veto_sparks)
 

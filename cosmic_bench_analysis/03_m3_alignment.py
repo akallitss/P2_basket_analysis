@@ -76,11 +76,15 @@ _HIT_BRANCHES = ['eventId', 'trigger_timestamp_ns', 'channel', 'amplitude', 'feu
 # --------------------------------------------------------------------------- #
 # Loaders
 # --------------------------------------------------------------------------- #
-def load_m3_positions(m3_dir, z, chi2_cut=1.5):
-    """Single-track M3 impact positions at plane z, keyed by event number."""
+def load_m3_positions(m3_dir, z, chi2_cut=qa.M3_CHI2_CUT,
+                      min_nclus=qa.M3_MIN_NCLUS):
+    """Single-track M3 impact positions at plane z, keyed by event number.
+
+    Good-track recipe: Chi2X,Chi2Y < chi2_cut AND (tracking-v2 rays) NClusX,NClusY
+    >= min_nclus (p2_qa_config.M3_CHI2_CUT / M3_MIN_NCLUS)."""
     # M3RefTracking builds paths as ray_dir + file_name, so it needs a trailing sep.
     m3 = M3RefTracking(os.path.join(m3_dir, ''), single_track=True,
-                       chi2_cut=chi2_cut)
+                       chi2_cut=chi2_cut, min_nclus=min_nclus)
     x, y, evn = m3.get_xy_positions(z)
     df = pd.DataFrame({'eventId': np.asarray(evn, dtype=np.int64),
                        'x_m3': np.asarray(x, dtype=float),
@@ -107,7 +111,9 @@ def load_p2_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
     if spark_veto is not None:
         hits, n_rm = spark_veto.apply(hits)
         print(f'Spark veto: dropped {n_rm:,} hits in {len(spark_veto.sparks)} '
-              f'sparks ({100*(1-spark_veto.live_fraction()):.2f}% deadtime).')
+              f'sparks ({100*(1-spark_veto.live_fraction()):.2f}% deadtime) + '
+              f'{spark_veto.last_burst_events} burst events '
+              f'(>= {spark_veto.burst_npads} pads).')
     if min_amp > 0:
         hits = hits[hits['amplitude'] >= min_amp]
 
@@ -354,8 +360,10 @@ def main():
     ap.add_argument('--strategy', default='reverse',
                     choices=['linear', 'reverse', 'pairswap'],
                     help='within-connector ordering (default reverse, validated vs M3)')
-    ap.add_argument('--z', type=float, default=232.0,
-                    help='nominal P2 plane z [mm] (default 232); scan starts here.')
+    ap.add_argument('--z', type=float, default=None,
+                    help='nominal P2 plane z [mm]; scan starts here. Default: '
+                         'the detector det_center z from run_config.json '
+                         '(232 if unavailable), so P2_2 at p2_z works too.')
     ap.add_argument('--scan-z', action=argparse.BooleanOptionalAction, default=True,
                     help='fit the detector z height jointly with the angle '
                          '(default on; --no-scan-z to fix z at --z).')
@@ -363,7 +371,7 @@ def main():
                     help='half-width of the coarse z scan window [mm] (default 250).')
     ap.add_argument('--dtheta', type=float, default=0.5,
                     help='rotation scan step [deg] (default 0.5).')
-    ap.add_argument('--chi2-cut', type=float, default=1.5)
+    ap.add_argument('--chi2-cut', type=float, default=qa.M3_CHI2_CUT)
     ap.add_argument('--min-amp', type=float, default=0.0,
                     help='minimum P2 hit amplitude [ADC].')
     ap.add_argument('--m3-fiducial', type=float, default=1500.0,
@@ -379,6 +387,9 @@ def main():
 
     cfg = qa.get_config(args.run_key)
     print(cfg)
+    if args.z is None:
+        args.z = cfg.det_plane_z()
+        print(f'Nominal plane z from run_config: {args.z:.0f} mm')
     out_dir = cfg.out_dir('03_m3_alignment')
 
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
