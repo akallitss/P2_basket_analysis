@@ -10,6 +10,8 @@ there is no plane split -- everything is per pad.
 
 Products (written to <Analysis>/<detN>/<run>/<sub_run>/05_detector_deep_qa/):
   surface_hitmap.png        2D hitmap on the pad plane (linear + log)
+  centroid_hitmap.png       per-event charge-weighted centroid map (all events +
+                            muon-like n_pad<=3), live pad centres overlaid
   pad_firing_fraction.png   fraction of events each pad fires, on the pad plane +
                             distribution -- flags always-firing / hot pads
   event_multiplicity.png    # pads firing per event (total + per FEU), log y
@@ -48,7 +50,9 @@ def load_hits(cfg, channel_table, spark_veto=None):
     if spark_veto is not None:
         df, n_rm = spark_veto.apply(df)
         print(f'Spark veto: dropped {n_rm:,} hits in {len(spark_veto.sparks)} '
-              f'sparks ({100*(1-spark_veto.live_fraction()):.2f}% deadtime).')
+              f'sparks ({100*(1-spark_veto.live_fraction()):.2f}% deadtime) + '
+              f'{spark_veto.last_burst_events} burst events '
+              f'(>= {spark_veto.burst_npads} pads).')
     df = pmap.attach_pads_to_hits(df, channel_table)
     df = df[df['mapped'] & df['pad_cx'].notna()].copy()
     return df
@@ -59,21 +63,74 @@ def _pad_range(df, pad=15):
             [df['pad_cy'].min() - pad, df['pad_cy'].max() + pad]]
 
 
-def plot_surface_hitmap(df, out_dir, cfg, suffix=''):
-    rng = _pad_range(df)
+def plot_surface_hitmap(df, channel_table, out_dir, cfg, suffix=''):
+    """Hit counts drawn on the real pad tiles (not a uniform-grid histogram, so
+    the fan geometry tiles contiguously). Never-fired live pads are grey."""
+    from matplotlib.collections import PolyCollection
+
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
-    for ax, norm, tag in [(axes[0], None, 'linear'),
-                          (axes[1], matplotlib.colors.LogNorm(), 'log')]:
-        h = ax.hist2d(df['pad_cx'], df['pad_cy'], bins=120, range=rng,
-                      cmap='inferno', norm=norm)
-        fig.colorbar(h[3], ax=ax, label=f'pad hits ({tag})')
-        ax.set_xlabel('pad_cx [mm]'); ax.set_ylabel('pad_cy [mm]')
-        ax.set_aspect('equal'); ax.set_title(f'Surface hitmap ({tag})')
+    if pmap.has_tile_geometry(channel_table):
+        pads, verts = pmap.pad_tiles(channel_table)
+        counts = df.groupby('channel_id').size().reindex(
+            pads['channel_id']).fillna(0).to_numpy()
+        fired = counts > 0
+        for ax, norm, tag in [(axes[0], None, 'linear'),
+                              (axes[1], matplotlib.colors.LogNorm(vmin=1), 'log')]:
+            dead = PolyCollection(verts[~fired], facecolors='0.92',
+                                  edgecolors='0.7', linewidths=0.3)
+            ax.add_collection(dead)
+            pc = PolyCollection(verts[fired], array=counts[fired], cmap='inferno',
+                                norm=norm, edgecolors='face', linewidths=0.2)
+            ax.add_collection(pc)
+            fig.colorbar(pc, ax=ax, label=f'pad hits ({tag})')
+            ax.set_xlabel('pad_cx [mm]'); ax.set_ylabel('pad_cy [mm]')
+            ax.autoscale_view(); ax.set_aspect('equal')
+            ax.set_title(f'Surface hitmap ({tag}) — grey = never fired')
+    else:  # old map CSV without tile geometry: fall back to the grid histogram
+        rng = _pad_range(df)
+        for ax, norm, tag in [(axes[0], None, 'linear'),
+                              (axes[1], matplotlib.colors.LogNorm(), 'log')]:
+            h = ax.hist2d(df['pad_cx'], df['pad_cy'], bins=120, range=rng,
+                          cmap='inferno', norm=norm)
+            fig.colorbar(h[3], ax=ax, label=f'pad hits ({tag})')
+            ax.set_xlabel('pad_cx [mm]'); ax.set_ylabel('pad_cy [mm]')
+            ax.set_aspect('equal'); ax.set_title(f'Surface hitmap ({tag})')
     fig.suptitle(f'{cfg.DET_NAME} pad surface hitmap — {cfg.RUN}/{cfg.SUB_RUN}\n'
                  f'{len(df):,} hits from {df["eventId"].nunique():,} events')
     fig.tight_layout()
     fig.savefig(f'{out_dir}/surface_hitmap{suffix}.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
+
+
+def plot_centroid_hitmap(df, channel_table, out_dir, cfg, suffix=''):
+    """Per-EVENT charge-weighted centroid hitmap (complements the per-hit
+    surface_hitmap): left all events, right muon-like events only (n_pad <= 3),
+    with the live pad centres overlaid. Interior white holes at this statistics
+    are genuinely dead zones; the striping is pad-row quantisation."""
+    w = df['amplitude'].clip(lower=0)
+    d = df.assign(_wx=w * df['pad_cx'], _wy=w * df['pad_cy'], _w=w)
+    g = d.groupby('eventId')
+    cen = pd.DataFrame({'x': g['_wx'].sum() / g['_w'].sum(),
+                        'y': g['_wy'].sum() / g['_w'].sum(),
+                        'n_pad': g.size()})
+    cen = cen[np.isfinite(cen['x']) & np.isfinite(cen['y'])]
+    sel = cen[cen['n_pad'] <= 3]
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
+    for ax, c, tag in [(axes[0], cen, f'all events ({len(cen):,})'),
+                       (axes[1], sel, f'n_pad <= 3 ({len(sel):,})')]:
+        hb = ax.hexbin(c['x'], c['y'], gridsize=90, cmap='viridis', mincnt=1)
+        ax.scatter(channel_table['pad_cx'], channel_table['pad_cy'],
+                   s=1.0, c='red', alpha=0.2, linewidths=0)
+        fig.colorbar(hb, ax=ax, label='events / bin')
+        ax.set_xlabel('pad_cx [mm]'); ax.set_ylabel('pad_cy [mm]')
+        ax.set_aspect('equal'); ax.set_title(tag)
+    fig.suptitle(f'{cfg.DET_NAME} event centroid hitmap — {cfg.RUN}/{cfg.SUB_RUN}\n'
+                 'charge-weighted pad centroid per event; red = live pad centres')
+    fig.tight_layout()
+    fig.savefig(f'{out_dir}/centroid_hitmap{suffix}.png', dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    return len(cen), len(sel)
 
 
 def pad_firing(df, n_events, channel_table):
@@ -196,7 +253,9 @@ def main():
                f'  total pad hits: {len(df):,}  ({len(df)/n_events:.2f} hits/event)',
                f'  distinct pads fired: {df["channel_id"].nunique()} / {n_pads}']
 
-    plot_surface_hitmap(df, out_dir, cfg, sfx)
+    plot_surface_hitmap(df, ct, out_dir, cfg, sfx)
+    n_cen, n_muonlike = plot_centroid_hitmap(df, ct, out_dir, cfg, sfx)
+    summary.append(f'  event centroids: {n_cen:,}  (muon-like n_pad<=3: {n_muonlike:,})')
     fdf = pad_firing(df, n_events, ct)
     plot_pad_firing(fdf, out_dir, cfg, summary, sfx)
     mult = multiplicity(df)

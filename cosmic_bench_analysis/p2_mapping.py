@@ -162,7 +162,8 @@ def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
 
     Columns: feu, channel, dream_conn, within, connector_N, half, sector,
              strip, channel_id, pad_cx, pad_cy, radius, phi, mec8_connector,
-             mapped (bool: channel_id found in the pad map).
+             pad_w, pad_h, pad_angle, delta_phi (pad tile geometry, when the
+             map CSV provides them), mapped (bool: channel_id found in the map).
 
     drop_connectors : iterable of physical connector numbers (1..10) that are
         disconnected/dead. Their channels are omitted entirely, so their hits do
@@ -188,7 +189,8 @@ def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
         'feu', 'channel', 'dream_conn', 'within', 'connector_N', 'half',
         'sector', 'strip', 'channel_id'])
 
-    cols = ['pad_cx', 'pad_cy', 'radius', 'phi', 'mec8_connector']
+    cols = ['pad_cx', 'pad_cy', 'radius', 'phi', 'mec8_connector',
+            'pad_w', 'pad_h', 'pad_angle', 'delta_phi']
     have = [c for c in cols if c in pad.columns]
     tab = tab.merge(pad[have], left_on='channel_id', right_index=True,
                     how='left')
@@ -198,6 +200,31 @@ def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
     tab.attrs['strategy'] = strategy
     tab.attrs['drop_connectors'] = sorted(drop)
     return tab
+
+
+def pad_tiles(channel_table):
+    """Real pad outlines for map rendering: each mapped pad as a rotated
+    rectangle (pad_w x pad_h at pad_angle about its centre), drawn to scale.
+
+    Returns (pads, verts): `pads` is the table deduplicated to one row per
+    channel_id (mapped only), `verts` an (n_pads, 4, 2) corner array aligned
+    row-for-row with `pads`. Requires the pad_w/pad_h/pad_angle columns
+    (present when the map CSV carries the Gerber tile geometry).
+    """
+    t = channel_table[channel_table['mapped']].drop_duplicates('channel_id')
+    a = np.radians(t['pad_angle'].to_numpy())
+    w, h = t['pad_w'].to_numpy(), t['pad_h'].to_numpy()
+    cx, cy = t['pad_cx'].to_numpy(), t['pad_cy'].to_numpy()
+    ca, sa = np.cos(a), np.sin(a)
+    corners = [np.stack([cx + dx * w * ca - dy * h * sa,
+                         cy + dx * w * sa + dy * h * ca], axis=1)
+               for dx, dy in ((-.5, -.5), (.5, -.5), (.5, .5), (-.5, .5))]
+    return t, np.stack(corners, axis=1)
+
+
+def has_tile_geometry(channel_table):
+    """True when the channel table carries the pad tile geometry columns."""
+    return {'pad_w', 'pad_h', 'pad_angle'} <= set(channel_table.columns)
 
 
 def daq_lookup(channel_table):

@@ -27,6 +27,7 @@ image is looked up suffix-tolerantly (spark-vetoed variant preferred).
 Usage:
   python3 build_final_pdf.py [run_key] [--out=PATH]     (default key det1_long)
 """
+import glob
 import os
 import re
 import sys
@@ -41,19 +42,35 @@ from matplotlib.gridspec import GridSpec
 
 import p2_qa_config as qa
 
-# suffix search order: prefer the spark-vetoed dead-connector product, then the
-# un-vetoed dead-connector product, then a bare name.
+# Suffix search order: prefer the spark-vetoed dead-connector product, then the
+# un-vetoed dead-connector product, then a bare name. This is a module default
+# for a single-dead-connector run; build() overwrites it from the actual run
+# config so a run dropping e.g. connectors 1 & 10 resolves the right filenames.
 _SUFFIXES = ('_without_connector_10_spark_vetoed', '_without_connector_10', '')
+
+
+def suffixes_for(cfg):
+    """Filename-suffix search order for a run: vetoed dead-connector product
+    first, then the un-vetoed one, then a bare name. Derived from the run's own
+    dead-connector set so it matches whatever cfg.product_suffix() wrote."""
+    ordered = (cfg.product_suffix(veto_sparks=True), cfg.dead_suffix, '')
+    return tuple(dict.fromkeys(ordered))   # de-dupe, preserve order
 
 INK = '#1f3a5f'
 
 
 def find_img(base, stem):
-    """First existing PNG among the suffix variants of a stage-relative stem."""
+    """First existing PNG among the suffix variants of a stage-relative stem.
+    The stem may contain a glob wildcard (e.g. 'map_within_*mm' — the match
+    radius R is a per-run config knob, so the filename varies)."""
     for suf in _SUFFIXES:
-        p = os.path.join(base, stem + suf + '.png')
-        if os.path.isfile(p):
-            return p
+        pat = os.path.join(base, stem + suf + '.png')
+        if '*' in pat or '?' in pat:
+            hits = sorted(glob.glob(pat))
+            if hits:
+                return hits[0]
+        elif os.path.isfile(pat):
+            return pat
     return None
 
 
@@ -70,20 +87,19 @@ def grab(txt, pat, default='—'):
     return m.group(1) if m else default
 
 
-def headline(base):
-    """Parse the stage summary text files into the cover stat cards."""
-    eff = read_txt(base,
-                   '06_efficiency/efficiency_summary_without_connector_10_spark_vetoed.txt',
-                   '06_efficiency/efficiency_summary_without_connector_10.txt')
-    deep = read_txt(base,
-                    '05_detector_deep_qa/deep_qa_summary_without_connector_10_spark_vetoed.txt',
-                    '05_detector_deep_qa/deep_qa_summary_without_connector_10.txt')
-    spk = read_txt(base, '07_hv_spark_qa/spark_qa_summary_without_connector_10.txt')
-    ped = read_txt(base, '09_pedestal_qa/pedestal_qa_summary_without_connector_10.txt')
-    pad = read_txt(base,
-                   '08_pad_spark_qa/pad_spark_qa_summary_without_connector_10_spark_vetoed.txt')
+def headline(base, suffixes=_SUFFIXES):
+    """Parse the stage summary text files into the cover stat cards. Summary
+    filenames are resolved against `suffixes` (vetoed / dead-connector / bare)
+    so the cover works for any dead-connector set, not just connector 10."""
+    def cands(stem):
+        return [stem + suf + '.txt' for suf in suffixes]
+    eff = read_txt(base, *cands('06_efficiency/efficiency_summary'))
+    deep = read_txt(base, *cands('05_detector_deep_qa/deep_qa_summary'))
+    spk = read_txt(base, *cands('07_hv_spark_qa/spark_qa_summary'))
+    ped = read_txt(base, *cands('09_pedestal_qa/pedestal_qa_summary'))
+    pad = read_txt(base, *cands('08_pad_spark_qa/pad_spark_qa_summary'))
     return dict(
-        within=grab(eff, r'within 20 mm\s*:\s*([\d.]+)%'),
+        within=grab(eff, r'within \d+(?:\.\d+)? mm\s*:\s*([\d.]+)%'),
         has_any=grab(eff, r'has_any \(fired\)\s*:\s*([\d.]+)%'),
         med_r=grab(eff, r'median \|r\| residual\s*:\s*([\d.]+)'),
         rays=grab(eff, r'clean M3 rays \(total\)\s*:\s*([\d,]+)'),
@@ -132,7 +148,11 @@ def grid_page(pdf, title, subtitle, tiles, notes=None, ncols=2):
     gs = GridSpec(nrows, ncols, figure=fig, hspace=0.22, wspace=0.08,
                   left=0.05, right=0.95, top=0.915, bottom=bottom)
     for i, (img, cap) in enumerate(tiles):
-        place(fig.add_subplot(gs[i // ncols, i % ncols]), img, cap)
+        r, c = i // ncols, i % ncols
+        if i == len(tiles) - 1 and c == 0 and len(tiles) % ncols:
+            place(fig.add_subplot(gs[r, :]), img, cap)  # lone last tile -> full width
+        else:
+            place(fig.add_subplot(gs[r, c]), img, cap)
     if notes:
         notes_box(fig, notes)
     fig.text(0.96, 0.008, datetime.date.today().isoformat(), ha='right',
@@ -212,11 +232,14 @@ def cover_page(pdf, cfg, h, rv_mesh, rv_drift):
 
 # --------------------------------------------------------------------------- #
 def build(cfg, out):
+    global _SUFFIXES
     base = cfg.OUT_BASE
     if not os.path.isdir(base):
         print(f'No Analysis tree at {base}')
         return
-    h = headline(base)
+    # Resolve product filenames against this run's dead-connector set.
+    _SUFFIXES = suffixes_for(cfg)
+    h = headline(base, _SUFFIXES)
 
     def T(stem, cap):
         return (find_img(base, stem), cap)
@@ -244,12 +267,15 @@ def build(cfg, out):
 
         grid_page(pdf, 'Efficiency',
                   'Stage 06 — track-matched efficiency in a fixed footprint-defined active area.',
-                  [T('06_efficiency/map_within_20mm', 'Efficiency map (reco ≤20 mm)'),
+                  [T('06_efficiency/map_within_*mm', 'Per-pad efficiency map (reco within R)'),
                    T('06_efficiency/map_has_any', 'Any-pad-fired map'),
                    T('06_efficiency/efficiency_breakdown', 'Efficiency breakdown (where do muons go?)'),
-                   T('06_efficiency/radial_residual', 'Radial residual P2−M3')],
+                   T('06_efficiency/radial_residual', 'Radial residual P2−M3'),
+                   T('06_efficiency/efficiency_vs_time', 'Efficiency vs time (30-min bins)')],
                   notes=f'Reco ≤20 mm = {h["within"]}%, any-pad = {h["has_any"]}%; loss = '
-                        f'fired-not-reco {h["fnr"]}% + silent {h["no_hit"]}%. Median |r| {h["med_r"]} mm.')
+                        f'fired-not-reco {h["fnr"]}% + silent {h["no_hit"]}%. Median |r| {h["med_r"]} mm. '
+                        'The vs-time panel exposes gain dropouts: when the response is intermittent, '
+                        'the integrated numbers are duty-cycle averages, not working-point efficiencies.')
 
         grid_page(pdf, 'Sliding-window efficiency map',
                   'Stage 06 (sliding) — smooth footprint-masked efficiency; the diagonal dead band.',
@@ -265,7 +291,8 @@ def build(cfg, out):
                   [T('05_detector_deep_qa/surface_hitmap', 'Surface hit map'),
                    T('05_detector_deep_qa/pad_firing_fraction', 'Per-pad firing fraction'),
                    T('05_detector_deep_qa/event_multiplicity', 'Event multiplicity'),
-                   T('05_detector_deep_qa/multiplicity_vs_time', 'Multiplicity vs time')],
+                   T('05_detector_deep_qa/multiplicity_vs_time', 'Multiplicity vs time'),
+                   T('05_detector_deep_qa/centroid_hitmap', 'Event centroid hit map')],
                   notes=f'All {h["pads"]}/1152 pads fire; {h["hpe"]} hits/event (median 1). Hottest pads '
                         'cluster in connectors 6/7; the bright corner pad ch_id 27 (conn 1) is a separate '
                         'rate outlier with only a borderline discharge signature.')
@@ -307,8 +334,10 @@ def main():
     args = [a for a in sys.argv[1:] if not a.startswith('-')]
     key = args[0] if args else 'det1_long'
     cfg = qa.get_config(key)
+    # Name the report after the run so multiple runs of the same detector (e.g.
+    # two long runs) don't overwrite each other's PDF.
     default_out = os.path.join(qa.DATA_ROOT, 'Analysis', cfg.DET_TAG,
-                               f'p2_{cfg.DET_TAG}_final_qa.pdf')
+                               f'{cfg.RUN}_final_qa.pdf')
     out = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--out=')), default_out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     print(cfg)

@@ -26,6 +26,8 @@ Products (written to <Analysis>/<detN>/<run>/<sub_run>/06_efficiency/):
   reco_positions_detector.png                    reconstructed positions in pad frame
   nonreco_ray_positions.png                      projections of muons P2 did not see
   efficiency_breakdown.png                       where do crossing muons go?
+  efficiency_vs_time.png / .csv                  30-min-binned efficiency vs wall
+                                                 clock -- exposes gain dropouts
   efficiency_summary.txt / ray_hit_miss_list.csv
 
 Usage: python3 06_efficiency_maps.py [run_key] [--r 20] [--active-r 30]
@@ -36,10 +38,12 @@ import json
 import argparse
 import matplotlib
 matplotlib.use('Agg')
+import matplotlib.dates as mdates
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.collections import PolyCollection
 from scipy.spatial import cKDTree
 
 import p2_qa_config as qa
@@ -51,11 +55,9 @@ BINS = 40
 
 
 def _det_plane_z(cfg):
-    with open(cfg.run_config_path) as f:
-        for d in json.load(f)['detectors']:
-            if d.get('name') == cfg.DET_NAME:
-                return float(d['det_center_coords']['z'])
-    return 232.0
+    # Delegates to the config: a measured PLANE_Z (03 z-scan) wins over the
+    # run_config det_center z when they disagree.
+    return cfg.det_plane_z()
 
 
 def main():
@@ -63,12 +65,14 @@ def main():
     ap.add_argument('run_key', nargs='?', default=qa.DEFAULT_RUN)
     ap.add_argument('--strategy', default='reverse',
                     choices=['linear', 'reverse', 'pairswap'])
-    ap.add_argument('--r', type=float, default=20.0,
-                    help='match radius [mm] for "within" (default 20 ~ 1.7 pad pitch).')
+    ap.add_argument('--r', type=float, default=None,
+                    help='match radius [mm] for "within"; default = the run '
+                         'config MATCH_R (20 unless overridden, e.g. 40 for '
+                         'det2 from the 12_validation eff-vs-R plateau).')
     ap.add_argument('--active-r', type=float, default=30.0,
                     help='a ray is "in active area" if within this of a transformed '
                          'pad centre [mm] (default 30).')
-    ap.add_argument('--chi2-cut', type=float, default=1.5)
+    ap.add_argument('--chi2-cut', type=float, default=qa.M3_CHI2_CUT)
     ap.add_argument('--fit-fiducial', type=float, default=300.0,
                     help='|x_m3|,|y_m3| window used only to FIT the transform.')
     ap.add_argument('--z', type=float, default=None,
@@ -85,7 +89,7 @@ def main():
     out_dir = cfg.out_dir('06_efficiency')
     sfx = cfg.product_suffix(args.veto_sparks)
     det_z = args.z if args.z is not None else _det_plane_z(cfg)
-    R = args.r
+    R = args.r if args.r is not None else cfg.MATCH_R
 
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
@@ -107,8 +111,9 @@ def main():
         p2 = p2[~p2['eventId'].isin(bad)].copy()
         hit_events = hit_events - bad
         print(f'Spark veto: {len(sv.sparks)} sparks, '
-              f'{100*(1-sv.live_fraction()):.2f}% deadtime; dropped '
-              f'{n0m-len(m3):,} rays and {n0p-len(p2):,} P2 events.')
+              f'{100*(1-sv.live_fraction()):.2f}% deadtime, '
+              f'{sv.last_burst_events} burst events (>= {sv.burst_npads} pads); '
+              f'dropped {n0m-len(m3):,} rays and {n0p-len(p2):,} P2 events.')
 
     print(f'M3 single-track rays: {len(m3):,} | P2 events with centroid: {len(p2):,}')
 
@@ -127,10 +132,16 @@ def main():
     reco = {int(e): (xx, yy) for e, xx, yy in zip(p2['eventId'], rx, ry)}
 
     # --- transformed pad footprint -> active-area KD-tree ---
-    padc = ct.drop_duplicates('channel_id')
+    padc = ct[ct['mapped']].drop_duplicates('channel_id')
     pcx, pcy = T.apply(padc['pad_cx'].to_numpy(), padc['pad_cy'].to_numpy())
     pad_xy = np.column_stack([pcx, pcy])
     tree = cKDTree(pad_xy)
+    # real pad tiles carried into the M3 frame (row-aligned with padc/pad_xy)
+    pad_verts = None
+    if pmap.has_tile_geometry(ct):
+        tpads, verts0 = pmap.pad_tiles(ct)
+        vx, vy = T.apply(verts0[:, :, 0].ravel(), verts0[:, :, 1].ravel())
+        pad_verts = np.stack([vx.reshape(-1, 4), vy.reshape(-1, 4)], axis=2)
     # persist the pad footprint (M3 frame) so the sliding map (stage 10) can
     # define its zone from the real detector shape rather than a ray bounding box.
     pd.DataFrame({'x': pcx, 'y': pcy}).to_csv(
@@ -138,8 +149,9 @@ def main():
 
     # --- ray list (every clean M3 single track) with hit/miss flags ---
     d = m3.rename(columns={'x_m3': 'x', 'y_m3': 'y'}).copy()
-    nn_dist, _ = tree.query(np.column_stack([d['x'], d['y']]))
+    nn_dist, nn_idx = tree.query(np.column_stack([d['x'], d['y']]))
     d['in_active'] = nn_dist <= args.active_r
+    d['pad_idx'] = nn_idx   # nearest pad (row index into padc/pad_xy)
     d['has_any'] = d['eventId'].isin(hit_events)
     within = np.zeros(len(d), dtype=bool)
     resid = np.full(len(d), np.nan)
@@ -174,8 +186,13 @@ def main():
                    label=f'miss ({len(miss)})')
         ax.scatter(hit['x'], hit['y'], s=6, c='green', alpha=0.15, linewidths=0,
                    label=f'hit ({len(hit)})')
-        ax.scatter(pad_xy[:, 0], pad_xy[:, 1], s=2, c='k', alpha=0.15,
-                   label='pad footprint')
+        if pad_verts is not None:
+            ax.add_collection(PolyCollection(
+                pad_verts, facecolors='none', edgecolors='k',
+                linewidths=0.25, alpha=0.3, label='pad footprint'))
+        else:
+            ax.scatter(pad_xy[:, 0], pad_xy[:, 1], s=2, c='k', alpha=0.15,
+                       label='pad footprint')
         ax.set_xlabel('M3 X [mm]'); ax.set_ylabel('M3 Y [mm]'); ax.set_aspect('equal')
         ax.set_title(f'{cfg.DET_NAME} efficiency scatter — {ttl}\n{cfg.RUN}/{cfg.SUB_RUN}')
         lg = ax.legend(loc='upper right', framealpha=0.9)
@@ -185,26 +202,54 @@ def main():
         fig.savefig(f'{out_dir}/scatter_{name}{sfx}.png', dpi=150, bbox_inches='tight')
         plt.close(fig)
 
-    # binned efficiency maps (over active-area rays)
-    rng = [xb, yb]
-    den, xe, ye = np.histogram2d(da['x'], da['y'], bins=BINS, range=rng)
-    for col, name, ttl in [('within', f'within_{R:g}mm', f'hit within {R:g} mm'),
-                           ('has_any', 'has_any', 'any hit')]:
-        num, _, _ = np.histogram2d(da.loc[da[col], 'x'], da.loc[da[col], 'y'],
-                                   bins=[xe, ye])
-        with np.errstate(invalid='ignore', divide='ignore'):
-            eff = np.where(den >= 5, num / den, np.nan)
-        fig, ax = plt.subplots(figsize=(7.5, 6))
-        cmap = plt.get_cmap('viridis').copy(); cmap.set_bad('lightgrey')
-        im = ax.imshow(eff.T, origin='lower', extent=[xe[0], xe[-1], ye[0], ye[-1]],
-                       vmin=0, vmax=1, cmap=cmap, aspect='equal')
-        plt.colorbar(im, ax=ax, label='efficiency')
-        ax.set_xlabel('M3 X [mm]'); ax.set_ylabel('M3 Y [mm]')
-        ax.set_title(f'{cfg.DET_NAME} efficiency map — {ttl}  (>=5 rays/bin)\n'
-                     f'{cfg.RUN}/{cfg.SUB_RUN}')
-        fig.tight_layout()
-        fig.savefig(f'{out_dir}/map_{name}{sfx}.png', dpi=150, bbox_inches='tight')
-        plt.close(fig)
+    # efficiency maps over active-area rays. With tile geometry: PER-PAD
+    # efficiency drawn on the real pad tiles (each ray counts toward its
+    # nearest pad); otherwise the legacy uniform-grid binned map.
+    if pad_verts is not None:
+        n_pad = len(pad_xy)
+        den_p = np.bincount(da['pad_idx'], minlength=n_pad).astype(float)
+        for col, name, ttl in [('within', f'within_{R:g}mm', f'hit within {R:g} mm'),
+                               ('has_any', 'has_any', 'any hit')]:
+            num_p = np.bincount(da.loc[da[col], 'pad_idx'], minlength=n_pad)
+            ok = den_p >= 5
+            with np.errstate(invalid='ignore', divide='ignore'):
+                eff_p = np.where(ok, num_p / den_p, np.nan)
+            fig, ax = plt.subplots(figsize=(7.5, 6))
+            ax.add_collection(PolyCollection(pad_verts[~ok], facecolors='0.92',
+                                             edgecolors='0.7', linewidths=0.3))
+            pc = PolyCollection(pad_verts[ok], array=eff_p[ok], cmap='viridis',
+                                edgecolors='face', linewidths=0.2)
+            pc.set_clim(0, 1)
+            ax.add_collection(pc)
+            plt.colorbar(pc, ax=ax, label='efficiency')
+            ax.autoscale_view(); ax.set_aspect('equal')
+            ax.set_xlabel('M3 X [mm]'); ax.set_ylabel('M3 Y [mm]')
+            ax.set_title(f'{cfg.DET_NAME} per-pad efficiency — {ttl}  '
+                         f'(nearest pad, >=5 rays/pad; grey = low stats)\n'
+                         f'{cfg.RUN}/{cfg.SUB_RUN}')
+            fig.tight_layout()
+            fig.savefig(f'{out_dir}/map_{name}{sfx}.png', dpi=150, bbox_inches='tight')
+            plt.close(fig)
+    else:
+        rng = [xb, yb]
+        den, xe, ye = np.histogram2d(da['x'], da['y'], bins=BINS, range=rng)
+        for col, name, ttl in [('within', f'within_{R:g}mm', f'hit within {R:g} mm'),
+                               ('has_any', 'has_any', 'any hit')]:
+            num, _, _ = np.histogram2d(da.loc[da[col], 'x'], da.loc[da[col], 'y'],
+                                       bins=[xe, ye])
+            with np.errstate(invalid='ignore', divide='ignore'):
+                eff = np.where(den >= 5, num / den, np.nan)
+            fig, ax = plt.subplots(figsize=(7.5, 6))
+            cmap = plt.get_cmap('viridis').copy(); cmap.set_bad('lightgrey')
+            im = ax.imshow(eff.T, origin='lower', extent=[xe[0], xe[-1], ye[0], ye[-1]],
+                           vmin=0, vmax=1, cmap=cmap, aspect='equal')
+            plt.colorbar(im, ax=ax, label='efficiency')
+            ax.set_xlabel('M3 X [mm]'); ax.set_ylabel('M3 Y [mm]')
+            ax.set_title(f'{cfg.DET_NAME} efficiency map — {ttl}  (>=5 rays/bin)\n'
+                         f'{cfg.RUN}/{cfg.SUB_RUN}')
+            fig.tight_layout()
+            fig.savefig(f'{out_dir}/map_{name}{sfx}.png', dpi=150, bbox_inches='tight')
+            plt.close(fig)
 
     # radial residual (core + tail) for active-area rays that had a P2 event
     rr = da['resid'].to_numpy()
@@ -269,6 +314,46 @@ def main():
     fig.savefig(f'{out_dir}/efficiency_breakdown{sfx}.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
 
+    # efficiency vs time: exposes gain dropouts (the integrated numbers above
+    # are duty-cycle averages when the detector response is intermittent)
+    times = pa.load_event_times(cfg.m3_tracking_dir)
+    dat = da.merge(times, on='eventId', how='left')
+    dat = dat[np.isfinite(dat['t_sec'])]
+    t_h = dat['t_sec'].to_numpy() / 3600.0
+    dur_h = t_h.max() if len(t_h) else 0.0
+    tb = pd.DataFrame()
+    if dur_h > 0:
+        nbin = max(int(np.ceil(dur_h / 0.5)), 1)          # 30-min bins
+        dat = dat.assign(_bin=np.clip((t_h / 0.5).astype(int), 0, nbin - 1))
+        g = dat.groupby('_bin')
+        tb = pd.DataFrame({'t_h': g['_bin'].first() * 0.5 + 0.25,
+                           'n_rays': g.size(),
+                           'eff_within': g['within'].mean(),
+                           'eff_any': g['has_any'].mean()})
+        tb = tb[tb['n_rays'] >= 100]
+        with open(cfg.run_config_path) as f:
+            t0 = pd.to_datetime(json.load(f).get('start_time'))
+        wall = t0 + pd.to_timedelta(tb['t_h'], unit='h')
+        tb['wallclock'] = wall.dt.strftime('%Y-%m-%d %H:%M')
+        tb.to_csv(f'{out_dir}/efficiency_vs_time{sfx}.csv', index=False)
+
+        fig, ax = plt.subplots(figsize=(11, 4.2))
+        for col, lab, ccol in [('eff_within', f'within {R:g} mm', 'seagreen'),
+                               ('eff_any', 'has_any', 'goldenrod')]:
+            err = np.sqrt(tb[col] * (1 - tb[col]) / tb['n_rays'])
+            ax.errorbar(wall, 100 * tb[col], yerr=100 * err, fmt='o-', ms=3,
+                        lw=1, color=ccol, label=lab)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        ax.set_ylim(0, 100)
+        ax.set_xlabel(f'wall clock (run start {t0})')
+        ax.set_ylabel('efficiency [%]'); ax.grid(True, alpha=0.3); ax.legend()
+        ax.set_title(f'{cfg.DET_NAME} efficiency vs time (30-min bins, active area)\n'
+                     f'{cfg.RUN}/{cfg.SUB_RUN}')
+        fig.tight_layout()
+        fig.savefig(f'{out_dir}/efficiency_vs_time{sfx}.png', dpi=150,
+                    bbox_inches='tight')
+        plt.close(fig)
+
     # summary
     summary = [
         f'P2 efficiency — {cfg.DET_TAG} {cfg.RUN}/{cfg.SUB_RUN} [{args.strategy}]',
@@ -285,6 +370,14 @@ def main():
         f'no-hit {vals[2]:.1f}%',
         f'  median |r| residual       : {med:.1f} mm',
     ]
+    if len(tb):
+        summary.append(
+            f'  eff vs time (30-min bins) : within {100*tb["eff_within"].min():.1f}'
+            f'-{100*tb["eff_within"].max():.1f}%  has_any '
+            f'{100*tb["eff_any"].min():.1f}-{100*tb["eff_any"].max():.1f}%'
+            + ('  << INTERMITTENT: integrated eff is a duty-cycle average'
+               if tb['eff_within'].max() > 3 * max(tb['eff_within'].min(), 0.01)
+               else ''))
     print('\n'.join(summary))
     with open(f'{out_dir}/efficiency_summary{sfx}.txt', 'w') as f:
         f.write('\n'.join(summary) + '\n')
