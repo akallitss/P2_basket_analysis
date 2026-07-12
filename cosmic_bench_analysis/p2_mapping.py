@@ -222,6 +222,98 @@ def pad_tiles(channel_table):
     return t, np.stack(corners, axis=1)
 
 
+# --------------------------------------------------------------------------- #
+# Insulation-mask pillars (mesh-support pillars = local dead spots)
+# --------------------------------------------------------------------------- #
+def load_pillars(gbr_path):
+    """Pillar positions from the insulation-mask Gerber (KiCad, mm, same board
+    frame as the pad map — verified by overlaying the mask fan on the pads).
+
+    Pillars are drawn as full circles built from G02/G03 arc pairs: the arc
+    centre is start + (I,J) and its radius |IJ|; the pen is wide enough that
+    the stroke fills the disk, so the physical pillar radius is
+    |IJ| + aperture/2. Two populations on the M2_V2 mask:
+      small : arc r 0.20 mm, 0.4 mm pen -> 0.8 mm pillars (~11.7k, ~4 mm grid)
+      big   : arc r 1.54 mm, 3.075 mm pen -> 6.15 mm pillars (exactly 5)
+    Everything else in the file (fan outlines, text, fiducials) is not an arc
+    at these radii and is ignored. Returns a DataFrame(x, y, r, big) or an
+    empty one if the file is missing.
+    """
+    cols = ['x', 'y', 'r', 'big']
+    if not gbr_path or not os.path.isfile(gbr_path):
+        return pd.DataFrame(columns=cols)
+
+    ap_def = re.compile(r'%ADD(\d+)C,([\d.]+)')          # circular apertures
+    ap_sel = re.compile(r'^D(\d+)\*')
+    move = re.compile(r'X(-?\d+)Y(-?\d+)D02\*')
+    arc = re.compile(r'X(-?\d+)Y(-?\d+)I(-?\d+)J(-?\d+)D01\*')
+
+    apertures, ap_r = {}, 0.0
+    cur = None
+    circles = {}                       # (cx,cy rounded) -> (cx, cy, r_outer)
+    with open(gbr_path) as fh:
+        for line in fh:
+            m = ap_def.search(line)
+            if m:
+                apertures[int(m.group(1))] = float(m.group(2))
+                continue
+            m = ap_sel.match(line)
+            if m:
+                ap_r = apertures.get(int(m.group(1)), 0.0) / 2
+                continue
+            m = move.search(line)
+            if m:
+                cur = (int(m.group(1)) / 1e6, int(m.group(2)) / 1e6)
+                continue
+            m = arc.search(line)
+            if m and cur is not None:
+                i, j = int(m.group(3)) / 1e6, int(m.group(4)) / 1e6
+                r_arc = float(np.hypot(i, j))
+                # pillar circles only: small (~0.2) and big (~1.54) arc radii
+                if 0.15 < r_arc < 0.30 or 1.0 < r_arc < 3.0:
+                    cx, cy = cur[0] + i, cur[1] + j
+                    key = (round(cx, 2), round(cy, 2))
+                    circles.setdefault(key, (cx, cy, r_arc + ap_r))
+                cur = (int(m.group(1)) / 1e6, int(m.group(2)) / 1e6)
+
+    if not circles:
+        return pd.DataFrame(columns=cols)
+    df = pd.DataFrame(list(circles.values()), columns=['x', 'y', 'r'])
+    df['big'] = df['r'] > 1.0
+    return df
+
+
+def draw_pillars(ax, pillars, transform=None, small=True, label=True):
+    """Overlay the mask pillars on an axis. `transform` (optional) is a
+    p2_align-style transform with .apply(x, y) and scale .s — used to carry the
+    pad-frame pillar positions into the M3/reference frame of a plot. Big
+    pillars are drawn at true size (red) plus a dashed locator ring; small
+    pillars as faint dots."""
+    from matplotlib.patches import Circle
+
+    if pillars is None or not len(pillars):
+        return
+    x, y = pillars['x'].to_numpy(float), pillars['y'].to_numpy(float)
+    r = pillars['r'].to_numpy(float)
+    if transform is not None:
+        x, y = transform.apply(x, y)
+        r = r * transform.s
+    big = pillars['big'].to_numpy(bool)
+    if small and (~big).any():
+        ax.scatter(x[~big], y[~big], s=0.4, c='deepskyblue', alpha=0.25,
+                   linewidths=0, zorder=4,
+                   label='small pillars' if label else None)
+    first = True
+    for xi, yi, ri in zip(x[big], y[big], r[big]):
+        ax.add_patch(Circle((xi, yi), ri, facecolor='red', edgecolor='red',
+                            alpha=0.9, zorder=5))
+        ax.add_patch(Circle((xi, yi), 8.0 * (transform.s if transform else 1.0),
+                            facecolor='none', edgecolor='red', ls='--', lw=1.0,
+                            alpha=0.9, zorder=5,
+                            label=('big pillars (5)' if label and first else None)))
+        first = False
+
+
 def has_tile_geometry(channel_table):
     """True when the channel table carries the pad tile geometry columns."""
     return {'pad_w', 'pad_h', 'pad_angle'} <= set(channel_table.columns)
