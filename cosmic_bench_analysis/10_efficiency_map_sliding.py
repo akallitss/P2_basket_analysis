@@ -51,6 +51,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 import p2_qa_config as qa
+import p2_mapping as pmap
 
 
 def sliding_map(x, y, val, x_grid, y_grid, kernel, min_n):
@@ -119,9 +120,9 @@ def main():
                     help='grid points per axis (default 120).')
     ap.add_argument('--min', dest='min_rays', type=int, default=30,
                     help='min rays in a fixed kernel to colour a grid point (default 30).')
-    ap.add_argument('--r', type=float, default=20.0,
+    ap.add_argument('--r', type=float, default=None,
                     help='match radius label [mm]; the match is baked into "within" '
-                         'by stage 06 (default 20).')
+                         'by stage 06 (default = the run config MATCH_R).')
     ap.add_argument('--adaptive', action='store_true',
                     help='use an adaptive k-NN kernel instead of a fixed radius.')
     ap.add_argument('--target', type=int, default=60,
@@ -141,6 +142,8 @@ def main():
 
     cfg = qa.get_config(args.run_key)
     print(cfg)
+    if args.r is None:
+        args.r = cfg.MATCH_R
     eff_dir = cfg.out_dir('06_efficiency')
     suffix = cfg.product_suffix(args.veto_sparks)
     csv = os.path.join(eff_dir, f'ray_hit_miss_list{suffix}.csv')
@@ -168,6 +171,11 @@ def main():
     fp = pd.read_csv(fp_csv)
     fpx, fpy = fp['x'].to_numpy(float), fp['y'].to_numpy(float)
     ftree = cKDTree(np.column_stack([fpx, fpy]))
+
+    # insulation-mask pillars (M3 frame, written by stage 06): pillar shadows
+    # vs real dead zones on the smooth map.
+    pil_csv = os.path.join(eff_dir, f'pillars_m3{suffix}.csv')
+    pil = pd.read_csv(pil_csv) if os.path.isfile(pil_csv) else None
     ax0, ax1 = float(fpx.min()), float(fpx.max())
     ay0, ay1 = float(fpy.min()), float(fpy.max())
 
@@ -206,6 +214,9 @@ def main():
                            cmap=cmap, vmin=0, vmax=1)
             plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label=label)
             _draw_footprint(ax, fpx, fpy)
+            if pil is not None:
+                pmap.draw_pillars(ax, pil, small=False)
+                ax.legend(loc='upper right', fontsize=7, framealpha=0.9)
             ax.set_xlabel('reference X [mm]'); ax.set_ylabel('reference Y [mm]')
             ax.set_title(f'{cfg.DET_NAME}  {label}\nadaptive k-NN, {args.target} rays/kernel')
         im3 = axes[2].imshow(radius.T, origin='lower', extent=extent, aspect='equal',
@@ -254,6 +265,9 @@ def main():
                        cmap=cmap, vmin=0, vmax=1)
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label=label)
         _draw_footprint(ax, fpx, fpy)
+        if pil is not None:
+            pmap.draw_pillars(ax, pil, small=False)
+            ax.legend(loc='upper right', fontsize=7, framealpha=0.9)
         ax.set_xlabel('reference X [mm]'); ax.set_ylabel('reference Y [mm]')
         ax.set_title(f'{cfg.DET_NAME}  {label}\nsliding kernel r={args.kernel:.0f} mm')
     cnt_m = np.where((cnt >= args.min_rays) & ~outside, cnt, np.nan)
