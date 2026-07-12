@@ -18,7 +18,7 @@
 \title{Conference Roadmap --- P2 Basket Pad-Micromegas:\\
        from SPS Beam Test to Cosmic-Bench Characterization}
 \author{Alexandra Kallitsopoulou}
-\date{Draft roadmap, 11 July 2026 --- anchor the timeline to the actual conference date once fixed}
+\date{Roadmap v2, 12 July 2026 --- \textbf{conference: 31 August 2026, talk: 4 September 2026}}
 
 \begin{document}
 
@@ -28,10 +28,12 @@
 \section{The story to tell}
 %=====================================================================
 
-One sentence: \emph{``We are developing pad-Micromegas detectors for high-rate
-environments; we validated two geometries and optimized the VMM3a front-end at
-the SPS, we are now characterizing the next detector generation on a cosmic
-bench with full tracking, and we return to beam with VMM to close the loop.''}
+One sentence: \emph{``We are developing pad-Micromegas trackers for the P2
+experiment; we optimized the VMM3a front-end and validated two geometries at
+the SPS, characterized the new detector generation on a cosmic bench with full
+external tracking, and now return to the SPS with three detectors mounted
+exactly as they will be installed in P2 --- same plane distances, same
+electronics --- to measure three-plane track coincidences.''}
 
 The talk has a natural three-act structure.
 
@@ -62,7 +64,10 @@ The talk has a natural three-act structure.
   \item New P2 detectors (P2\_1 ``det1'', P2\_2 ``det2''), 256-pad fan
     geometry, read out with DREAM FEUs behind the \textbf{M3 beam telescope}
     $\rightarrow$ track-projected, \emph{geometry-resolved} measurements a beam
-    trigger alone cannot give:
+    trigger alone cannot give. (\textbf{DREAM was the only readout option
+    available on the cosmic bench} --- this is why the bench characterization
+    is DREAM-based and why the beam test must carry both electronics; see
+    Act~3.) The bench delivers:
     \begin{itemize}
       \item pad-level and sliding-window \textbf{efficiency maps} on the true pad footprint
       \item \textbf{HV turn-on curve} (mesh 345--420~V, $\varepsilon$: $0.40 \rightarrow 0.66$ measured so far)
@@ -76,17 +81,107 @@ The talk has a natural three-act structure.
     mapped, efficiency-calibrated and stability-vetted on the bench.''}
 \end{itemize}
 
-\subsection*{Act 3 --- Outlook: next beam test with VMM}
+\subsection*{Act 3 --- Beam test at SPS (summer 2026): the P2 telescope in its final configuration}
+
+This is no longer a generic ``outlook'' --- it is a \textbf{dress rehearsal of
+the P2 tracker itself}:
 
 \begin{itemize}[itemsep=2pt]
+  \item \textbf{Three detectors in a row on the SPS beam, mounted as they will
+    be installed in P2}: same plane-to-plane distances, same mechanics, same
+    electronics chain as the experiment. The measurement is the experiment's
+    measurement: \textbf{coincidences of track segments among the three
+    planes} --- exactly how BASKET will reconstruct backward-scattered
+    electron tracks in the P2 solenoid field for the strange/axial
+    form-factor program (see Sec.~\ref{sec:p2needs}).
+  \item \textbf{Two front-end electronics on the same detectors: DREAM and
+    VMM3a.} On the cosmic bench, DREAM was the only available option, so the
+    full bench characterization (efficiency maps, HV turn-on, timing,
+    stability) exists in DREAM terms. The beam test is the \emph{first
+    opportunity to read the same, fully-mapped detectors with both
+    electronics} --- it closes the loop between the bench campaign (DREAM) and
+    the Nov.\ 2025 VMM config-scan optimum, and yields a like-for-like
+    DREAM~$\leftrightarrow$~VMM comparison on identical hardware.
+  \item The complementarity is the selling point: \textbf{DREAM (full
+    waveforms, external trigger) for understanding; VMM3a (self-triggered,
+    high-rate) for operating.} Same detectors, two readouts, and now the P2
+    geometry in between.
   \item Bench-validated detectors + SPS-optimized VMM configuration
-    $\rightarrow$ next campaign measures the thing that matters:
-    \textbf{efficiency and stability vs.\ particle rate at the optimal working
-    point}, with known geometry and known electronics response.
-  \item The cross-electronics angle is a strength, not a complication:
-    \textbf{DREAM (full waveforms, external tracking) for understanding, VMM3a
-    (self-triggered, high rate) for operating.} Same detectors, two
-    complementary readouts, two beam environments.
+    $\rightarrow$ measure the thing that matters: \textbf{three-plane tracking
+    efficiency and stability vs.\ particle rate at the optimal working point},
+    with known geometry and known per-pad response.
+\end{itemize}
+
+%=====================================================================
+\section{What P2 needs from these detectors (literature anchors for the
+  motivation slide)}
+\label{sec:p2needs}
+%=====================================================================
+
+Verified against the published literature (12 July 2026). Use these numbers on
+the motivation slide; items flagged $\triangle$ have no public citation yet
+and must come from collaboration documents.
+
+\subsection*{The P2 experiment}
+
+Design report: D.~Becker \emph{et al.}, Eur.\ Phys.\ J.\ A \textbf{54} (2018)
+208, \href{https://arxiv.org/abs/1802.04759}{arXiv:1802.04759}.
+
+\begin{itemize}[itemsep=2pt]
+  \item Measures the weak mixing angle \textbf{$\sin^2\theta_W$ to 0.14\,\%
+    relative precision} via the proton's weak charge, from the
+    parity-violating asymmetry in elastic $e$-$p$ scattering at MESA (Mainz).
+  \item $A_{PV} = -39.94$~ppb, target $\Delta A_{PV} = 0.56$~ppb (1.4\,\%) at
+    $\langle Q^2\rangle = 4.5\times10^{-3}$~GeV$^2$; 155~MeV, 150~\si{\micro\ampere}
+    polarized CW beam on a 60~cm LH$_2$ target; 10\,000~h of running; total
+    elastic-electron rate of order \textbf{0.1~THz} --- this is the
+    ``high-rate environment'' of the story's first sentence.
+  \item BSM mass-scale sensitivity ${\sim}50$~TeV.
+\end{itemize}
+
+\subsection*{BASKET --- the backward-angle Micromegas detector}
+
+Sources: \href{https://www.blogs.uni-mainz.de/fb08p2/the-p2-experiment/}{Mainz
+P2 site}; design report Sec.~7 for the physics case.
+
+\begin{itemize}[itemsep=2pt]
+  \item \textbf{${\approx}\,20\,000$ Micromegas channels in three detector
+    planes} at large backward angles; the three planes reconstruct electron
+    tracks in the 0.6~T solenoid field --- \emph{this is exactly the 3-plane
+    coincidence configuration of the summer 2026 beam test (Act~3)}.
+  \item \textbf{Physics objectives:} determine the \textbf{strange-quark
+    contributions to the nucleon electromagnetic form factors} and the
+    \textbf{effective axial form factor of the proton} --- the dominant
+    hadronic uncertainties in the $\sin^2\theta_W$ extraction. The
+    backward-angle program improves the uncertainty on
+    $G_E^s$~$\times$4, $G_M^s$~$\times$12 and $G_A$~$\times$10
+    (design report, Sec.~7).
+  \item Forward-tracker context (useful contrast on the slide): the
+    \emph{forward} $Q^2$ tracker is HV-MAPS, and the forward
+    $\langle Q^2\rangle$ must be known to \textbf{1\,\%} --- tracking is what
+    turns an integrating asymmetry measurement into physics.
+  \item $\triangle$ \textbf{Not yet published for BASKET}: spatial-resolution
+    spec, per-plane rate density, timing requirement, pad-vs-strip rationale,
+    Saclay/IRFU role. No refereed BASKET paper exists as of July 2026 ---
+    cite the Mainz web pages + design report, and pull the specs from
+    collaboration internal notes. (This also means the talk is presenting
+    largely \emph{unpublished} material --- a plus.)
+\end{itemize}
+
+\subsection*{Electronics references for the comparison slides}
+
+\begin{itemize}[itemsep=2pt]
+  \item \textbf{DREAM}: 64 channels, CSA + shaper + 512-cell SCA analog
+    memory, peaking time 50--900~ns (16 settings), dead-timeless to 20~kHz
+    external trigger --- CLAS12 MVT paper, NIM~A \textbf{957} (2020) 163423.
+    Full-waveform, externally-triggered $\rightarrow$ the ``understanding''
+    readout.
+  \item \textbf{VMM3a}: 64 channels, self-triggered sparse readout, per-hit
+    peak ADC + TDC, peaking times 25/50/100/200~ns, gains 0.5--16~mV/fC
+    $\rightarrow$ the ``operating'' readout. $\triangle$~Canonical citation
+    (G.~Iakovidis, ATLAS NSW/RD51) to be confirmed before the talk.
+  \item Context/outlook citation if asked about the future: SALSA MPGD
+    readout ASIC, \href{https://arxiv.org/abs/2501.10237}{arXiv:2501.10237}.
 \end{itemize}
 
 %=====================================================================
@@ -136,8 +231,11 @@ Structural bias audit &
 
 \textbf{Missing / to build:} pion-run analysis (nothing in the codebase
 mentions pions), efficiency-vs-rate sweep across the muon datasets,
-cross-geometry comparison plots, det2 HV scan, and the final cross-campaign
-summary figures.
+cross-geometry comparison plots, det2 HV scan, \textbf{inter-plane track
+matching for the 3-plane beam test} (WP6 --- no code exists for
+detector-to-detector coincidences yet; the M3-projection logic in stages
+03/05/06 is the closest starting point), and the final cross-campaign summary
+figures.
 
 %=====================================================================
 \section{Analysis roadmap (work packages, in priority order)}
@@ -220,19 +318,112 @@ every pad'' plot); HV turn-on $\varepsilon(\mathrm{HV})$; timing residual
 distribution with $\sigma \approx 46$~ns; one spark/stability monitoring time
 series.
 
-\subsection*{WP6 --- Cross-campaign synthesis \emph{(the conclusion slide --- do last, 2--3 days)}}
+\subsection*{WP6 --- Three-plane beam test analysis \emph{(new --- depends on the beam-test data arriving in time)}}
+
+\begin{enumerate}[itemsep=1pt]
+  \item Extend the existing pipelines to the 3-plane setup: the \code{DATASETS}
+    registry + per-detector config pattern already supports multiple
+    FEUs/detectors; the new ingredient is \textbf{inter-plane track matching}
+    (a 3-plane version of the M3-projection logic, but now the P2 detectors
+    \emph{are} the telescope).
+  \item First-priority results (see the wish list in Sec.~\ref{sec:wishlist}):
+    per-plane efficiency from 2-of-3 tagging, plane-to-plane timing, DREAM
+    vs.\ VMM on the same detector.
+  \item Even a \emph{few hours} of good 3-plane coincidence data is enough for
+    the conference: one event display of a 3-plane track + one 2-of-3
+    efficiency number per plane already makes Act~3 real.
+\end{enumerate}
+
+\subsection*{WP7 --- Cross-campaign synthesis \emph{(the conclusion slide --- do last, 2--3 days)}}
 
 \begin{itemize}[itemsep=1pt]
   \item One table/figure: detector generation $\times$ electronics $\times$
     environment $\rightarrow$ efficiency, SNR, timing, rate reach. This is the
     single slide people will photograph.
-  \item Explicit outlook: next beam test $=$ bench-validated det2 ($+$det1 if
-    recovered) $+$ VMM at the WP1 optimal config $+$ rate scan informed by
-    WP2/3.
+  \item Explicit outlook: the 3-plane P2-geometry telescope with
+    bench-validated detectors + VMM at the WP1 optimal config, and what
+    remains before installation in P2.
 \end{itemize}
 
 %=====================================================================
-\section{Suggested timeline (back-count from the conference)}
+\section{Beam-test wish list --- measurements \& data that would be
+  \emph{nice to have} for the talk}
+\label{sec:wishlist}
+%=====================================================================
+
+Ordered by impact-per-beam-hour. Each item states what it buys for the
+conference.
+
+\subsection*{5a. Comparison measurements (bench $\leftrightarrow$ beam, DREAM $\leftrightarrow$ VMM)}
+
+\begin{enumerate}[itemsep=2pt]
+  \item \textbf{Same detector, same HV, DREAM vs.\ VMM back-to-back runs}
+    (even one detector, one config): efficiency, ADC/MPV spectrum, cluster
+    (pad-multiplicity) size, timing residual. \emph{Buys:} the like-for-like
+    electronics comparison slide --- the single most requested plot when two
+    readouts coexist in a project, and the direct justification of the
+    dual-electronics strategy.
+  \item \textbf{HV turn-on curve on beam with DREAM} for at least one
+    detector: overlay on the cosmic-bench $\varepsilon(\mathrm{HV})$ from
+    stage~11. \emph{Buys:} ``the bench predicts the beam'' --- validates the
+    whole Act~2 methodology in one figure.
+  \item \textbf{VMM at the Nov.\ 2025 optimal $(sg, snt)$ vs.\ one
+    non-optimal config} on the new detectors. \emph{Buys:} closes the loop on
+    Act~1 --- the config-scan optimum demonstrably transfers to the new
+    detector generation.
+  \item \textbf{Efficiency map on beam vs.\ efficiency map on bench} for the
+    same detector (beam spot scanned or wide beam). \emph{Buys:} pad-level
+    reproducibility, and cross-checks the dead zones (pillars, connector-10
+    class of problems) in an independent environment.
+  \item \textbf{Timing with beam tracks vs.\ the bench 46~ns}: same TOA
+    analysis (stage~13) on beam data, where track geometry is known and
+    drift-path spread can be controlled. \emph{Buys:} separates the intrinsic
+    timing from the drift-geometry contribution identified in the timing
+    study --- and the Garfield physics-floor comparison (3--7~ns) becomes a
+    ``measured vs.\ simulated'' slide.
+\end{enumerate}
+
+\subsection*{5b. Physics / telescope measurements (the P2-configuration measurements)}
+
+\begin{enumerate}[itemsep=2pt]
+  \item \textbf{Three-plane coincidence tracking with 2-out-of-3 efficiency
+    tagging}: use track segments in two planes to predict the crossing point
+    in the third $\rightarrow$ unbiased per-plane, per-pad efficiency
+    \emph{without any external trigger} --- exactly the in-situ
+    efficiency-monitoring scheme available in the real experiment.
+    \emph{Buys:} the headline Act~3 number and the method P2 itself will use.
+  \item \textbf{One 3-plane track event display} on the true pad geometry.
+    \emph{Buys:} the picture that makes the ``this is the P2 tracker'' claim
+    instantly credible.
+  \item \textbf{Plane-to-plane spatial residuals} (predicted vs.\ measured
+    pad, in the fan-pad coordinates radius/$\varphi$). \emph{Buys:} measured
+    effective spatial resolution of the pad readout for tracking --- the
+    number that feeds any $Q^2$-resolution statement.
+  \item \textbf{Plane-to-plane time residuals}: time coincidence window needed
+    to match segments into tracks. \emph{Buys:} the track-matching timing
+    budget in the P2 rate environment --- directly motivates (or relaxes) the
+    20~ns timing goal from the timing study.
+  \item \textbf{Track-level efficiency \& fake rate vs.\ beam rate} (muon
+    rates, then pions for local density): coincidence rate,
+    accidental/combinatorial track rate vs.\ single-plane rates. \emph{Buys:}
+    the rate-reach money plot, now at \emph{track} level rather than
+    single-detector level --- the quantity that actually limits P2 operation.
+  \item \textbf{Angle scan (if the setup allows tilting or off-axis
+    positions)}: efficiency and cluster size vs.\ incidence angle, since
+    scattered electrons in P2 cross the planes at non-normal angles.
+    \emph{Buys:} realism of the acceptance; also feeds cluster-size
+    systematics for tracking.
+  \item \textbf{Multi-track separation with pions/high intensity}: two tracks
+    in the same coincidence window --- can the three planes disentangle them?
+    \emph{Buys:} occupancy/ambiguity argument for the P2 rate environment.
+\end{enumerate}
+
+\emph{Fallback note:} items 5a.1, 5b.1 and 5b.2 are the minimum set worth
+protecting beam time for; all other items degrade gracefully into ``shown at
+the next opportunity'' outlook material.
+
+%=====================================================================
+\section{Suggested timeline (conference = 31 Aug 2026, talk = 4 Sep 2026)}
 %=====================================================================
 
 \begin{table}[h!]
@@ -241,24 +432,28 @@ series.
 \toprule
 \textbf{When} & \textbf{Milestone} \\
 \midrule
-Now $\rightarrow$ T$-$8 weeks &
+Now $\rightarrow$ end July (T$-$5 weeks) &
   WP3 first pass (pion data located and read); WP2 efficiency-vs-rate sweep
-  running; det2 HV scan taken on the bench \\
+  running; det2 HV scan taken on the bench; \textbf{beam-test preparation:
+  run list + trigger plan for the Sec.~\ref{sec:wishlist} wish list agreed
+  with the team} \\
 \addlinespace
-T$-$8 $\rightarrow$ T$-$5 weeks &
+Early $\rightarrow$ mid August (T$-$4 $\rightarrow$ T$-$3 weeks) &
   WP1 frozen; WP2/WP3 result plots v1; det2 characterization complete;
-  commit stage 13 \\
+  beam-test data taken $\rightarrow$ WP6 first pass (event display + 2-of-3
+  efficiency) \\
 \addlinespace
-T$-$5 $\rightarrow$ T$-$3 weeks &
+Mid August (T$-$3 $\rightarrow$ T$-$2 weeks) &
   WP4 + WP5 presentation plots finalized (consistent style, labels, fonts);
-  WP6 synthesis figure \\
+  WP6 result plots; WP7 synthesis figure \\
 \addlinespace
-T$-$3 $\rightarrow$ T$-$1 weeks &
+T$-$2 $\rightarrow$ T$-$1 weeks (17--24 Aug) &
   Slides assembled; internal dry run; only cosmetic plot changes after this \\
 \addlinespace
-T$-$1 week &
+Last week (24--31 Aug) &
   Freeze. Backup slides: methodology (spill mask, $\Delta t$ fit, MAD noise),
-  det1 stability study, mapping validation vs.\ M3 \\
+  det1 stability study, mapping validation vs.\ M3, Garfield timing
+  simulation \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -268,18 +463,23 @@ T$-$1 week &
 %=====================================================================
 
 \begin{enumerate}[itemsep=1pt]
-  \item Motivation \& detector concept (P2 basket pad-Micromegas, target
-    environment) --- 1--2 slides
+  \item Motivation \& detector concept (P2 experiment, BASKET Micromegas
+    objectives from Sec.~\ref{sec:p2needs}, pad-Micromegas concept) ---
+    1--2 slides
   \item \textbf{Act 1}: SPS setup photo + two geometries + VMM3a readout --- 1 slide
   \item SNR optimization: scan matrix + best-config spectra --- 2 slides
   \item Rate performance: efficiency vs.\ rate (muons), pion beam-spot +
     efficiency vs.\ local rate --- 2 slides
   \item Geometry verdict --- 1 slide
-  \item \textbf{Act 2}: cosmic bench + M3 telescope setup --- 1 slide
+  \item \textbf{Act 2}: cosmic bench + M3 telescope setup (note: DREAM-only
+    readout available) --- 1 slide
   \item New detectors: pad-tile efficiency map, HV turn-on, timing --- 2 slides
   \item Stability \& QA methodology (spark veto, pedestal, long-run
     monitoring) --- 1 slide
-  \item \textbf{Act 3}: synthesis table + next beam test plan --- 1--2 slides
+  \item \textbf{Act 3}: 3-plane P2-geometry beam test --- setup photo,
+    3-plane track event display, 2-of-3 efficiency, DREAM vs.\ VMM
+    comparison --- 1--2 slides
+  \item Synthesis table + what remains before installation in P2 --- 1 slide
 \end{enumerate}
 
 %=====================================================================
