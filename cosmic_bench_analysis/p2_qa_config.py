@@ -45,6 +45,14 @@ DATA_ROOT = '/local/home/ak271430/Documents/PostDocSaclay/data/Cosmic_Bench'
 MAP_CSV_PATH = os.path.join(
     REPO_ROOT, 'Detector_Mapping', 'P2_BASKET', 'P2_BASKET_mapping.csv')
 
+# Insulation-mask Gerber (same KiCad board frame as the pad map): the exact
+# positions of the mesh-support pillars — ~11.7k small (~0.5 mm) on a ~4 mm
+# grid plus 5 big (~3.3 mm) ones. Overlaid on hitmaps/efficiency maps so
+# pillar-shadow dead spots can be told apart from real gain defects.
+MASK_GBR_PATH = os.path.join(
+    os.path.dirname(REPO_ROOT), 'Detector_Drawings', 'Version_Apr26',
+    'Insulation_masks', 'V2', 'P2_BASKET-Mask_M2_V2.gbr')
+
 DEFAULT_RUN = 'det1_long'
 
 # --------------------------------------------------------------------------- #
@@ -81,7 +89,8 @@ def det_tag_from_run(run_name: str) -> str:
 class _Config:
     def __init__(self, key, run, sub_run, det_name='P2_1',
                  det_type='P2', ref_det_type='m3', data_root=DATA_ROOT,
-                 map_csv=MAP_CSV_PATH, dead_connectors=(),
+                 map_csv=MAP_CSV_PATH, mask_gbr=MASK_GBR_PATH,
+                 dead_connectors=(),
                  spark_channel='1:0', spark_imon_thr=2.0,
                  spark_guard_before=2.0, spark_guard_after=10.0,
                  burst_npads=20, det_tag=None, match_r=20.0, plane_z=None):
@@ -93,6 +102,9 @@ class _Config:
         self.DET_TYPE = det_type            # detector-under-test det_type in run_config
         self.REF_DET_TYPE = ref_det_type    # reference tracker det_type (m3 telescope)
         self.MAP_CSV_PATH = map_csv
+        # Insulation-mask Gerber with the mesh-support pillar positions (pad
+        # frame). None/missing file -> pillar overlays are simply skipped.
+        self.MASK_GBR_PATH = mask_gbr
         # Explicit det_tag override for runs whose name contains several
         # detector tags (e.g. 'p2_det1_det2_...'), where the regex would
         # always pick the first one.
@@ -146,6 +158,13 @@ class _Config:
     @property
     def combined_hits_dir(self):
         return os.path.join(self.sub_run_dir, 'combined_hits_root')
+
+    @property
+    def decoded_root_dir(self):
+        # Raw per-FEU decoded waveforms (nt tree: eventId/timestamp/ftst +
+        # sample/channel/amplitude vectors) — needed by the waveform-timing
+        # stage (13). Bulky: fetch only the FEUs/chunks needed from rays.
+        return os.path.join(self.sub_run_dir, 'decoded_root')
 
     @property
     def hits_root_dir(self):
