@@ -245,9 +245,11 @@ def main():
     ep = pa.load_m3_endpoints(m3_dir, args.chi2_cut)
     keep = set(int(e) for e in m3['eventId'])
     ep = ep[ep['eventId'].isin(keep)].copy()
-    z_scan = list(range(226, 259, 4))
-    if int(round(z0)) not in z_scan:
-        z_scan = sorted(z_scan + [int(round(z0))])
+    # Scan centred on the shipped z (was hardcoded 226-258 for the p1 position;
+    # the detectors now sit at p2_z ~700, so there is nothing to look at below
+    # 300 mm — a centred window covers any position without the stale p1 tail).
+    z0i = int(round(z0))
+    z_scan = sorted(set(range(z0i - 16, z0i + 17, 4)) | {z0i})
     eZ, sZ = [], []
     for z in z_scan:
         zx, zy = pa.project_to_z(ep, z)
