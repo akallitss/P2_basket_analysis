@@ -63,7 +63,7 @@ def _pad_range(df, pad=15):
             [df['pad_cy'].min() - pad, df['pad_cy'].max() + pad]]
 
 
-def plot_surface_hitmap(df, channel_table, out_dir, cfg, suffix=''):
+def plot_surface_hitmap(df, channel_table, out_dir, cfg, suffix='', pillars=None):
     """Hit counts drawn on the real pad tiles (not a uniform-grid histogram, so
     the fan geometry tiles contiguously). Never-fired live pads are grey."""
     from matplotlib.collections import PolyCollection
@@ -86,6 +86,9 @@ def plot_surface_hitmap(df, channel_table, out_dir, cfg, suffix=''):
             ax.set_xlabel('pad_cx [mm]'); ax.set_ylabel('pad_cy [mm]')
             ax.autoscale_view(); ax.set_aspect('equal')
             ax.set_title(f'Surface hitmap ({tag}) — grey = never fired')
+            if pillars is not None and len(pillars):
+                pmap.draw_pillars(ax, pillars, small=False)
+                ax.legend(loc='upper right', fontsize=7, framealpha=0.9)
     else:  # old map CSV without tile geometry: fall back to the grid histogram
         rng = _pad_range(df)
         for ax, norm, tag in [(axes[0], None, 'linear'),
@@ -102,7 +105,7 @@ def plot_surface_hitmap(df, channel_table, out_dir, cfg, suffix=''):
     plt.close(fig)
 
 
-def plot_centroid_hitmap(df, channel_table, out_dir, cfg, suffix=''):
+def plot_centroid_hitmap(df, channel_table, out_dir, cfg, suffix='', pillars=None):
     """Per-EVENT charge-weighted centroid hitmap (complements the per-hit
     surface_hitmap): left all events, right muon-like events only (n_pad <= 3),
     with the live pad centres overlaid. Interior white holes at this statistics
@@ -125,6 +128,9 @@ def plot_centroid_hitmap(df, channel_table, out_dir, cfg, suffix=''):
         fig.colorbar(hb, ax=ax, label='events / bin')
         ax.set_xlabel('pad_cx [mm]'); ax.set_ylabel('pad_cy [mm]')
         ax.set_aspect('equal'); ax.set_title(tag)
+        if pillars is not None and len(pillars):
+            pmap.draw_pillars(ax, pillars, small=False)
+            ax.legend(loc='upper right', fontsize=7, framealpha=0.9)
     fig.suptitle(f'{cfg.DET_NAME} event centroid hitmap — {cfg.RUN}/{cfg.SUB_RUN}\n'
                  'charge-weighted pad centroid per event; red = live pad centres')
     fig.tight_layout()
@@ -253,8 +259,12 @@ def main():
                f'  total pad hits: {len(df):,}  ({len(df)/n_events:.2f} hits/event)',
                f'  distinct pads fired: {df["channel_id"].nunique()} / {n_pads}']
 
-    plot_surface_hitmap(df, ct, out_dir, cfg, sfx)
-    n_cen, n_muonlike = plot_centroid_hitmap(df, ct, out_dir, cfg, sfx)
+    pil = pmap.load_pillars(cfg.MASK_GBR_PATH)
+    if len(pil):
+        print(f'  insulation-mask pillars: {int(pil["big"].sum())} big + '
+              f'{int((~pil["big"]).sum()):,} small (overlaid on hitmaps)')
+    plot_surface_hitmap(df, ct, out_dir, cfg, sfx, pillars=pil)
+    n_cen, n_muonlike = plot_centroid_hitmap(df, ct, out_dir, cfg, sfx, pillars=pil)
     summary.append(f'  event centroids: {n_cen:,}  (muon-like n_pad<=3: {n_muonlike:,})')
     fdf = pad_firing(df, n_events, ct)
     plot_pad_firing(fdf, out_dir, cfg, summary, sfx)
