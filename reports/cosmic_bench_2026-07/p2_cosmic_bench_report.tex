@@ -1,0 +1,1027 @@
+% =========================================================================== %
+%  P2 (BASKET) pad-Micromegas cosmic-bench characterisation report
+%  Detectors P2_1 and P2_2  —  CEA Saclay cosmic test bench, June–July 2026
+%
+%  Build:  latexmk -pdf p2_cosmic_bench_report.tex
+%  Figures are included directly from the Analysis/ tree next to the data
+%  (see \graphicspath below); re-running the pipeline refreshes them.
+% =========================================================================== %
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.4cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{microtype}
+
+\graphicspath{{/local/home/ak271430/Documents/PostDocSaclay/data/Cosmic_Bench/Analysis/}}
+
+\captionsetup{font=small,labelfont=bf}
+\sisetup{separate-uncertainty=true}
+
+\newcommand{\detone}{P2\_1}
+\newcommand{\dettwo}{P2\_2}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{\textbf{Characterisation of the P2 (BASKET) pad-Micromegas detectors\\
+       on the CEA Saclay cosmic test bench}\\[1ex]
+       \large Detectors \detone{} and \dettwo{} --- runs of 30 June -- 10 July 2026}
+\author{Alexandra Kallitsopoulou\\ \small CEA Saclay, IRFU/DEDIP}
+\date{11 July 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+We report the first cosmic-ray characterisation of two P2 (BASKET) detectors ---
+metallic, non-resistive pad-readout Micromegas --- on the CEA Saclay cosmic test
+bench, using the four-plane M3 Micromegas telescope as an external tracking
+reference. A fully automated DAQ and processing chain (DREAM front-end readout,
+on-the-fly decoding and hit reconstruction, M3 track reconstruction, HV
+monitoring) feeds a staged offline QA pipeline that validates the
+Gerber-derived pad mapping, aligns each detector to the telescope, vetoes
+HV discharges, and measures track-referenced efficiency and position response.
+Detector~2 reaches a validated position-reconstruction efficiency of
+\SI{65}{\percent} integrated over a \SI{10}{h} run (\SIrange{74}{75}{\percent}
+in its best HV points), with a core position resolution of
+$\sigma \simeq \SI{4.7}{mm}$, limited by the \(\sim\SI{12}{mm}\) pad pitch.
+Detector~1 showed an efficiency of \SI{56}{\percent} in its first long run but
+suffers from severe intermittent gain drops whose duty cycle degraded across
+subsequent runs; understanding and curing this instability is the top priority
+of the next campaign. The efficiency plateau has not yet been reached in either
+mesh-HV scan. We describe the measurement, the trigger and DAQ logic, the
+processing pipeline and the analysis methodology in detail, and conclude with a
+roadmap for the coming measurements.
+\end{abstract}
+
+\tableofcontents
+\clearpage
+
+% ========================================================================== %
+\section{Introduction}
+% ========================================================================== %
+
+The P2 ``BASKET'' detector is a \emph{metallic, non-resistive} bulk Micromegas
+with a segmented \emph{pad} anode readout. Unlike the resistive-strip
+Micromegas studied previously on the same bench, the P2 anode is divided into
+1280 pads arranged in a fan-shaped (basket) sector: 10 physical connector
+sectors of 128 pads each, with a typical pad size of order
+$12\times12\,\text{mm}^2$. Each pad carries a full two-dimensional position, so the
+spatial analysis unit is the pad itself --- there is no strip clustering or
+micro-TPC reconstruction. The pad geometry (centre, polar coordinates, area) is
+derived directly from the production Gerber files of the readout PCB.
+
+Two detectors of this design, \detone{} and \dettwo{}, are currently installed
+on the cosmic-ray test bench at CEA Saclay. The goals of this first
+characterisation campaign are:
+
+\begin{enumerate}[itemsep=2pt]
+  \item validate the full channel-to-pad mapping chain (Gerber map $+$ DREAM
+        front-end wiring) against reconstructed cosmic tracks;
+  \item measure the track-referenced detection efficiency and its uniformity
+        across the pad plane, including the effect of the mesh-support
+        insulation pillars;
+  \item measure the position response (residuals, core resolution) of the pad
+        centroid reconstruction;
+  \item characterise the discharge (spark) behaviour of the metallic mesh and
+        establish clean veto procedures;
+  \item map the efficiency and resolution as a function of the mesh
+        amplification voltage (HV scan) to locate the operating plateau.
+\end{enumerate}
+
+This note documents the measurement setup
+(Section~\ref{sec:setup}), the trigger and DAQ logic
+(Section~\ref{sec:trigger}), the automated processing pipeline
+(Section~\ref{sec:pipeline}), the offline analysis methodology
+(Section~\ref{sec:analysis}), the results for both detectors
+(Section~\ref{sec:results}), and the conclusions and roadmap
+(Sections~\ref{sec:conclusions} and~\ref{sec:roadmap}).
+
+% ========================================================================== %
+\section{Measurement setup}
+\label{sec:setup}
+% ========================================================================== %
+
+\subsection{Bench geometry}
+
+The cosmic bench is a vertical tower. Cosmic muons are tracked by the
+\emph{M3 reference telescope}: four double-coordinate (X/Y strip) resistive
+Micromegas planes, two below and two above the detectors under test.
+The two P2 detectors sit between the telescope stations. The nominal plane
+heights from the run configuration are listed in
+Table~\ref{tab:geometry}. For \dettwo{} the plane height fitted from the data
+($z = \SI{712}{mm}$, Section~\ref{sec:alignment}) is used in the analysis
+instead of the nominal \SI{702}{mm}.
+
+\begin{table}[htb]
+  \centering
+  \caption{Bench elements and their vertical positions ($z$, measured upwards
+  along the tower). HV channels refer to CAEN crate \code{card:channel}.}
+  \label{tab:geometry}
+  \small
+  \begin{tabular}{llrl}
+    \toprule
+    Element & Type & $z$ [mm] & HV (mesh / drift) \\
+    \midrule
+    \code{m3\_bot\_bot} & M3 X/Y plane & 24   & 3:8 / 0:8 \\
+    \code{m3\_bot\_top} & M3 X/Y plane & 144  & 3:9 / 0:9 \\
+    \detone{}           & P2 pad Micromegas & 232 & 1:0 / 1:1 \\
+    \dettwo{}           & P2 pad Micromegas & 702 (fitted 712) & 1:2 / 1:3 \\
+    \code{m3\_top\_bot} & M3 X/Y plane & 1185 & 3:10 / 0:10 \\
+    \code{m3\_top\_top} & M3 X/Y plane & 1302 & 3:11 / 0:11 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Detectors under test}
+
+Each P2 detector is read out through 10 physical 128-pin connectors
+(``sectors''), each split into a \emph{bottom} half (pads 1--64) and a
+\emph{top} half (pads 65--128); every half is wired to one 64-channel DREAM
+front-end connector. The full detector therefore maps to 20 DREAM connectors
+spread over three front-end units (FEUs). The gas is
+Ar/iC$_4$H$_{10}$ 95/5 at atmospheric pressure. Two HV channels per detector
+power the amplification mesh and the drift electrode; the drift gap is
+operated at a fixed $V_\text{drift} - V_\text{mesh} = \SI{170}{V}$ during the
+combined runs.
+
+Not all connectors were live during the campaign, and the analysis explicitly
+removes dead connectors from both the numerator and the denominator of every
+efficiency estimate:
+
+\begin{itemize}[itemsep=2pt]
+  \item \detone{}: connector~10 disconnected in the first run; connectors 1
+        and 10 disconnected from run 2 onwards (9 or 8 live sectors,
+        1152/1024 pads);
+  \item \dettwo{}: connector~1 physically disconnected; connectors 8--10 are
+        wired to FEU~8, which crashes the DAQ and is excluded from the runs.
+        Live readout is connectors 2--7 (768 pads), confirmed independently
+        by track--hit correlation.
+\end{itemize}
+
+The insulation mask Gerber of the mesh-support pillars
+($\sim$11\,700 small $\sim$\SI{0.5}{mm} pillars on a \SI{4}{mm} grid plus five
+large $\sim$\SI{3.3}{mm} ones) is loaded in the same PCB frame as the pad map
+and overlaid on all hit and efficiency maps, so that pillar shadows can be told
+apart from genuine gain defects.
+
+\subsection{Runs analysed}
+
+\begin{table}[htb]
+  \centering
+  \caption{Long runs and HV scans entering this report. All runs use
+  Ar/iC$_4$H$_{10}$ 95/5. Mesh/drift voltages in volts.}
+  \label{tab:runs}
+  \footnotesize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{lcccl}
+    \toprule
+    Run & Detector(s) & Mesh/drift & Duration & Purpose \\
+    \midrule
+    \code{p2\_det1\_long\_run\_6-30-26} & \detone{} & 440/600 & long & first efficiency run \\
+    \code{p2\_det1\_mesh\_hv\_scan\_7-2-26} & \detone{} & 345--420, 5\,V steps & scan & HV scan \\
+    \code{p2\_det1\_long\_run\_7-4-26} & \detone{} & 440/600 & long & repeat \\
+    \code{p2\_det1\_long\_run\_7-7-26} & \detone{} & 440/600 & long & repeat \\
+    \code{p2\_det1\_det2\_long\_run\_mesh\_scan\_7-9-26} & \detone{}$+$\dettwo{} & 430/600 & 10 h $+$ scan & first \dettwo{} run \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The 9 July combined run is the first with \dettwo{} installed: a \SI{10}{h}
+long sub-run at mesh \SI{430}{V} followed by a mesh scan from 430 down to
+\SI{395}{V} in \SI{5}{V} steps, with the drift stepped in tandem to keep the
+drift gap voltage constant at \SI{170}{V}.
+
+% ========================================================================== %
+\section{Trigger logic and data acquisition}
+\label{sec:trigger}
+% ========================================================================== %
+
+\subsection{Trigger}
+
+The bench runs on an \emph{external cosmic trigger}: the DREAM system is
+configured with \code{Sys DaqRun Trig = Ext} and trigger source
+\code{Tg\_Src\_ExtSyn}, i.e.\ a common trigger signal is distributed
+synchronously to all front-end units through the trigger interface. The
+trigger FEU is the M3 telescope FEU (FEU~1, set from \code{m3\_feu\_num} in
+the run configuration), so the trigger definition is tied to the reference
+telescope rather than to the detectors under test; top and bottom trigger
+scintillator counters are installed on the tower (above the top and below the
+bottom M3 stations) for trigger formation. Two consequences shape the
+analysis:
+
+\begin{itemize}[itemsep=2pt]
+  \item The trigger is \emph{unbiased} with respect to the P2 detectors: a
+        triggered muon crossing a P2 plane that produces no P2 hit is a
+        genuine inefficiency and is kept in the efficiency denominator.
+  \item P2 discharges are only rarely recorded by the DAQ (they are not
+        time-correlated with cosmic triggers), so the spark treatment must be
+        driven by the HV monitoring rather than by the event data alone
+        (Section~\ref{sec:sparks}).
+\end{itemize}
+
+On every accepted trigger, all active FEUs read out 32 ADC samples per channel
+(no zero suppression in these runs); every hit carries the global trigger
+timestamp (\code{trigger\_timestamp\_ns}) and event number, which are used
+offline to match P2 hits, M3 tracks and HV records in time.
+
+\subsection{DAQ orchestration}
+
+Data taking is orchestrated by the \code{Cosmic\_Bench\_DAQ\_Control} package,
+a client--server system over TCP sockets with persistent \code{tmux}-managed
+servers:
+
+\begin{itemize}[itemsep=2pt]
+  \item \textbf{HV server} (\code{hv\_control.py}): ramps and monitors the
+        CAEN crate; during runs it logs $v_\text{mon}$/$i_\text{mon}$ of every
+        channel to \code{hv\_monitor.csv} at sub-second cadence
+        ($\sim$\SI{0.5}{s} interval, $\sim$\SI{2}{s} effective granularity).
+  \item \textbf{DREAM DAQ server} (\code{dream\_daq\_control.py}): writes the
+        run-specific DREAM configuration (active FEUs and connectors derived
+        from the declared detectors, trigger FEU preserved), launches
+        pedestal-threshold and data runs, and copies raw FDF files on the fly.
+  \item \textbf{M3 tracking server} (\code{m3\_tracking\_control.py}): runs
+        the M3 telescope track reconstruction as files arrive.
+  \item \textbf{Orchestrator} (\code{daq\_control.py}): sequences sub-runs ---
+        for each sub-run it sets the HV working point, waits for ramp
+        completion, starts the DREAM run for the configured duration, and
+        stops it; at the end of the session HV is powered down.
+  \item \textbf{Processor and QA watchers}: autonomous processes that decode,
+        reconstruct and QA-plot the data as it arrives
+        (Section~\ref{sec:pipeline}).
+\end{itemize}
+
+Each run is fully described by a \code{run\_config.json} snapshot (detector
+geometries, FEU wiring, HV set points per sub-run, DAQ settings), which the
+offline analysis treats as the single source of truth for wiring and
+geometry.
+
+Before every data run a dedicated \emph{pedestal-threshold run} measures the
+per-channel pedestal mean and RMS. The DREAM waveform processing then keeps a
+pulse only if its amplitude exceeds $5\,\sigma_\text{ped}$ of its own channel,
+so each channel's effective threshold is set by its own pedestal noise --- a
+fact exploited by the pedestal QA stage (Section~\ref{sec:pedestal}).
+
+% ========================================================================== %
+\section{Data processing pipeline}
+\label{sec:pipeline}
+% ========================================================================== %
+
+\subsection{Online (on-the-fly) processing}
+
+The \code{processor\_watcher.py} daemon drives a fully automatic chain as raw
+files land on disk:
+
+\begin{enumerate}[itemsep=2pt]
+  \item \textbf{Decode}: raw DREAM FDF files $\rightarrow$ ROOT waveform trees
+        (\code{decoded\_root/});
+  \item \textbf{Waveform analysis}: per-channel pulse finding with the
+        $5\sigma$ pedestal threshold $\rightarrow$ per-FEU hit trees
+        (\code{hits\_root/}), carrying amplitude, time, saturation flag and
+        the applied pedestals;
+  \item \textbf{FEU combination}: per-FEU hits merged by event
+        $\rightarrow$ \code{combined\_hits\_root/}, the main analysis input;
+  \item \textbf{M3 tracking}: the M3 FEU data are reconstructed by the
+        dedicated tracking code (v2) into per-event rays
+        $\rightarrow$ \code{m3\_tracking\_root/} (positions at top/bottom
+        stations, per-coordinate cluster counts and $\chi^2$);
+  \item \textbf{HV log}: \code{hv\_monitor.csv} accumulates in parallel.
+\end{enumerate}
+
+A QA watcher produces online per-detector occupancy and rate plots for live
+monitoring; a Flask dashboard exposes run status, HV and QA plots.
+
+\subsection{Offline QA pipeline}
+
+The offline analysis lives in \code{P2\_basket\_analysis/cosmic\_bench\_analysis}
+and is organised as numbered, idempotent stages driven by a central run
+registry (\code{p2\_qa\_config.py}); each stage writes its products into an
+\code{Analysis/$\langle$det$\rangle$/$\langle$run$\rangle$/$\langle$sub\_run$\rangle$/$\langle$stage$\rangle$/}
+tree that lives next to the data, organised per detector. The full pipeline
+for a long run is reproduced by \code{run\_p2\_pipeline.sh}; every
+veto-capable stage runs twice (with and without the discharge veto) and all
+products carry explicit filename suffixes recording the dropped dead
+connectors and the veto state, so no variant can silently overwrite another.
+The stages are:
+
+\begin{description}[itemsep=2pt,leftmargin=2.6cm]
+  \item[02 mapping] pad-map validation against data occupancy, including a
+        side-by-side comparison of candidate channel orderings;
+  \item[03 alignment] P2$\leftrightarrow$M3 rotation scan, Procrustes
+        transform, detector-plane $z$ scan;
+  \item[04 M3 QA] reference-telescope quality (track $\chi^2$, multiplicity,
+        angles, illumination), independent of the P2;
+  \item[05 deep QA] hitmaps, per-pad firing fractions, event multiplicity and
+        its time evolution, hot-pad hunting;
+  \item[06 efficiency] track-referenced efficiency maps, breakdown and
+        residuals; per-ray hit/miss list; efficiency vs.\ time;
+  \item[07 HV sparks] mesh-discharge detection from the HV log, veto
+        validation, DAQ cross-check;
+  \item[08 pad sparks] per-pad micro-discharge flagging (review only, not
+        masked);
+  \item[09 pedestals] applied pedestal mean/RMS maps, threshold--rate
+        correlation;
+  \item[10 sliding map] kernel-smoothed (fixed and adaptive k-NN) efficiency
+        maps at \SI{5}{mm} scale, resolving the large insulation pillars;
+  \item[11 HV scan] efficiency and resolution vs.\ mesh HV across scan
+        sub-runs, with a single frozen geometry;
+  \item[12 validation] structural bias tests of the efficiency chain
+        (Section~\ref{sec:validation}).
+\end{description}
+
+Two report builders (\code{build\_final\_pdf.py},
+\code{build\_hv\_scan\_pdf.py}) compile all stage products into per-run
+narrative PDF documents.
+
+% ========================================================================== %
+\section{Analysis description}
+\label{sec:analysis}
+% ========================================================================== %
+
+This section describes the analysis at the algorithm level. Throughout, an
+\emph{event} is one external trigger: the M3 telescope hits, the P2 hits and
+the HV record are associated purely by the event number (\code{eventId}) and
+the global trigger timestamp (\code{trigger\_timestamp\_ns}), which counts
+nanoseconds continuously from run start across all combined-hits files. The HV
+monitor also starts at run start, so the two clocks share a common $t=0$; the
+agreement of the two time spans was verified to $\sim$\SI{0.3}{\percent}.
+
+\subsection{Inputs and event model}
+
+Each analysis stage consumes up to four inputs per sub-run:
+
+\begin{itemize}[itemsep=2pt]
+  \item \code{combined\_hits\_root/}: one row per fired channel per event,
+        carrying the event number and trigger timestamp, the FEU and channel
+        address, the pulse amplitude (ADC) and time (sample), and a
+        saturation flag. Only channels above their individual
+        $5\sigma_\text{ped}$ threshold appear, and \emph{only events with at
+        least one hit anywhere in the DAQ are written} --- an important
+        detail for the efficiency denominator (Section~\ref{sec:efficiency});
+  \item \code{m3\_tracking\_root/}: per-event reconstructed rays with line
+        endpoints $(X,Y)$ at two reference heights $Z_\text{Up}$,
+        $Z_\text{Down}$, per-coordinate $\chi^2$ and cluster counts;
+  \item \code{hv\_monitor.csv}: wall-clock time series of $v_\text{mon}$,
+        $i_\text{mon}$ and power state for every CAEN channel
+        ($\sim$\SI{2}{s} sampling);
+  \item \code{hits\_root/} (per-FEU, pre-combination): additionally carries
+        the \code{pedestals} tree (per-channel mean and RMS actually applied
+        by the processing), used only by the pedestal QA.
+\end{itemize}
+
+\subsection{Channel-to-pad mapping and its validation}
+\label{sec:mapping}
+
+A DAQ hit is addressed by (FEU, channel), $\text{channel} \in [0,255]$ on a
+4-connector DREAM front-end. The decode chain to a physical pad is:
+%
+\begin{align}
+  \text{dream\_conn} &= \lfloor \text{channel}/64 \rfloor + 1, &
+  \text{within} &= \text{channel} \bmod 64, \nonumber\\
+  \text{(feu, dream\_conn)} &\;\xrightarrow{\;\text{run\_config wiring}\;}\;
+  \code{c\_$N$\_bot/top}, &
+  \text{sector} &= N-1, \nonumber\\
+  \text{strip} &= \text{half\_base} + f(\text{within}), &
+  \text{channel\_id} &= 128\,\text{sector} + (\text{strip}-1),
+\end{align}
+%
+where \code{half\_base} is 1 for the \code{bot} half (strips 1--64) and 65
+for the \code{top} half (strips 65--128), and the final
+\code{channel\_id} keys the Gerber-derived map row carrying the pad centre
+$(x,y)$, polar coordinates, tile polygon and area. The wiring dictionary is
+taken from the run's own \code{run\_config.json} and inverted, so a rewiring
+between runs is picked up automatically; pads on dead connectors are dropped
+from the table at this point.
+
+The only genuinely uncertain link is the within-half ordering function $f$:
+whether DREAM channel 0 of a half corresponds to strip 1 or strip 64, or some
+permutation. It is kept as an explicit, swappable strategy:
+$f_\text{linear}(w) = w$, $f_\text{reverse}(w) = 63-w$, and
+$f_\text{pairswap}$ (linear with adjacent pairs swapped, the pattern seen in
+the MEC8 pin table). Flat cosmic illumination cannot distinguish these ---
+all three fill the fan uniformly --- so the discrimination comes from the
+\emph{per-event} correlation between the P2 pad centroid and the projected M3
+track: with \code{reverse} the correlations reach $r_x = 0.93$,
+$r_y = 0.88$ with a clean $\sim$\SI{89}{\degree} rotation and scale
+$\simeq 1$, while \code{linear} and \code{pairswap} collapse to
+$r_y \sim 0.15$. Since the within-half ordering is a fixed property of the
+DREAM readout, \code{reverse} is the validated default for all P2 detectors
+(re-confirmed on \dettwo{}).
+
+Stage 02 renders the occupancy, mean amplitude and dead-pad maps on the
+physical pad plane and checks three qualitative signatures of a correct map:
+contiguous illumination (no speckle), dead connectors appearing as coherent
+angular blocks, and radial/azimuthal profiles consistent with a uniform
+cosmic flux over the fan (Fig.~\ref{fig:occupancy}).
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=.92\textwidth]{det2/p2_det1_det2_long_run_mesh_scan_7-9-26/long_run_mesh_430V_drift_600V/02_map_validation/pad_occupancy_without_connectors_1_8_9_10_spark_vetoed.png}
+  \caption{\dettwo{}, 9 July long run: cosmic hit occupancy projected on the
+  physical pad plane (with radial/azimuthal profiles and per-connector
+  occupancy). The illumination is contiguous over the live connectors 2--7;
+  the missing sectors are the known dead connectors.}
+  \label{fig:occupancy}
+\end{figure}
+
+\subsection{M3 reference tracks}
+\label{sec:m3}
+
+The M3 reconstruction (tracking v2) fits straight lines independently in the
+$xz$ and $yz$ projections through the four telescope planes and stores each
+ray as its endpoints at $Z_\text{Up}$ and $Z_\text{Down}$. The analysis
+re-projects a ray to any plane $z$ by linear interpolation,
+%
+\begin{equation}
+  x(z) = X_\text{Down} + \bigl(X_\text{Up}-X_\text{Down}\bigr)\,
+         \frac{z - Z_\text{Down}}{Z_\text{Up} - Z_\text{Down}},
+\end{equation}
+%
+and likewise for $y(z)$ --- which makes the alignment $z$-scan
+(Section~\ref{sec:alignment}) essentially free.
+
+A ray enters any P2 analysis only if it passes the quality recipe
+%
+\begin{equation}
+  \chi^2_X,\;\chi^2_Y < 5
+  \quad\text{and}\quad
+  N^X_\text{clus},\;N^Y_\text{clus} \ge 3 ,
+  \label{eq:m3cut}
+\end{equation}
+%
+plus a single-track requirement (exactly one good ray in the event). The
+cluster-count condition is not cosmetic: a fit with only two points per
+coordinate is exact, so it carries a denormal-tiny (but non-zero) $\chi^2$
+and would sail through any pure $\chi^2$ cut; requiring $\ge 3$ clusters
+forces a genuine 3--4 plane fit. The $\chi^2$ threshold itself was re-tuned
+for the v2 reconstruction (the old $\chi^2<20$ recipe belongs to the previous
+$\chi^2$ scale and is stale). Stage 04 monitors the reference itself ---
+$\chi^2$ distributions, good-track multiplicity, angular distributions
+($\theta_x$, $\theta_y$ of clean single tracks), and the illumination
+projected at the P2 plane --- so that a degraded telescope cannot silently
+masquerade as a degraded P2.
+
+\subsection{Per-event P2 observables}
+\label{sec:centroid}
+
+Hits are mapped to pads (Section~\ref{sec:mapping}); unmapped hits (dead
+connectors, non-P2 FEUs) are discarded. For every event with $\ge 1$ mapped
+pad the analysis computes the \emph{charge-weighted pad centroid}
+%
+\begin{equation}
+  \mathbf{r}_\text{P2}
+  = \frac{\sum_i a_i\, \mathbf{r}^\text{pad}_i}{\sum_i a_i},
+  \qquad a_i = \max(A_i, 0),
+  \label{eq:centroid}
+\end{equation}
+%
+where the sum runs over the fired pads of the event, $A_i$ is the pulse
+amplitude and $\mathbf{r}^\text{pad}_i$ the pad centre. The pad multiplicity
+$n_\text{pad}$ is retained; genuine muon clusters have
+$n_\text{pad}=1\text{--}3$ (median 1), which is what makes the
+$n_\text{pad}\ge 20$ burst veto (Section~\ref{sec:sparks}) safe. A
+\emph{leading-pad} estimator (position of the highest-amplitude pad) is
+implemented as an alternative and used by the validation stage to bound the
+cost of the centroiding choice (Section~\ref{sec:validation}).
+
+\subsection{Alignment to the M3 reference}
+\label{sec:alignment}
+
+The M3 rays live in the bench frame (origin near the tower axis, mm); the pad
+positions live in the PCB frame (a fan sector in the first quadrant of the
+board coordinates). The transform between them --- translation
+$\mathbf{t}$, rotation $\theta$ about $z$, possible reflection, and a scale
+$s$ kept free as a diagnostic --- is determined from the data in three steps
+(stage 03), on the sample of events that have both a clean single ray and a
+P2 centroid.
+
+\paragraph{1. Rotation scan.}
+Pearson correlation coefficients are invariant under translation and scale,
+so the rotation can be found \emph{without} first solving the translation.
+The pad centroids are centred on their own mean and rotated by a trial angle
+$\theta$,
+\begin{equation}
+  x'(\theta) = x_\text{pad}\cos\theta - \mu\,y_\text{pad}\sin\theta,\qquad
+  y'(\theta) = x_\text{pad}\sin\theta + \mu\,y_\text{pad}\cos\theta,
+\end{equation}
+with mirror state $\mu = \pm 1$, and the figure of merit
+\begin{equation}
+  \mathrm{FOM}(\theta,\mu) = r\bigl(x_\text{M3}, x'\bigr)
+                           + r\bigl(y_\text{M3}, y'\bigr)
+\end{equation}
+is scanned over $\theta \in [0,360)$\si{\degree} in \SI{0.5}{\degree} steps
+for both mirror states (a reflection is not reachable within $SO(2)$, so it
+must be tried explicitly). A correct mapping produces a single sharp peak
+with both $r$ large and positive; a wrong channel ordering destroys the peak
+in one coordinate, which is exactly the mapping test of
+Section~\ref{sec:mapping}. Wild rays are suppressed by an M3 fiducial cut
+($|x|,|y| < \SI{1500}{mm}$) and, optionally, a minimum pad amplitude.
+
+\paragraph{2. Procrustes fit.}
+Independently, the best-fit similarity transform is obtained in closed form
+by SVD. With $P$ and $Q$ the mean-centred $N\times2$ matrices of pad and M3
+positions,
+\begin{equation}
+  H = P^{\mathsf T} Q = U \Sigma V^{\mathsf T}, \qquad
+  R = V U^{\mathsf T}, \qquad
+  s = \frac{\operatorname{tr}\Sigma}{\lVert P \rVert_F^2}, \qquad
+  \mathbf{r}_\text{M3} = s\,R\,(\mathbf{r}_\text{pad} - \bar{\mathbf{r}}_\text{pad})
+                        + \bar{\mathbf{r}}_\text{M3},
+  \label{eq:procrustes}
+\end{equation}
+with $\det R < 0$ signalling a reflection. The implied rotation angle must
+coincide with the scan peak (it does, for both detectors), and the fitted
+scale is a powerful health check: pads are physical objects, so a correct
+mapping and geometry \emph{must} give $s \simeq 1$. The fit RMSE is dominated
+by the pad pitch and by any gain intermittency mixing in poorly measured
+events; only events inside a $\pm\SI{300}{mm}$ fiducial feed the fit.
+
+\paragraph{3. Plane-height ($z$) scan.}
+Because the M3 rays have slopes, the projected impact points depend on the
+assumed plane height; the rotation/correlation scan is therefore repeated
+while re-projecting the rays over a $\pm\SI{250}{mm}$ window around the
+nominal $z$ (using the stored endpoints, Eq.~(2)). The height maximising the
+correlation --- equivalently, the plateau of efficiency vs.\ $z$ in stage 12
+--- defines the measured detector plane. For \dettwo{} this gives
+$z = \SI{712}{mm}$ against a nominal \SI{702}{mm}; the fitted value is
+registered in the run configuration (\code{PLANE\_Z}) and used by every
+stage, with the rule that the measured plane always wins over the nominal
+mounting height.
+
+The shipped transform used by all downstream stages is the Procrustes fit,
+re-fitted by the efficiency stage itself (Section~\ref{sec:efficiency}) on
+its own matched sample --- stages share the \emph{same} fitting code
+(\code{p2\_align.fit\_transform}), not frozen numbers, so no stage can drift
+out of sync with the alignment.
+
+\subsection{Discharge (spark) treatment}
+\label{sec:sparks}
+
+Two independent vetoes target two distinct discharge populations.
+
+\paragraph{HV (whole-mesh) spark veto.}
+The mesh baseline current is $\sim$\SI{0.07}{\micro A} (90th percentile
+$\sim$\SI{0.14}{\micro A}); a discharge drives $i_\text{mon}$ to several
+\si{\micro A}, up to the current-limit compliance ($\sim$\SI{10}{\micro A}),
+while the crate keeps the channel powered. The veto is built from the HV log
+as follows:
+
+\begin{enumerate}[itemsep=2pt]
+  \item flag every HV sample with $i_\text{mon} \ge \SI{2}{\micro A}$
+        (well above baseline, well below compliance);
+  \item group consecutive flagged samples into spark intervals, merging
+        groups separated by $\le \SI{6}{s}$ (up to two missed \SI{2}{s}
+        samples --- one flickering discharge, not two);
+  \item integrate the released charge per spark,
+        $Q = \int i_\text{mon}\,dt$ (trapezoidal, \si{\micro A.s} =
+        \si{\micro C}), and record duration, peak current and sample count;
+  \item pad each interval by \SI{-2}{s} (clock skew) and \SI{+10}{s}
+        (post-discharge recovery, during which the gain is degraded), and
+        merge overlaps;
+  \item drop every event whose trigger time
+        $t = \code{trigger\_timestamp\_ns}/10^9$ falls inside a padded
+        interval.
+\end{enumerate}
+
+The vetoed live time is bookkept and reported
+(\code{live\_fraction}); crucially, the veto is applied as a set of
+\emph{event IDs} removed identically from the M3 ray list, the P2 centroid
+list and the fired-event set, so the efficiency numerator and denominator
+always see the same live sample. Stage 07 validates the construction: the
+$v_\text{mon}$/$i_\text{mon}$ timeline with shaded veto windows, the spark
+rate evolution, the per-spark charge spectrum, and a cross-check against DAQ
+high-multiplicity bursts. Because the trigger is external, discharges are
+rarely captured as events --- on \detone{} none of the 11 highest-multiplicity
+events coincides with an HV spark --- so the HV log is the only reliable
+discharge record, which is why this veto cannot be replaced by an event-level
+cut.
+
+\paragraph{Burst (event-level) veto.}
+Localised discharges that are too small or too fast to move the integrated
+mesh current above threshold still dump charge onto many pads at once. Since
+real muon clusters have $n_\text{pad} \le 3$, any event with
+$n_\text{pad} \ge 20$ is classified as a P2-internal discharge and vetoed.
+The count of such bursts is logged per stage; the two vetoes together define
+the ``spark-vetoed'' product variant, and every veto-capable stage is run
+both with and without them so the size of the correction is always visible.
+
+\paragraph{Per-pad micro-spark flagging (review only).}
+A third, still finer population --- individual pads that micro-spark ---
+survives both vetoes. These cannot be identified by rate alone (large outer
+pads legitimately fire more often), so the discriminator is the
+\emph{discharge amplitude signature}. For every pad with $\ge 20$ hits the
+analysis computes the saturation rate and the fraction of hits above
+\SI{1000}{ADC}, converts both to robust $z$-scores using the median/MAD
+estimator $z = (x - \mathrm{med})/(1.4826\,\mathrm{MAD})$ over the live
+pads, and flags a pad when \emph{both} are outliers
+($z_\text{sat} > 4$ and $z_\text{hi} > 3$). A complementary rule flags
+\emph{noise} pads first (median amplitude below \SI{150}{ADC} \emph{and}
+firing-rate $z > 3$: high rate at near-pedestal amplitude), so the two
+opposite-amplitude pathologies cannot contaminate each other's statistics.
+Flagged pads are \emph{reviewed, not masked}: stage 08 renders what is
+flagged and what the pad plane would look like without them, and the
+decision to exclude them is taken explicitly, like the dead-connector drop.
+
+\subsection{Efficiency measurement}
+\label{sec:efficiency}
+
+The efficiency chain (stage 06) proceeds strictly in the following order:
+
+\begin{enumerate}[itemsep=2pt]
+  \item \textbf{Channel table}: build the pad map for the run (validated
+        \code{reverse} ordering, dead connectors dropped).
+  \item \textbf{Rays}: load clean single-track M3 rays
+        (Eq.~\eqref{eq:m3cut}) projected to the fitted plane $z$.
+  \item \textbf{Centroids}: load per-event P2 centroids
+        (Eq.~\eqref{eq:centroid}) and the set of events with \emph{any}
+        mapped P2 hit.
+  \item \textbf{Veto}: compute the spark/burst event-ID set and remove it
+        from rays, centroids and the fired-event set alike.
+  \item \textbf{Transform}: fit Eq.~\eqref{eq:procrustes} on the inner join
+        of rays and centroids (fit fiducial $|x|,|y|<\SI{300}{mm}$), then map
+        all centroids and all pad centres into the M3 frame.
+  \item \textbf{Active area}: build a $k$-d tree of the transformed pad
+        centres; a ray is \emph{in the active area} if its nearest
+        transformed pad centre is within \SI{30}{mm}. This makes the
+        denominator region fan-aware (it follows the true pad footprint,
+        including the missing dead sectors) instead of a bounding box. The
+        transformed pad footprint and the transformed insulation-mask pillar
+        positions are persisted to CSV for the downstream sliding maps.
+  \item \textbf{Per-ray flags}: for every in-active-area ray,
+        \begin{itemize}
+          \item $\code{within} \iff$ the event has a P2 centroid and
+                $\lvert \mathbf{r}_\text{ray} - \mathbf{r}_\text{P2} \rvert
+                 \le R$;
+          \item $\code{has\_any} \iff$ the event contains any mapped P2 hit;
+          \item $\code{resid} = \lvert \mathbf{r}_\text{ray} -
+                \mathbf{r}_\text{P2}\rvert$ where defined.
+        \end{itemize}
+        A triggered ray whose event contains no P2 data at all is a genuine
+        miss (\code{within} $=$ \code{has\_any} $=$ false) and \emph{stays in
+        the denominator}: the trigger is external, and the DAQ writes an
+        event whenever any detector (in particular the telescope itself)
+        fired, so the absence of P2 hits is physical.
+\end{enumerate}
+
+The two ratios over active-area rays are the \emph{position-reconstruction
+efficiency} (\code{within}, the physics number) and the \emph{response
+ceiling} (\code{has\_any}); their difference, the ``fired but not
+reconstructed'' fraction, isolates events where the detector responded but
+the centroid landed farther than $R$ (edge charge sharing, delta rays,
+mis-mapped pads). The match radius is not a free parameter tuned by eye: it
+is chosen on the plateau of the efficiency-vs-$R$ curve of the validation
+stage --- \SI{20}{mm} for \detone{}, \SI{40}{mm} for \dettwo{} --- and the
+validation overlay separates the geometric containment cost of the cut,
+$1-\exp\left(-R^2/2\sigma^2\right)$ for a Gaussian residual core of width
+$\sigma$, from genuine detector loss. Products include the per-ray hit/miss
+list (the input of stage 10), per-pad efficiency drawn on the true pad
+tiles, the loss breakdown, the radial-residual distribution (core $+$ tail),
+maps of the projections of unseen muons, and the efficiency in 30-minute
+wall-clock bins with binomial errors --- the time series that exposed the
+gain intermittency (Section~\ref{sec:results-det1}).
+
+\subsection{Sliding-window efficiency maps}
+\label{sec:sliding}
+
+Hard 2D bins trade resolution against statistics once per map. Stage 10
+instead evaluates, at every point of a fine regular grid, the mean of
+\code{within} (and \code{has\_any}) over the rays inside a kernel:
+
+\begin{itemize}[itemsep=2pt]
+  \item \textbf{fixed kernel}: all rays within $\rho$ of the grid point
+        ($\rho = \SI{5}{mm}$, minimum 10 rays), giving a smooth map whose
+        resolution matches the $\sim$\SI{6}{mm} large insulation pillars ---
+        overlapping kernels mean neighbouring pixels share rays, so
+        structures are not aliased by bin edges;
+  \item \textbf{adaptive $k$-NN kernel}: the kernel radius at each grid point
+        is the distance to the $k$-th nearest ray, so every point averages
+        exactly $k$ rays and carries the \emph{same} binomial uncertainty;
+        the radius map is then itself the local-resolution map (points whose
+        radius exceeds a cap are blanked).
+\end{itemize}
+
+Grid points whose nearest transformed pad lies farther than the footprint
+radius are masked out, so the map is evaluated only on the physical detector
+(using the footprint persisted by stage 06), and the transformed pillar
+positions are overlaid so a pillar shadow is not misread as a gain defect.
+
+\subsection{Efficiency and resolution vs.\ mesh voltage}
+\label{sec:hvscan}
+
+The HV scan (stage 11) reuses the stage-06 machinery with one structural
+difference: the pad$\to$M3 transform is fitted \emph{once} on the pooled
+matched events of \emph{all} HV points and then frozen, and with it the
+transformed pad footprint and active area. The mounting geometry does not
+change with voltage, so per-point re-fits would only inject alignment noise
+--- particularly at low HV where few matched events exist --- and, worse,
+would let the denominator region breathe across the scan. With the geometry
+frozen, each sub-run contributes only its own rays and centroids:
+efficiency (with binomial errors) and the core position resolution --- the
+robust $\sigma$ (median/MAD) of the per-coordinate aligned residuals ---
+are evaluated per HV point on an identical footing. Sub-runs without their
+own \code{run\_config} borrow the long-run wiring; each sub-run's own
+\code{hv\_monitor.csv} drives its spark veto.
+
+\subsection{Pedestal QA}
+\label{sec:pedestal}
+
+Because the hit threshold is $5\sigma_\text{ped}$ \emph{per channel},
+pedestal pathologies map directly onto rate pathologies, in opposite
+directions: an anomalously low RMS lowers the threshold and lets the channel
+over-trigger on baseline noise, while an inflated RMS (e.g.\ discharge
+pickup during the pedestal run) silences real signal --- a ``cold'' pad that
+looks dead without being broken. Stage 09 reads the pedestal means and RMS
+values \emph{actually applied} by the processing (from the per-FEU
+\code{hits\_root} files; the combined files drop them), maps both onto the
+pad plane, flags robust outliers, and correlates pedestal RMS with the
+per-pad firing rate. On \detone{} this correlation is negligible
+($r \simeq 0.05$), which is the evidence that the observed hot pads are
+genuine discharges (flat thresholds, anomalous amplitudes) rather than noisy
+electronics --- the pedestal stage is what lets the pad-spark flagging
+(Section~\ref{sec:sparks}) claim a physical cause.
+
+\subsection{Structural validation of the efficiency}
+\label{sec:validation}
+
+Stage 12 exists to prove that the shipped efficiency is a property of the
+detector, not of an analysis choice. It deliberately imports and calls the
+\emph{same} functions as the production pipeline (the transform fit, the
+loaders, the channel table), so the validator cannot diverge from what it
+validates; every test has a predetermined pass condition, and a failure
+points at a specific bias:
+
+\begin{enumerate}[itemsep=2pt]
+  \item \textbf{Knob plateau}: efficiency vs.\ match radius $R$ and vs.\
+        active-area radius. An honest cut sits on a plateau; the $R$ curve is
+        overlaid with the ideal Gaussian containment
+        $1-\exp(-R^2/2\sigma^2)$, so the part of the loss that is pure cut
+        geometry is visibly separated from detector loss.
+  \item \textbf{$z$ plateau}: the whole chain (re-projection \emph{and}
+        transform re-fit) is repeated across plane heights; the shipped $z$
+        must sit on the efficiency plateau, otherwise efficiency is being
+        left on the table by a wrong height.
+  \item \textbf{Alignment variants}: free-scale fit vs.\ scale fixed to 1
+        (pads are physical truth, so if forcing $s=1$ \emph{raises} the
+        efficiency, the free fit was absorbing a bias) vs.\ a robust
+        outlier-rejected re-fit; each variant reports its core $\sigma$ and
+        efficiency.
+  \item \textbf{Mapping vs.\ dead}: per-pad firing fraction against per-pad
+        local efficiency. A real dead region is dark in \emph{both}; a
+        mapping bug is dark in efficiency but bright in firing (the pads
+        fire, but the reconstruction puts them elsewhere).
+  \item \textbf{Estimator swap}: charge-weighted centroid vs.\
+        nearest-fired-pad within $R$ --- bounds the cost of the centroiding
+        choice itself.
+  \item \textbf{Stability}: odd/even event split; the two halves must agree
+        within statistics.
+\end{enumerate}
+
+For \dettwo{} six of seven tests pass; the single flag is an
+\SI{8.2}{pt} sensitivity to the active-area radius (an edge-definition
+systematic on a detector with several missing sectors), bounding the honest
+efficiency between the shipped \SI{65.0}{\percent} and \SI{66.5}{\percent}
+against the \SI{67.3}{\percent} any-pad ceiling.
+
+% ========================================================================== %
+\section{Results}
+\label{sec:results}
+% ========================================================================== %
+
+\subsection{Detector 2 (\dettwo{})}
+\label{sec:results-det2}
+
+\dettwo{}, in its first run (10 h at mesh \SI{430}{V}), is the better-behaved
+of the two detectors. The alignment is excellent: rotation
+\SI{86.3}{\degree}, Procrustes scale $0.972$ (close to unity, as it must be
+for a correct mapping), fit RMSE \SI{35.8}{mm}, fitted plane
+$z=\SI{712}{mm}$. Table~\ref{tab:det2} summarises the long-run efficiency;
+Fig.~\ref{fig:det2eff} shows the efficiency map and time evolution.
+
+\begin{table}[htb]
+  \centering
+  \caption{\dettwo{} long-run results (mesh \SI{430}{V}, drift \SI{600}{V},
+  spark-vetoed, connectors 1, 8--10 excluded).}
+  \label{tab:det2}
+  \small
+  \begin{tabular}{lr}
+    \toprule
+    Clean M3 rays in active area & 59\,410 \\
+    Efficiency (centroid within \SI{40}{mm}) & \SI{65.0}{\percent} \\
+    Efficiency (any pad fired) & \SI{67.3}{\percent} \\
+    Fired but not reconstructed & \SI{2.3}{\percent} \\
+    Median $|r|$ residual & \SI{5.8}{mm} \\
+    Core resolution $\sigma_x \times \sigma_y$ & $4.6 \times \SI{4.6}{mm}$ \\
+    Validation & 6/7 pass; honest range 65.0--66.5\,\% \\
+    HV sparks & 0.7/h, \SI{0.31}{\percent} dead time \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[htb]
+  \centering
+  \begin{subfigure}[t]{.48\textwidth}
+    \includegraphics[width=\textwidth]{det2/p2_det1_det2_long_run_mesh_scan_7-9-26/long_run_mesh_430V_drift_600V/06_efficiency/map_within_40mm_without_connectors_1_8_9_10_spark_vetoed.png}
+    \caption{Binned efficiency map (centroid within \SI{40}{mm}).}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{.48\textwidth}
+    \includegraphics[width=\textwidth]{det2/p2_det1_det2_long_run_mesh_scan_7-9-26/long_run_mesh_430V_drift_600V/06_efficiency/efficiency_vs_time_without_connectors_1_8_9_10_spark_vetoed.png}
+    \caption{Efficiency in 30-min bins over the \SI{10}{h} run.}
+  \end{subfigure}
+  \caption{\dettwo{} efficiency in the 9 July long run.}
+  \label{fig:det2eff}
+\end{figure}
+
+Three observations qualify the headline number:
+
+\begin{itemize}[itemsep=2pt]
+  \item \textbf{Intermittency}: the 30-min binned efficiency spans
+        0--\SI{75.5}{\percent}; the integrated \SI{65}{\percent} is a
+        duty-cycle average. In its good periods the detector runs at
+        $\sim$\SI{75}{\percent}, consistent with the HV-scan points below.
+  \item \textbf{Sparking}: 7 mesh discharges in \SI{10}{h}
+        (\SI{0.7}{/h}), dominated by one \SI{28}{s}, \SI{162}{\micro C}
+        episode; the veto cost is only \SI{0.31}{\percent} of live time.
+  \item \textbf{Resolution}: the core $\sigma\simeq\SI{4.7}{mm}$ is
+        consistent with pure pad-pitch binning
+        ($\text{pitch}/\sqrt{12}\simeq\SI{3.5}{mm}$ plus centroid sharing),
+        i.e.\ the position response is healthy.
+\end{itemize}
+
+In the mesh scan (Fig.~\ref{fig:hvscans}, right) the efficiency rises
+monotonically from \SI{65.1}{\percent} at \SI{395}{V} to
+\SI{74.4}{\percent} at \SI{430}{V} with the resolution flat at
+$\sigma\simeq\SI{4.7}{mm}$ --- the plateau has \emph{not} been reached at
+\SI{430}{V}, and the scan should be extended upwards.
+
+\subsection{Detector 1 (\detone{})}
+\label{sec:results-det1}
+
+\detone{} produced a solid first long run (30 June, mesh \SI{440}{V}):
+integrated efficiency \SI{56.1}{\percent} (within \SI{20}{mm}),
+any-pad \SI{64.8}{\percent}, median residual \SI{11}{mm} over 75\,035 active
+rays. Already there, however, the efficiency-vs-time trace was strongly
+intermittent (0--\SI{74}{\percent} per 30-min bin), so the integrated number
+is a duty-cycle average of a detector that alternates between a
+$\sim$\SI{74}{\percent} ``on'' state and a silent state. Across subsequent
+runs at the same working point the duty cycle collapsed
+(Table~\ref{tab:det1runs}); in the 9~July combined run (\SI{10}{V} lower mesh)
+the detector was essentially inefficient. The HV-spark rate on \detone{} is
+negligible (0.1/h), so discharges do not explain the drop-outs.
+
+\begin{table}[htb]
+  \centering
+  \caption{\detone{} integrated efficiency at the nominal working point across
+  the campaign (spark-vetoed). The range column is the 30-min binned
+  \code{within} efficiency, exposing the intermittency.}
+  \label{tab:det1runs}
+  \small
+  \begin{tabular}{llrrl}
+    \toprule
+    Run & Mesh & Within-$R$ & Any-pad & 30-min range \\
+    \midrule
+    6-30-26 & \SI{440}{V} & \SI{56.1}{\percent} & \SI{64.8}{\percent} & 0--\SI{74.1}{\percent} \\
+    7-4-26  & \SI{440}{V} & \SI{3.5}{\percent}  & \SI{8.3}{\percent}  & 0.1--\SI{20.1}{\percent} \\
+    7-7-26  & \SI{440}{V} & \SI{11.5}{\percent} & \SI{15.8}{\percent} & 3.4--\SI{62.1}{\percent} \\
+    7-9-26  & \SI{430}{V} & \SI{0.4}{\percent}  & \SI{3.0}{\percent}  & 0--\SI{0.8}{\percent} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Two further \detone{}-specific findings from the good run:
+
+\begin{itemize}[itemsep=2pt]
+  \item a real \emph{diagonal near-zero-efficiency band} crosses the fan
+        (reference $x \sim$ 120--\SI{160}{mm}), dark in both firing and
+        efficiency (hence a genuine dead/low-gain region or mapping seam, not
+        a reconstruction artefact); it has not yet been traced to specific
+        pads or connectors;
+  \item a population of pads clustered in connectors 6/7 carries a per-pad
+        micro-discharge signature (saturation + high-amplitude outliers);
+        pedestal QA confirms these are real discharges, not noisy channels.
+\end{itemize}
+
+The 2 July HV scan (Fig.~\ref{fig:hvscans}, left), taken while the detector
+was behaving, shows the expected S-curve: efficiency rising from
+\SI{16.5}{\percent} at \SI{345}{V} to \SI{68.4}{\percent} at \SI{420}{V},
+still without a plateau, with resolution roughly constant at
+$\sigma\sim\SI{10}{mm}$.
+
+\begin{figure}[htb]
+  \centering
+  \begin{subfigure}[t]{.48\textwidth}
+    \includegraphics[width=\textwidth]{det1/p2_det1_mesh_hv_scan_7-2-26/hv_scan/11_hv_scan_efficiency/efficiency_vs_hv_without_connectors_1_10_spark_vetoed.png}
+    \caption{\detone{}, 2 July scan (mesh 345--\SI{420}{V}).}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{.48\textwidth}
+    \includegraphics[width=\textwidth]{det2/p2_det1_det2_long_run_mesh_scan_7-9-26/hv_scan/11_hv_scan_efficiency/efficiency_vs_hv_without_connectors_1_8_9_10_spark_vetoed.png}
+    \caption{\dettwo{}, 9 July scan (mesh 395--\SI{430}{V}).}
+  \end{subfigure}
+  \caption{Efficiency vs.\ mesh HV. Neither detector has reached its plateau
+  at the highest scanned voltage.}
+  \label{fig:hvscans}
+\end{figure}
+
+% ========================================================================== %
+\section{Conclusions}
+\label{sec:conclusions}
+% ========================================================================== %
+
+\begin{itemize}[itemsep=3pt]
+  \item The full measurement chain --- automated DAQ, on-the-fly processing,
+        M3 reference tracking and the staged QA pipeline --- is operational
+        and has characterised two P2 pad detectors end to end, including a
+        structural validation of the efficiency methodology itself.
+  \item The Gerber-derived pad mapping, combined with the validated
+        \code{reverse} within-connector channel ordering, places hits on the
+        physically correct pads for \emph{both} detectors (track--centroid
+        correlations up to $r_x = 0.93$, transform scale
+        $\simeq 1$); the ordering is a fixed property of the DREAM readout
+        and can be trusted for future P2 detectors.
+  \item \dettwo{} performs well: \SI{65}{\percent} integrated
+        (74--\SI{75}{\percent} in good periods and at the best HV points),
+        core resolution $\sigma\simeq\SI{4.7}{mm}$ (pad-pitch limited), a
+        validated efficiency estimate, and a modest, cleanly vetoed sparking
+        rate.
+  \item \detone{} is limited not by its intrinsic response (it reaches
+        $\sim$\SI{74}{\percent} when ``on'') but by \emph{intermittent gain
+        drop-outs} whose duty cycle degraded run after run, down to
+        near-total inefficiency by 9 July. HV sparks are ruled out as the
+        cause; the diagonal dead band and the connector-6/7 micro-discharge
+        population are additional, distinct defects.
+  \item Neither HV scan reached the efficiency plateau
+        (\detone{} scanned to \SI{420}{V}, \dettwo{} to \SI{430}{V}); current
+        working points sit on the rising edge of the S-curve.
+\end{itemize}
+
+% ========================================================================== %
+\section{Roadmap and future improvements}
+\label{sec:roadmap}
+% ========================================================================== %
+
+\subsection{Detector and hardware}
+\begin{enumerate}[itemsep=2pt]
+  \item \textbf{Diagnose the \detone{} intermittency} (top priority):
+        correlate the efficiency-vs-time drop-outs with the full HV log
+        (voltage sag, trips, current baseline), gas flow and environmental
+        records; test whether HV retraining or a gas purge restores the
+        duty cycle; if not, inspect the detector (drift contact, mesh
+        polarisation).
+  \item \textbf{Recover the dead channels}: re-connect connector~1 on both
+        detectors and debug the FEU~8 crash that costs \dettwo{} connectors
+        8--10 (three of ten sectors).
+  \item \textbf{Extend the HV scans upwards} (\dettwo{} beyond \SI{430}{V},
+        \detone{} beyond \SI{440}{V} once stable) with the spark rate
+        monitored as the limiting variable, to locate the plateau and the
+        efficiency--discharge trade-off; longer sub-runs per point would cut
+        the $\sim$\SI{1}{\percent} statistical error per point.
+  \item \textbf{Trace the \detone{} diagonal dead band} to hardware: overlay
+        the band on the connector/sector geometry and the insulation mask,
+        and probe the corresponding pads/connectors on the bench.
+  \item \textbf{Systematic HV training} of new detectors with the existing
+        \code{hv\_trainer} tooling before physics runs.
+\end{enumerate}
+
+\subsection{Analysis and pipeline}
+\begin{enumerate}[itemsep=2pt]
+  \item \textbf{Report the ``on-state'' efficiency}: separate the duty cycle
+        from the intrinsic efficiency by gating on the good 30-min bins (or
+        an HMM-style on/off classification), so detector physics and
+        stability are quoted as two distinct numbers.
+  \item \textbf{Close the last validation flag}: make the \dettwo{} active-area
+        (edge) definition robust, e.g.\ by an explicit fiducial contour with
+        an edge-distance systematic, removing the \SI{8.2}{pt} sensitivity.
+  \item \textbf{Pillar-level efficiency}: exploit the \SI{5}{mm} sliding maps
+        and the insulation-mask overlay to quantify the local efficiency
+        loss at the five large pillars, and grow statistics until the small
+        pillar grid can be tested.
+  \item \textbf{Amplitude and gain analysis}: extend the QA with per-pad gain
+        (Landau MPV) maps and gain-vs-HV curves from the scan data, giving a
+        gain-based (not just efficiency-based) working-point choice.
+  \item \textbf{Two-detector combined analysis}: with both planes aligned to
+        M3, measure \dettwo{} efficiency using \detone{}-confirmed tracks
+        (and vice versa) as a cross-check of the telescope-based numbers,
+        and study inter-detector timing.
+  \item \textbf{Automation}: fold stages 10--12 into the on-the-fly QA so a
+        validated efficiency and its time trace are available during the run,
+        allowing bad periods (like the \detone{} drop-outs) to be caught and
+        acted on live.
+\end{enumerate}
+
+\vspace{2ex}
+\noindent\textit{All numbers in this note are reproducible from the run
+registry in \code{p2\_qa\_config.py}: run
+\code{./run\_p2\_pipeline.sh $\langle$run\_key$\rangle$} followed by
+\code{python3 build\_final\_pdf.py $\langle$run\_key$\rangle$}; the HV scans
+use stage 11 and \code{build\_hv\_scan\_pdf.py}.}
+
+\end{document}
