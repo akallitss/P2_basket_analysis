@@ -76,7 +76,9 @@ else
 fi
 
 # -- 10 sliding-window efficiency map (vetoed, writes into 06_efficiency/) ---- #
-run 10_efficiency_map_sliding.py "${RUN_KEY}"
+# Fine 5 mm kernel: resolves the ~6 mm big insulation pillars. --min 10 keeps
+# the small kernel populated (~15-20 rays/kernel at cosmic statistics).
+run 10_efficiency_map_sliding.py "${RUN_KEY}" --kernel 5 --grid 240 --min 10
 
 # -- 12 structural-bias validation (vetoed) ---------------------------------- #
 run 12_validation.py "${RUN_KEY}"
