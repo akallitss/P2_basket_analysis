@@ -1,0 +1,582 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{caption}
+\usepackage{float}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xcolor}
+
+\graphicspath{{figs/}}
+\captionsetup{font=small,labelfont=bf,width=0.92\textwidth}
+
+\newcommand{\detone}{P2\_1}
+\newcommand{\dettwo}{P2\_2}
+\newcommand{\uA}{\,\textmu A}
+
+\title{Investigation of the intermittent efficiency loss of the P2 (BASKET)
+pad-Micromegas detectors on the Saclay cosmic bench}
+\author{Alexandra Kallitsopoulou}
+\date{11 July 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+During the long cosmic-ray efficiency runs of the P2 (BASKET) pad-Micromegas
+prototypes taken between 30~June and 10~July~2026, detector~1 (\detone)
+changed abruptly from a stable working state ($\varepsilon \simeq 80\%$) to a
+quasi-dead state ($\varepsilon \simeq 5\%$), interrupted by short windows of
+almost full efficiency during which the detector also sparks. Detector~2
+(\dettwo) shows a different, much milder anomaly: a slow efficiency ramp
+during the first $\sim$1.5--2~h of its run, after which it is stable.
+This note documents the observations, the cross-checks performed
+(mesh-current correlation, pulse-amplitude and hit-rate evolution, spatial
+uniformity, HV scans before and after the failure, reference-tracker and
+electronics sanity checks), and a discussion of the possible causes. All
+evidence points to a global, bistable loss of amplification gain of \detone,
+equivalent to more than $\sim$95~V of effective mesh voltage, that appeared
+during an intense discharge episode in the night of 30~June\,/\,1~July and has
+worsened since. Environmental gain modulation, DAQ effects and the reference
+telescope are excluded. The most plausible cause is an intermittent
+high-impedance element (marginal contact or discharge-induced defect) in the
+mesh HV path downstream of the power-supply monitoring, and a set of targeted
+hardware checks is proposed. The \dettwo{} turn-on transient is consistent
+with a normal charging-up/stabilisation process and is not considered
+pathological.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+The P2 (BASKET) detectors are large fan-shaped pad-Micromegas prototypes read
+out on 1280 pads each. Two units, \detone{} and \dettwo, are under test on the
+Saclay cosmic bench, where the M3 reference telescope provides independent
+track reconstruction so that the absolute detection efficiency of the device
+under test can be measured as a function of position, time and operating
+voltage.
+
+A series of long ($\geq$10~h) overnight runs was taken to establish the
+working point and the stability of the detectors. The first long run of
+\detone{} (30~June) showed a stable plateau efficiency of $\sim$80\%. From
+1~July onwards, however, \detone{} has been essentially inefficient
+($\varepsilon_{\text{any}}\simeq 5\%$), with striking transient
+\emph{recovery windows} of one to a few hours during which the efficiency
+returns to almost its healthy value --- in the run of 7~July, exactly the
+period in which the mesh HV channel was sparking. \dettwo, operated for the
+first time on 9~July, reaches a stable 77\% but only after a slow
+$\sim$1.5--2~h ramp from zero.
+
+The purpose of this note is to reconstruct the failure timeline, to test the
+observable consequences of the candidate explanations against the recorded
+data (efficiency time series, CAEN HV monitoring, raw pad hits, HV scans),
+and to converge on a ranked list of hypotheses and follow-up actions.
+Section~\ref{sec:setup} summarises the detectors and the measurement;
+Section~\ref{sec:obs} presents the observations; Section~\ref{sec:analysis}
+the dedicated correlation analyses; Section~\ref{sec:discussion} the
+interpretation; and Section~\ref{sec:conclusions} the conclusions and
+recommended actions.
+
+\section{Detector and measurement description}
+\label{sec:setup}
+
+\subsection{The P2 (BASKET) detectors}
+
+P2 is a \emph{metallic, non-resistive} bulk-Micromegas detector: the anode is
+segmented into pads (no resistive layer, no strips), arranged in a fan
+(``basket'') geometry covering roughly $70\lesssim r \lesssim 600$~mm with
+1280 pads routed through ten MEC8 connectors. The amplification mesh is held
+by an insulation mask with $\sim$11.7k small ($\sim$0.5~mm) support pillars
+on a $\sim$4~mm grid. The chamber is operated with Ar/iC$_4$H$_{10}$ (95/5)
+at atmospheric pressure. Two HV channels per detector are supplied by a CAEN
+mainframe: the mesh (amplification) voltage and the drift (cathode) voltage
+(\detone: channels 1:0 and 1:1; \dettwo: 1:2 and 1:3). The CAEN monitor
+values (vmon, imon) are logged continuously to \texttt{hv\_monitor.csv} at
+0.5--2~s sampling.
+
+On \detone{} connectors 1 and 10 are physically disconnected (dead); on
+\dettwo{} connector 1 is disconnected and connectors 8--10 sit on a front-end
+unit excluded from the run. The dead connectors are removed from the pad map
+in all analyses, leaving 1024 live pads on \detone{}; quoted efficiencies
+refer to the remaining \emph{active area} only. The pads are read out by
+DREAM-based front-end units (FEUs); pad pulse amplitudes are recorded in ADC
+counts together with a global trigger timestamp.
+
+\subsection{Efficiency measurement}
+
+The M3 telescope provides reference tracks; a good ray is required to have
+$N_{\text{clus}}\geq 3$ and $\chi^2 < 5$ in both coordinates. For each good
+ray extrapolated to the P2 plane inside the active area, two efficiency
+estimators are formed:
+\begin{itemize}
+  \item \textbf{within $R$}: a P2 pad hit is found within the match radius
+        of the extrapolated impact point (20~mm for \detone, 40~mm for
+        \dettwo, chosen on the efficiency-vs-radius plateau);
+  \item \textbf{has any}: the event contains at least one P2 pad hit
+        anywhere (an upper bound, insensitive to residual alignment).
+\end{itemize}
+Efficiencies are computed in 30-min bins to obtain the time evolution.
+Periods during which the mesh HV channel draws
+$\text{imon}\geq 2$\uA{} are treated as sparks and vetoed ($-2$/$+10$~s
+guard window), and events with $\geq$20 simultaneous pads (internal
+discharges) are removed. The numbers quoted here are from the
+\emph{un-vetoed} products unless stated otherwise, so that the behaviour
+during spark periods remains visible.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.49\textwidth]{effmap_det1_0630.png}\hfill
+  \includegraphics[width=0.49\textwidth]{effmap_det2_0709.png}
+  \caption{Detectors in their working state, for reference. Left:
+  \detone{} pad-level efficiency map (``within 20~mm'') from the healthy run
+  of 30~June. Right: \dettwo{} efficiency map (``within 40~mm'') from the run
+  of 9~July (plateau part). The fan-shaped active area and the excluded
+  connectors are visible.}
+  \label{fig:effmaps}
+\end{figure}
+
+\section{Observations}
+\label{sec:obs}
+
+\subsection{Run overview}
+
+Table~\ref{tab:runs} summarises the five long runs analysed here. The same
+analysis chain (M3 alignment, efficiency maps, HV-spark QA, amplitude QA) was
+run for every dataset.
+
+\begin{table}[H]
+  \centering\small
+  \caption{Long runs used in this investigation. Efficiencies are medians of
+  the 30-min bins over the active area (``any'' / ``within $R$'');
+  the peak column gives the highest single bin. Spark counts are merged
+  discharge events with mesh imon $\geq 2$\uA{} (stage-07 QA).}
+  \label{tab:runs}
+  \begin{tabular}{llllllll}
+    \toprule
+    Run (start) & Det. & Mesh & Dur. & Median eff. & Peak eff. & Sparks &
+    Recovery window \\
+    \midrule
+    6-30 19:24 & \detone & 420 V & 14 h & 80.7 / 69.8 \% & 84.6 / 73.9 \% & 58 &
+    up to 04:15, then dead \\
+    7-3 17:30 & \detone & 440 V & 14 h & 5.6 / 2.2 \% & 44.6 / 20.1 \% & 104 &
+    01:00--02:30 \\
+    7-7 22:52 & \detone & 440 V & 10 h & 6.3 / 4.2 \% & 82.7 / 62.6 \% & 11 &
+    02:52--04:52 \\
+    7-9 19:11 & \detone & 430 V & 10 h & 3.6 / 0.5 \% & 4.6 / 0.8 \% & 1 &
+    none \\
+    7-9 19:11 & \dettwo & 430 V & 10 h & 77.1 / 74.4 \% & 78.5 / 75.5 \% & 7 &
+    (slow turn-on 0--1.8 h) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Timeline of the \detone{} failure}
+\label{sec:timeline}
+
+\begin{description}
+  \item[30 June, 19:24 -- 1 July, ~04:10.] \detone{} operates stably at mesh
+  420~V with $\varepsilon_{\text{any}}\simeq 80\%$,
+  $\varepsilon_{20\,\text{mm}}\simeq 70\%$
+  (Fig.~\ref{fig:overlay_0630}, top). The mesh channel sparks at a moderate
+  rate throughout. At $t\simeq4.1$~h (23:30) the channel undergoes an
+  exceptional \emph{sustained} discharge: 270~s long, 9.9\uA{} peak,
+  1795~\textmu C integrated charge --- two orders of magnitude above a
+  typical spark ($\sim$5--15~\textmu C). The detector survives it with no
+  visible efficiency change.
+  \item[1 July, 04:10--05:30.] A dense series of discharges begins at
+  $t\simeq8.96$~h ($\sim$04:22) and the efficiency collapses from 80\% to
+  $<$5\% within two bins (Fig.~\ref{fig:overlay_0630}). The detector never
+  recovers during the remaining $\sim$5~h of the run, while continuing to
+  spark heavily.
+  \item[2 July, 12:04 -- evening.] A 16-point mesh-HV scan
+  (345--420~V) is taken. The detector behaves \emph{normally} during the
+  whole scan, with a clean turn-on curve reaching
+  $\varepsilon_{\text{reco}}=68\%$, $\varepsilon_{\text{any}}=82\%$ at 420 V
+  (Fig.~\ref{fig:hvscans}, left). The HV was powered off at the end of the
+  scan. This day proves the failure was, at that point, fully reversible.
+  \item[3 July, 17:30.] Long run at an increased working point, mesh 440~V.
+  Immediately after the ramp the mesh channel enters a violent discharge
+  storm --- 104 spark events within the first 1.6~h, including a 114~s
+  sustained one --- after which it goes quiet. The detector is inefficient
+  \emph{from the very first bin} (5\%), storm included. One recovery window
+  occurs at 01:00--02:30 (peak 44.6\%/20.1\%) with \emph{zero} sparks in it
+  (Fig.~\ref{fig:overlay_0704}).
+  \item[7 July, 22:52.] Long run, mesh 440~V. Dead at $\sim$5--7\% all
+  night except a two-hour window 02:52--04:52 that peaks at 82.7\%/62.6\% ---
+  i.e.\ the healthy efficiency of 30~June. \emph{All 11 sparks of the run
+  fall inside this window} (Fig.~\ref{fig:overlay_0707}).
+  \item[9 July, 19:11.] Combined \detone+\dettwo{} run at mesh 430~V with an
+  appended HV scan. \detone{} is dead the whole night (median 3.6\%/0.5\%,
+  single spark) and dead at \emph{every} point of the 395--430~V scan
+  (Fig.~\ref{fig:hvscans}, right). \dettwo, in the same run and gas, ramps
+  from zero to a stable 77\% within $\sim$1.8~h and stays there
+  (Fig.~\ref{fig:overlay_det2}).
+\end{description}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{overlay_det1_long.pdf}
+  \caption{\detone, run of 30~June (mesh 420~V). Top: efficiency vs time in
+  30-min bins (orange: any hit; green: within 20~mm); pink vertical lines
+  mark mesh discharges (imon $\geq2$\uA). Bottom: raw mesh current (thin)
+  and its 30-min median (points). The efficiency is stable at 80\% for
+  8.8~h and collapses at $\sim$04:15 in coincidence with the onset of a
+  dense discharge series; it never recovers.}
+  \label{fig:overlay_0630}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{overlay_det1_long2.pdf}
+  \caption{\detone, run of 3--4~July (mesh 440~V). The discharge storm at the
+  start (0--1.6~h, 104 events) follows the ramp to the new 440~V working
+  point. The detector is inefficient from the first bin. The recovery window
+  at $t\simeq7.5$--9~h (01:00--02:30) contains no spark at all.}
+  \label{fig:overlay_0704}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{overlay_det1_long3.pdf}
+  \caption{\detone, run of 7--8~July (mesh 440~V). The two-hour recovery
+  window (02:52--04:52) reaches the healthy efficiency of 30~June
+  (82.7\%/62.6\%), and \emph{all 11 sparks of the run occur inside it}. The
+  raw mesh current also shows a visibly denser sub-threshold activity band
+  during the window.}
+  \label{fig:overlay_0707}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{overlay_det2_long1.pdf}
+  \caption{\dettwo, run of 9--10~July (mesh 430~V). The mesh was at full
+  voltage from the start of the run (vmon constant); the efficiency
+  nevertheless needs $\sim$1.8~h to ramp from zero to its stable plateau of
+  77\%. Note the generally higher sub-threshold mesh-current activity of
+  this detector.}
+  \label{fig:overlay_det2}
+\end{figure}
+
+\section{Analysis}
+\label{sec:analysis}
+
+\subsection{Are the sparks the cause or a symptom?}
+\label{sec:sparkcorr}
+
+The naive reading of the 7~July run --- ``the detector is only efficient
+when it sparks'' --- suggests the discharges might cause the recovery (e.g.\
+by burning off a short). The 3~July run breaks this: its recovery window
+contains 0 of the run's 104 sparks, and conversely its violent spark storm
+(first 1.6~h) coincides with a fully \emph{inefficient} period. The
+consistent picture across all runs is the opposite causality:
+\begin{quote}
+\emph{sparking requires amplification gain. When the gain is restored the
+detector both detects cosmics and (at 440~V, close to the spark limit)
+discharges occasionally; when the gain is absent it can do neither.}
+\end{quote}
+The sparks in the 7~July window are therefore a \emph{symptom} of the
+restored gain, not its cause. Supporting this, the mean sub-threshold mesh
+current in that window is $73$~nA against $22$~nA outside it --- exactly the
+extra current expected from real gas amplification of the cosmic flux ---
+while the 30-min \emph{median} imon stays at the few-nA noise floor in both
+states, i.e.\ there is no ohmic leakage path appearing or disappearing
+(Sec.~\ref{sec:discussion}).
+
+\subsection{Gain evidence: amplitude, rate and spectra}
+\label{sec:gain}
+
+If the low-efficiency state were a tracking, alignment or matching artefact,
+the pad hits themselves would look normal. They do not.
+Figure~\ref{fig:amp_0707} shows the median pad-hit amplitude and the pad-hit
+rate against time for the 7~July run: inside the recovery window the median
+amplitude rises from 175 to 562~ADC ($\times$3.2) and the hit rate from
+0.24~Hz to up to 4~Hz ($\times$10, matching the M3-triggered cosmic rate).
+The amplitude \emph{spectrum} inside the window (Fig.~\ref{fig:spec_0707})
+develops the extended Landau-like tail up to ADC saturation that
+characterises real minimum-ionising signals, whereas outside the window the
+spectrum is a soft, steeply-falling distribution consistent with residual
+noise just above threshold. The same comparison for the 30~June run
+(before/after the 04:15 collapse) gives 397 vs 268~ADC and a rate drop from
+3.7~Hz to 0.24~Hz. This is direct evidence that the inefficiency is a
+\textbf{collapse of the gas amplification gain}, not a reconstruction
+artefact.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.88\textwidth]{amplitude_det1_long3.pdf}
+  \caption{\detone, 7~July run: median (and 90th-percentile) pad-hit
+  amplitude (top) and pad-hit rate (bottom) in 30-min bins. Both jump by a
+  large factor exactly inside the efficiency window (shaded).}
+  \label{fig:amp_0707}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.62\textwidth]{amp_spectra_det1_long3.pdf}
+  \caption{\detone, 7~July run: normalised pad-hit amplitude spectra inside
+  (orange) and outside (grey) the recovery window. Inside the window a hard
+  signal tail extending to ADC saturation appears; outside, only a soft
+  noise-like population remains.}
+  \label{fig:spec_0707}
+\end{figure}
+
+\subsection{The recovery is global, not local}
+\label{sec:spatial}
+
+A failure of one HV sector, one connector or one front-end would produce a
+spatially structured effect. Figure~\ref{fig:hitmap} compares the pad hitmap
+inside and outside the 7~July window: inside the 2.25~h window \emph{all
+1024 live pads} fire, with the smooth radial illumination profile of the
+healthy detector; outside it the (10$\times$ smaller) hit population is
+spatially structureless noise. The recovery switches the \emph{entire}
+active area on and off coherently, pointing to a global parameter --- in a
+Micromegas, effectively the mesh--anode field.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{hitmap_window_det1_long3.pdf}
+  \caption{\detone, 7~July run: pad hitmap inside (left) and outside (right)
+  the two-hour recovery window (log colour scale, grey = pad never fired).
+  The whole fan lights up uniformly inside the window: the gain loss and
+  recovery are global.}
+  \label{fig:hitmap}
+\end{figure}
+
+\subsection{HV response before and after: an effective voltage deficit
+$>$95~V}
+\label{sec:hvscan}
+
+The two mesh-HV scans bracket the sick state
+(Fig.~\ref{fig:hvscans}). On 2~July the turn-on is textbook-like: the
+efficiency rises smoothly from 19.6\% (any) at 345~V to 82.2\% at 420~V. On
+9~July the same detector gives 1--3.4\% at \emph{every} voltage between
+395 and 430~V --- lower than the healthy detector delivered at 345~V. In the
+dead state the operating point at 430--440~V therefore lies \emph{more than
+95~V below} the healthy turn-on curve in effective amplification voltage.
+This scale immediately rules out environmental gain modulation:
+temperature/pressure variations of the gas density modulate the effective
+mesh voltage at the level of a few volts, not a hundred.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.49\textwidth]{hvscan_det1_0702.png}\hfill
+  \includegraphics[width=0.49\textwidth]{hvscan_det1_0709.png}
+  \caption{\detone{} mesh-HV scans one week apart. Left: 2~July, healthy
+  turn-on reaching 68\%/82\% (reco/any) at 420~V. Right: 9~July, the
+  efficiency is $<$3.5\% at every point of the 395--430~V scan (note the
+  vertical scale): the detector no longer responds to the applied mesh
+  voltage.}
+  \label{fig:hvscans}
+\end{figure}
+
+\subsection{Sanity checks: telescope, drift HV, electronics}
+\label{sec:sanity}
+
+\begin{itemize}
+  \item \textbf{M3 reference.} The number of good reference rays per 30-min
+  bin is stable throughout the 7~July run (3004--3235, mean 3121): the
+  denominator of the efficiency, the trigger and the telescope
+  reconstruction are steady while the P2 efficiency swings by a factor 15.
+  \item \textbf{Drift field.} The drift channel of \detone{} (600~V) is
+  featureless during all runs: vmon within 1~V of setpoint, imon compatible
+  with zero (99th percentile $<$1~nA). The anomaly involves the mesh
+  (amplification) stage only.
+  \item \textbf{Front-end electronics and thresholds.} The pedestal QA of
+  the runs shows no anomaly, hits continue to be recorded in the dead state
+  (at low rate and soft amplitudes), and the DREAM FEUs also serve the M3
+  chambers, which measure normally. A dead-time, threshold or
+  synchronisation problem cannot produce a state in which recorded pulses
+  \emph{exist} but have collectively lost their amplitude tail.
+  \item \textbf{CAEN monitoring.} During dead periods the mesh vmon sits at
+  its setpoint (439.8~V median on 7~July) with no excursions outside spark
+  transients, and the baseline imon is identical in the dead and live states
+  (medians 3--6~nA). Whatever removes the amplification field is invisible
+  to the power-supply monitoring, i.e.\ it sits \emph{downstream} of it, or
+  it does not draw current.
+\end{itemize}
+
+\subsection{\dettwo: a different, benign transient}
+\label{sec:det2}
+
+\dettwo{} was switched on at full mesh voltage at run start, yet its
+efficiency needs $\sim$1.8~h to reach the plateau
+(Fig.~\ref{fig:overlay_det2}). During the ramp the pad-hit \emph{rate}
+grows from 1.5 to 3.2~Hz while the median amplitude of recorded hits is
+already at its plateau value (640 vs 668~ADC) --- the signature of a slowly
+rising gain moving a threshold-biased population into acceptance, classic
+charging-up/stabilisation behaviour (insulating pillar charging and gas
+flushing after closing the fresh chamber). After the ramp the detector is
+flat at 77.1\% (any) for 8~h, sparking rarely (7 events). Apart from one
+28~s, 162~\textmu C sustained discharge at 23:43, which produced no
+after-effect, nothing anomalous is seen. \dettwo{} therefore does
+\emph{not} share the \detone{} pathology; its slow start should be handled
+operationally (start physics 2~h after HV-on, or pre-bias the chamber).
+
+Importantly, \dettwo{} running normally \emph{in the same run, the same gas
+bottle and the same DAQ} while \detone{} is dead excludes every common-mode
+explanation for the \detone{} state (gas mixture at the supply, trigger,
+DAQ, telescope, environment), provided the two chambers share the gas
+distribution; a line-specific flow or leak problem on the \detone{} branch
+remains formally possible and is cheap to check.
+
+\section{Discussion}
+\label{sec:discussion}
+
+The observations that any explanation must accommodate are:
+\begin{enumerate}
+  \item the loss is a \textbf{global gain collapse} equivalent to
+        $>$95~V of mesh voltage (Secs.~\ref{sec:gain}--\ref{sec:hvscan});
+  \item it appeared \textbf{abruptly at 04:15 on 1~July during a dense
+        discharge series}, one week into otherwise stable operation, hours
+        after an exceptional 1795~\textmu C sustained discharge
+        (Sec.~\ref{sec:timeline});
+  \item it was \textbf{fully reversible on 2~July} (healthy 10~h HV scan),
+        returned after the HV-off/440~V-ramp cycle of 3~July (with a
+        discharge storm at the ramp), and has since worsened: recovery
+        windows of 1.5--2~h on 3 and 7~July at 440~V, none on 9~July at
+        430~V;
+  \item recoveries reach \textbf{full healthy performance} within
+        $\sim$1~h and decay on a similar timescale --- a bistable system
+        with slow transitions, not a gradual drift;
+  \item in the dead state the mesh channel \textbf{draws no anomalous
+        current} ($\leq$ few nA baseline, unchanged), and vmon is nominal at
+        the CAEN;
+  \item sparking correlates with the \emph{efficient} state whenever the
+        detector is efficient at 440~V, but recovery can occur without any
+        spark (3~July);
+  \item \dettwo{} is healthy in identical conditions.
+\end{enumerate}
+
+\noindent The candidate explanations rank as follows.
+
+\paragraph{H1 --- Environmental modulation (T, p, humidity): excluded as
+primary cause.} Gas-density gain modulation amounts to a few volts of
+effective mesh voltage; here $>$95~V is missing (Sec.~\ref{sec:hvscan}).
+The night-time clustering of the two recovery windows (01:00--02:30,
+02:52--04:52) and of the original failure (04:15) is suggestive of an
+environmental \emph{trigger} of the state transitions (e.g.\ lab temperature
+acting on a marginal mechanical contact), but the 9~July run covers the same
+hours with no window, so even as a trigger it is not reproducible.
+Temperature/pressure logging on the bench would settle this cheaply.
+
+\paragraph{H2 --- Gas supply problem on the \detone{} line: unlikely,
+testable.} Heavy air or water contamination can kill the gain by tens of
+percent, and a blocked/leaking line specific to \detone{} would spare
+\dettwo. However: the death was instantaneous (minutes) in coincidence with
+a discharge series, not a slow drift as a gas volume exchanges; the 2~July
+recovery was equally step-like; and full performance returns within an hour
+in the recovery windows, faster than a $\sim$l/h-flushed chamber of this
+volume can renew its gas. A flow-meter check and, if available, a swap of the
+gas lines between the two detectors would remove this hypothesis entirely.
+
+\paragraph{H3 --- DAQ, thresholds, reference tracking: excluded.}
+Section~\ref{sec:sanity}: the telescope rate is constant, pedestals are
+normal, hits are recorded in both states, and the amplitude spectrum
+transformation (loss of the MIP tail) is a gas-gain signature that no
+digital effect reproduces.
+
+\paragraph{H4 --- CAEN channel or cabling up to the monitoring point:
+excluded by the data, swap to be safe.} vmon and imon are nominal in the
+dead state. A fault \emph{inside} the CAEN downstream of its ADCs cannot be
+fully excluded from data alone; swapping the \detone{} and \dettwo{} mesh
+channels at the mainframe is a five-minute test that would move the problem
+with the channel if it lived there.
+
+\paragraph{H5 --- Discharge-induced fault in the mesh HV path or in the
+amplification gap: the leading hypothesis.} Everything points to the
+effective mesh potential at the amplification gap being absent while the
+supply delivers nominal voltage and sees no load. Two variants are
+compatible with the data:
+\begin{itemize}
+  \item \textbf{(a) Intermittent open/high-impedance contact} in the mesh HV
+  chain downstream of the CAEN monitoring --- HV connector, filter box,
+  feedthrough solder joint, or the internal spring/wire contact to the mesh
+  frame. An open mesh floats and discharges through leakage; the gap field
+  collapses globally with \emph{no} current signature (obs.~1, 5). Occasional
+  reconnection (thermally or mechanically driven, plausibly at night ---
+  obs.~4 and the night windows) restores full field within the RC/leakage
+  timescale, and at 440~V the freshly restored gap sparks (obs.~6). The
+  initial failure and the 3~July relapse both coincide with violent
+  discharge activity (obs.~2, 3), which is exactly what damages a marginal
+  joint --- and what a re-arcing joint produces. The progressive worsening
+  (windows shrinking to zero) fits a degrading contact.
+  \item \textbf{(b) Discharge-deposited defect in the gap} (debris or a
+  carbonised pillar spot after the 1795~\textmu C event) that locally
+  connects mesh and anode and charges up: harder to reconcile with the
+  \emph{absence} of any extra mesh current in the dead state ($\leq$nA,
+  identical to the live state) and with the perfectly global character of
+  the loss, so it is disfavoured relative to (a), but a low-current
+  bistable path cannot be excluded without opening or measuring the chamber.
+\end{itemize}
+
+The recovery-window efficiency reaching exactly the healthy plateau (82.7\%
+vs 84.6\% peak bins) shows the detector is \emph{intact} when the field is
+present: gas, mesh, pads and electronics are all healthy. The defect is in
+delivering or holding the field.
+
+\section{Conclusions and recommended actions}
+\label{sec:conclusions}
+
+\detone{} has, since 04:15 on 1~July~2026, been in a bistable state in which
+the gas amplification gain is absent most of the time (efficiency
+$\simeq$5\%, effective mesh-voltage deficit $>$95~V) and occasionally returns
+to full healthy performance for 1.5--2~h; the frequency and duration of the
+recoveries have decreased from run to run and were zero in the last run. The
+failure and its one relapse both coincided with intense discharge episodes
+(including a 270~s, 1.8~mC sustained discharge), while the recovery windows
+show that every subsystem --- gas, mesh, pads, electronics, telescope ---
+still performs nominally when the amplification field is present. The
+inefficiency is invisible to the CAEN monitoring: the fault sits downstream
+of it or draws no current. The leading hypothesis is an intermittent
+high-impedance element in the mesh HV path (damaged contact or
+discharge-induced defect); gas, environment, DAQ and telescope are excluded
+as primary causes. \dettwo{} shows only a normal $\sim$2~h charging-up
+transient and is fit for physics.
+
+\noindent Recommended actions, in order of increasing intrusiveness:
+\begin{enumerate}
+  \item \textbf{Live two-state diagnostic.} The pad-hit rate (0.25~Hz dead
+  vs 3--4~Hz alive) is an unambiguous real-time indicator of the state. Run
+  it together with the 0.5~s HV monitor during all interventions below, so
+  that any manipulation that flips the state is caught immediately.
+  \item \textbf{Swap the mesh HV channels} of \detone{} and \dettwo{} at the
+  CAEN: excludes the mainframe channel and the first cable segment.
+  \item \textbf{Mechanical/thermal stimulation test:} with HV on and the
+  live diagnostic running, gently manipulate (wiggle, warm, cool) the HV
+  cable, connectors, filter box and feedthrough of \detone. A state flip
+  during manipulation localises the marginal contact.
+  \item \textbf{Electrical measurement with HV off:} capacitance and
+  insulation measurement between the mesh line and the pad plane / drift
+  from the HV connector. An open mesh line shows as a missing
+  mesh--anode capacitance; a damaged joint may show as an unstable reading
+  under slight mechanical load.
+  \item \textbf{Check the \detone{} gas branch} (flow meter reading,
+  bubbler) and, if trivial, swap the gas lines of the two detectors:
+  closes hypothesis H2 definitively.
+  \item \textbf{Add temperature/pressure/humidity logging} to
+  \texttt{hv\_monitor.csv}: tests the night-time-trigger conjecture and is
+  generally useful for gain normalisation.
+  \item \textbf{After any repair}, re-establish the working point with an HV
+  scan and keep the mesh at $\leq$430~V initially: the 440~V ramp of 3~July
+  triggered the worst discharge storm in the dataset and preceded the
+  degradation of the recovery windows. Consider soft-trip current training
+  before physics running.
+  \item If all external checks are negative, the fault is internal
+  (feedthrough-to-mesh bond or in-gap defect) and the chamber has to be
+  opened for inspection --- last resort.
+\end{enumerate}
+
+\vspace{2ex}
+\noindent\textit{All figures and the numerical summaries in this note were
+produced from the standard P2 QA pipeline products (stages 06/07) and two
+dedicated correlation scripts; figure sources live in
+\texttt{Analysis/reports/p2\_efficiency\_intermittency/}.}
+
+\end{document}
