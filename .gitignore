@@ -215,3 +215,11 @@ FreeCAD/results/**/*.dat
 FreeCAD/results/**/*.inp
 FreeCAD/results/**/*.cvg
 FreeCAD/results/**/*.sta
+
+# LaTeX build artifacts (reports/)
+*.aux
+*.toc
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
