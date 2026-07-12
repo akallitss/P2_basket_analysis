@@ -147,6 +147,18 @@ def main():
     pd.DataFrame({'x': pcx, 'y': pcy}).to_csv(
         f'{out_dir}/pad_footprint{sfx}.csv', index=False)
 
+    # insulation-mask pillars carried into the M3 frame: overlaid here and
+    # persisted for the sliding map (stage 10), so pillar shadows can be told
+    # apart from real dead zones.
+    pil_m3 = None
+    pil = pmap.load_pillars(cfg.MASK_GBR_PATH)
+    if len(pil):
+        plx, ply = T.apply(pil['x'].to_numpy(), pil['y'].to_numpy())
+        pil_m3 = pil.assign(x=plx, y=ply, r=pil['r'] * T.s)
+        pil_m3.to_csv(f'{out_dir}/pillars_m3{sfx}.csv', index=False)
+        print(f'  insulation-mask pillars: {int(pil["big"].sum())} big + '
+              f'{int((~pil["big"]).sum()):,} small (M3 frame -> pillars_m3 csv)')
+
     # --- ray list (every clean M3 single track) with hit/miss flags ---
     d = m3.rename(columns={'x_m3': 'x', 'y_m3': 'y'}).copy()
     nn_dist, nn_idx = tree.query(np.column_stack([d['x'], d['y']]))
@@ -193,6 +205,8 @@ def main():
         else:
             ax.scatter(pad_xy[:, 0], pad_xy[:, 1], s=2, c='k', alpha=0.15,
                        label='pad footprint')
+        if pil_m3 is not None:
+            pmap.draw_pillars(ax, pil_m3, small=False)
         ax.set_xlabel('M3 X [mm]'); ax.set_ylabel('M3 Y [mm]'); ax.set_aspect('equal')
         ax.set_title(f'{cfg.DET_NAME} efficiency scatter — {ttl}\n{cfg.RUN}/{cfg.SUB_RUN}')
         lg = ax.legend(loc='upper right', framealpha=0.9)
@@ -223,6 +237,9 @@ def main():
             ax.add_collection(pc)
             plt.colorbar(pc, ax=ax, label='efficiency')
             ax.autoscale_view(); ax.set_aspect('equal')
+            if pil_m3 is not None:
+                pmap.draw_pillars(ax, pil_m3, small=False)
+                ax.legend(loc='upper right', fontsize=7, framealpha=0.9)
             ax.set_xlabel('M3 X [mm]'); ax.set_ylabel('M3 Y [mm]')
             ax.set_title(f'{cfg.DET_NAME} per-pad efficiency — {ttl}  '
                          f'(nearest pad, >=5 rays/pad; grey = low stats)\n'
@@ -244,6 +261,9 @@ def main():
             im = ax.imshow(eff.T, origin='lower', extent=[xe[0], xe[-1], ye[0], ye[-1]],
                            vmin=0, vmax=1, cmap=cmap, aspect='equal')
             plt.colorbar(im, ax=ax, label='efficiency')
+            if pil_m3 is not None:
+                pmap.draw_pillars(ax, pil_m3, small=False)
+                ax.legend(loc='upper right', fontsize=7, framealpha=0.9)
             ax.set_xlabel('M3 X [mm]'); ax.set_ylabel('M3 Y [mm]')
             ax.set_title(f'{cfg.DET_NAME} efficiency map — {ttl}  (>=5 rays/bin)\n'
                          f'{cfg.RUN}/{cfg.SUB_RUN}')
