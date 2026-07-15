@@ -69,6 +69,15 @@ DEFAULT_RUN = 'det1_long'
 M3_CHI2_CUT = 5.0
 M3_MIN_NCLUS = 3
 
+# Filename tag for products made with a non-default chi2 cut (cut-sensitivity
+# checks). Empty for the default M3_CHI2_CUT so the standard products keep
+# their names; '_chi2' otherwise so variant products never overwrite them.
+CHI2_SUFFIX = '_chi2'
+
+
+def chi2_tag(chi2_cut) -> str:
+    return '' if float(chi2_cut) == M3_CHI2_CUT else CHI2_SUFFIX
+
 
 def setup_paths() -> None:
     """Put the repo root and cosmic_bench_analysis/ on sys.path for imports."""
