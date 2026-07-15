@@ -416,7 +416,7 @@ def main():
     x_pad = m['x_pad'].to_numpy()
     y_pad = m['y_pad'].to_numpy()
     tag = f'{cfg.DET_TAG} {cfg.RUN}/{cfg.SUB_RUN} [{args.strategy}]'
-    sfx = cfg.product_suffix(args.veto_sparks)
+    sfx = cfg.product_suffix(args.veto_sparks) + qa.chi2_tag(args.chi2_cut)
 
     # -- joint z x theta alignment (scan z, re-optimise angle at each z, iterate) --
     z_used = args.z
