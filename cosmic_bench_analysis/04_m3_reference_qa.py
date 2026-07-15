@@ -13,12 +13,16 @@ Products (written to <Analysis>/<detN>/<run>/<sub_run>/04_m3_reference_qa/):
   m3_beam_profile_detz.png   projected (x,y) at the P2 plane z (run_config)
   m3_up_down_positions.png    hit maps at the up + down tracker stations
 
-Usage: python3 04_m3_reference_qa.py [run_key]
+Usage: python3 04_m3_reference_qa.py [run_key] [--chi2-cut C]
+
+With a non-default --chi2-cut every product gets a '_chi2' filename tag
+(p2_qa_config.chi2_tag) so cut-variant plots never overwrite the standard ones.
 """
 
 import os
 import sys
 import json
+import argparse
 import matplotlib
 matplotlib.use('Agg')
 
@@ -34,10 +38,10 @@ if _M3_PKG not in sys.path:
 import awkward as ak  # noqa: E402
 from M3RefTracking import M3RefTracking, get_ray_data, get_xy_angles  # noqa: E402
 
-# Tracking-v2 recommended recipe: Chi2X,Chi2Y < CHI2_CUT AND NClusX,NClusY >= MIN_NCLUS.
+# Tracking-v2 recommended recipe: Chi2X,Chi2Y < chi2_cut AND NClusX,NClusY >= MIN_NCLUS.
 # The old naive chi2<20 let 2-point-per-coordinate fits (exact -> denormal-tiny chi2)
-# slip through; MIN_NCLUS drops them. Single source of truth in p2_qa_config.
-CHI2_CUT = qa.M3_CHI2_CUT
+# slip through; MIN_NCLUS drops them. Single source of truth in p2_qa_config;
+# the chi2 cut can be overridden per invocation with --chi2-cut.
 MIN_NCLUS = qa.M3_MIN_NCLUS
 
 
@@ -57,7 +61,7 @@ def _sym_range(*arrays, pad=1.05):
     return [[-L, L], [-L, L]]
 
 
-def plot_chi2(cfg, m3_dir, out_dir):
+def plot_chi2(cfg, m3_dir, out_dir, chi2_cut, sfx):
     raw = get_ray_data(m3_dir)
     chi2x = ak.to_numpy(ak.flatten(raw['Chi2X']))
     chi2y = ak.to_numpy(ak.flatten(raw['Chi2Y']))
@@ -67,12 +71,13 @@ def plot_chi2(cfg, m3_dir, out_dir):
     for ax, data, lbl in [(axes[0], chi2x, 'Chi2X'), (axes[1], chi2y, 'Chi2Y')]:
         finite = data[np.isfinite(data)]
         ax.hist(finite[finite < 50], bins=100, color='indianred', edgecolor='none')
-        ax.axvline(CHI2_CUT, color='k', ls='--', lw=1, label=f'cut = {CHI2_CUT:g}')
+        ax.axvline(chi2_cut, color='k', ls='--', lw=1, label=f'cut = {chi2_cut:g}')
         ax.set_xlabel(lbl); ax.set_ylabel('Tracks'); ax.set_yscale('log')
         ax.legend(); ax.grid(True, alpha=0.3)
     fig.suptitle(f'M3 raw track chi2 — {cfg.RUN}')
     fig.tight_layout()
-    fig.savefig(f'{out_dir}/m3_chi2_distributions.png', dpi=150, bbox_inches='tight')
+    fig.savefig(f'{out_dir}/m3_chi2_distributions{sfx}.png', dpi=150,
+                bbox_inches='tight')
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(7, 4))
@@ -84,13 +89,14 @@ def plot_chi2(cfg, m3_dir, out_dir):
                  f'{len(n_tracks):,} events, mean {n_tracks.mean():.2f} tracks/event')
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    fig.savefig(f'{out_dir}/m3_track_multiplicity.png', dpi=150, bbox_inches='tight')
+    fig.savefig(f'{out_dir}/m3_track_multiplicity{sfx}.png', dpi=150,
+                bbox_inches='tight')
     plt.close(fig)
     return len(n_tracks)
 
 
-def plot_angles_and_positions(cfg, m3_dir, out_dir, det_z):
-    rays = M3RefTracking(m3_dir, chi2_cut=CHI2_CUT, min_nclus=MIN_NCLUS)
+def plot_angles_and_positions(cfg, m3_dir, out_dir, det_z, chi2_cut, sfx):
+    rays = M3RefTracking(m3_dir, chi2_cut=chi2_cut, min_nclus=MIN_NCLUS)
     n_clean = len(ak.to_numpy(rays.ray_data['X_Up']))
 
     x_ang, y_ang, _ = get_xy_angles(rays.ray_data)
@@ -103,7 +109,7 @@ def plot_angles_and_positions(cfg, m3_dir, out_dir, det_z):
         ax.grid(True, alpha=0.3)
     fig.suptitle(f'M3 single-track angles — {cfg.RUN}  ({n_clean:,} tracks)')
     fig.tight_layout()
-    fig.savefig(f'{out_dir}/m3_angles.png', dpi=150, bbox_inches='tight')
+    fig.savefig(f'{out_dir}/m3_angles{sfx}.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
 
     xs, ys, _ = rays.get_xy_positions(det_z)
@@ -115,7 +121,8 @@ def plot_angles_and_positions(cfg, m3_dir, out_dir, det_z):
     ax.set_xlabel('X [mm]'); ax.set_ylabel('Y [mm]'); ax.set_aspect('equal')
     ax.set_title(f'M3 track projection at P2 plane z = {det_z:.0f} mm\n{cfg.RUN}')
     fig.tight_layout()
-    fig.savefig(f'{out_dir}/m3_beam_profile_detz.png', dpi=150, bbox_inches='tight')
+    fig.savefig(f'{out_dir}/m3_beam_profile_detz{sfx}.png', dpi=150,
+                bbox_inches='tight')
     plt.close(fig)
 
     rd = rays.ray_data
@@ -132,20 +139,28 @@ def plot_angles_and_positions(cfg, m3_dir, out_dir, det_z):
         ax.set_title(f'Station at z = {z:.0f} mm')
     fig.suptitle(f'M3 station hit maps — {cfg.RUN}')
     fig.tight_layout()
-    fig.savefig(f'{out_dir}/m3_up_down_positions.png', dpi=150, bbox_inches='tight')
+    fig.savefig(f'{out_dir}/m3_up_down_positions{sfx}.png', dpi=150,
+                bbox_inches='tight')
     plt.close(fig)
     return n_clean
 
 
 def main():
-    cfg = qa.config_from_argv()
+    ap = argparse.ArgumentParser(description='M3 reference-tracker QA.')
+    ap.add_argument('run_key', nargs='?', default=qa.DEFAULT_RUN)
+    ap.add_argument('--chi2-cut', type=float, default=qa.M3_CHI2_CUT)
+    args = ap.parse_args()
+
+    cfg = qa.get_config(args.run_key)
     print(cfg)
+    sfx = qa.chi2_tag(args.chi2_cut)
     out_dir = cfg.out_dir('04_m3_reference_qa')
     m3_dir = os.path.join(cfg.m3_tracking_dir, '')  # trailing sep for the reader
     det_z = _det_plane_z(cfg)
-    print(f'P2 plane z = {det_z:.1f} mm')
-    n_events = plot_chi2(cfg, m3_dir, out_dir)
-    n_clean = plot_angles_and_positions(cfg, m3_dir, out_dir, det_z)
+    print(f'P2 plane z = {det_z:.1f} mm | chi2 cut = {args.chi2_cut:g}')
+    n_events = plot_chi2(cfg, m3_dir, out_dir, args.chi2_cut, sfx)
+    n_clean = plot_angles_and_positions(cfg, m3_dir, out_dir, det_z,
+                                        args.chi2_cut, sfx)
     print(f'M3 events: {n_events:,} | clean single tracks: {n_clean:,} '
           f'({100 * n_clean / max(n_events, 1):.1f}%)')
     print(f'M3 reference QA written to: {out_dir}')
