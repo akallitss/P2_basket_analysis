@@ -87,7 +87,7 @@ def main():
     cfg = qa.get_config(args.run_key)
     print(cfg)
     out_dir = cfg.out_dir('06_efficiency')
-    sfx = cfg.product_suffix(args.veto_sparks)
+    sfx = cfg.product_suffix(args.veto_sparks) + qa.chi2_tag(args.chi2_cut)
     det_z = args.z if args.z is not None else _det_plane_z(cfg)
     R = args.r if args.r is not None else cfg.MATCH_R
 
