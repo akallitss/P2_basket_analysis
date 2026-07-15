@@ -156,7 +156,7 @@ def main():
     cfg = qa.get_config(args.run_key)
     print(cfg)
     out = cfg.out_dir('12_validation')
-    sfx = cfg.product_suffix(args.veto_sparks)
+    sfx = cfg.product_suffix(args.veto_sparks) + qa.chi2_tag(args.chi2_cut)
     z0 = args.z if args.z is not None else det_plane_z(cfg)
     R0 = args.r if args.r is not None else cfg.MATCH_R
     AR0 = args.active_r
@@ -439,7 +439,8 @@ def main():
 
     # one-page PDF: verdict table + the four diagnostic figures
     pdf_path = os.path.join(qa.DATA_ROOT, 'Analysis', cfg.DET_TAG,
-                            f'p2_{cfg.DET_TAG}_validation.pdf')
+                            f'p2_{cfg.DET_TAG}_validation'
+                            f'{qa.chi2_tag(args.chi2_cut)}.pdf')
     with PdfPages(pdf_path) as pdf:
         fig = plt.figure(figsize=(8.27, 11.69))
         fig.text(0.06, 0.965, 'P2 BASKET — Detector 1', fontsize=24, fontweight='bold',
