@@ -138,6 +138,10 @@ def main():
     ap.add_argument('--veto-sparks', action=argparse.BooleanOptionalAction,
                     default=True,
                     help='read the spark-vetoed ray list (default on), matching 06.')
+    ap.add_argument('--chi2-cut', type=float, default=qa.M3_CHI2_CUT,
+                    help='M3 chi2 cut the stage-06 ray list was made with; a '
+                         'non-default value selects the _chi2-tagged 06 '
+                         'products and tags the outputs the same way.')
     args = ap.parse_args()
 
     cfg = qa.get_config(args.run_key)
@@ -145,7 +149,7 @@ def main():
     if args.r is None:
         args.r = cfg.MATCH_R
     eff_dir = cfg.out_dir('06_efficiency')
-    suffix = cfg.product_suffix(args.veto_sparks)
+    suffix = cfg.product_suffix(args.veto_sparks) + qa.chi2_tag(args.chi2_cut)
     csv = os.path.join(eff_dir, f'ray_hit_miss_list{suffix}.csv')
     if not os.path.isfile(csv):
         raise FileNotFoundError(
