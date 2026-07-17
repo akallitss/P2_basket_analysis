@@ -121,22 +121,24 @@ def plot_amplitude(sv, cfg, out_dir, suffix):
 
 
 def load_event_multiplicity(cfg, channel_table):
-    """Per-event pad multiplicity and event time [s] from the combined hits."""
-    files = sorted(glob.glob(os.path.join(cfg.combined_hits_dir, '*.root')))
-    feu_set = set(channel_table.attrs['feus'])
+    """Per-event pad multiplicity and event time [s] from the combined hits.
+    Streamed chunk by chunk (p2_io) — the old concat of every chunk was the
+    OOM that froze the machine on the det4 run."""
+    import p2_io as p2io
     parts = []
-    for fp in files:
-        arr = uproot.open(f'{fp}:hits').arrays(_BRANCHES, library='pd')
-        parts.append(arr[arr['feu'].isin(feu_set)].copy())
-    df = pd.concat(parts, ignore_index=True)
-    df = pmap.attach_pads_to_hits(df, channel_table)
-    df = df[df['mapped'] & df['pad_cx'].notna()]
-    g = df.groupby('eventId')
-    ev = pd.DataFrame({
-        't': g['trigger_timestamp_ns'].first().to_numpy() / 1e9,
-        'npad': g['channel_id'].nunique().to_numpy(),
-    })
-    return ev
+    for df in p2io.iter_hits(cfg.combined_hits_dir, _BRANCHES,
+                             channel_table.attrs['feus'],
+                             t_max_h=cfg.T_MAX_H, min_amp=cfg.MIN_AMP):
+        df = pmap.attach_pads_to_hits(df, channel_table)
+        df = df[df['mapped'] & df['pad_cx'].notna()]
+        if not len(df):
+            continue
+        g = df.groupby('eventId')
+        parts.append(pd.DataFrame({
+            't': g['trigger_timestamp_ns'].first().to_numpy() / 1e9,
+            'npad': g['channel_id'].nunique().to_numpy(),
+        }))
+    return pd.concat(parts, ignore_index=True)
 
 
 def plot_crosscheck(sv, ev, cfg, out_dir, suffix):
