@@ -17,6 +17,14 @@
 
 set -e
 
+# Re-exec the whole pipeline inside a cgroup memory cap: a runaway stage is
+# then OOM-killed by the kernel instead of freezing the machine (14 GB RAM,
+# no swap). MemoryHigh throttles first; MemoryMax kills.
+if [[ -z "${P2_MEMCAPPED:-}" ]] && command -v systemd-run >/dev/null 2>&1; then
+    exec env P2_MEMCAPPED=1 systemd-run --user --scope --quiet \
+        -p MemoryHigh=7G -p MemoryMax=8G -- "$0" "$@"
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUN_KEY="${1:-det1_long2}"
 
