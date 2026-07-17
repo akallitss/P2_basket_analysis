@@ -40,27 +40,40 @@ import p2_qa_config as qa
 import p2_mapping as pmap
 import p2_sparks as ps
 import p2_pad_sparks as pps
+import p2_io as p2io
 
 _BRANCHES = ['eventId', 'channel', 'amplitude', 'saturated', 'feu']
 
 
 def load_hits(cfg, ct, veto_sparks=True):
-    files = sorted(glob.glob(os.path.join(cfg.combined_hits_dir, '*.root')))
-    feu_set = set(ct.attrs['feus'])
+    """Compact mapped-hit table (eventId, channel_id, amplitude, saturated).
+
+    Streams the combined-hits chunks (p2_io) and keeps only the downcast
+    columns the pad-spark metrics need, so the full run costs ~1.5 GB instead
+    of OOM-ing when every branch of every chunk is concatenated."""
     br = _BRANCHES + (['trigger_timestamp_ns'] if veto_sparks else [])
+    sv = ps.SparkVeto.from_cfg(cfg) if veto_sparks else None
     parts = []
-    for fp in files:
-        a = uproot.open(f'{fp}:hits').arrays(br, library='pd')
-        parts.append(a[a['feu'].isin(feu_set)].copy())
+    n_rm = n_burst = 0
+    for a in p2io.iter_hits(cfg.combined_hits_dir, br, ct.attrs['feus'],
+                            t_max_h=cfg.T_MAX_H, min_amp=cfg.MIN_AMP):
+        if sv is not None:
+            a, rm = sv.apply(a)
+            n_rm += rm
+            n_burst += sv.last_burst_events
+        h = pmap.attach_pads_to_hits(a, ct)
+        h = h[h['mapped'] & h['pad_cx'].notna()]
+        del a
+        parts.append(pd.DataFrame({
+            'eventId': h['eventId'].astype(np.int32),
+            'channel_id': h['channel_id'].astype(np.int32),
+            'amplitude': h['amplitude'].astype(np.float32),
+            'saturated': h['saturated'].astype(bool)}))
     h = pd.concat(parts, ignore_index=True)
-    if veto_sparks:
-        sv = ps.SparkVeto.from_cfg(cfg)
-        h, n_rm = sv.apply(h)
+    if sv is not None:
         print(f'HV spark veto: dropped {n_rm:,} hits '
               f'({100*(1-sv.live_fraction()):.2f}% deadtime) + '
-              f'{sv.last_burst_events} burst events (>= {sv.burst_npads} pads).')
-    h = pmap.attach_pads_to_hits(h, ct)
-    h = h[h['mapped'] & h['pad_cx'].notna()].copy()
+              f'{n_burst} burst events (>= {sv.burst_npads} pads).')
     return h
 
 
