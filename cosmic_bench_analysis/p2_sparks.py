@@ -233,23 +233,31 @@ class SparkVeto:
         bad = ~self.event_mask(df[ts_col].to_numpy())
         return set(df.loc[bad, id_col].astype(int))
 
-    def vetoed_ids_from_hits(self, hits_dir, feus):
+    def vetoed_ids_from_hits(self, hits_dir, feus, min_amp=0.0):
         """Read event times straight from the combined-hits ROOT files and
         return the set of eventIds inside a spark window. Used by stages that
         cut by eventId (e.g. efficiency, which must drop the same events from
-        both the M3 ray list and the P2 centroids)."""
+        both the M3 ray list and the P2 centroids).
+
+        min_amp (pass cfg.MIN_AMP): count burst pads only above this amplitude.
+        Without it, a stale-pedestal noise floor (hundreds of ~threshold hits
+        per event on every pad) makes EVERY event a >= burst_npads 'burst'."""
         import glob
         import os
         import uproot
         if not self.intervals and not self.burst_npads:
             return set()
         feu_set = set(feus)
+        branches = ['eventId', 'trigger_timestamp_ns', 'feu']
+        if min_amp:
+            branches.append('amplitude')
         ids = set()
         n_burst = 0
         for fp in sorted(glob.glob(os.path.join(hits_dir, '*.root'))):
-            a = uproot.open(f'{fp}:hits').arrays(
-                ['eventId', 'trigger_timestamp_ns', 'feu'], library='pd')
+            a = uproot.open(f'{fp}:hits').arrays(branches, library='pd')
             a = a[a['feu'].isin(feu_set)]
+            if min_amp:
+                a = a[a['amplitude'] >= min_amp]
             if self.intervals:
                 bad = ~self.event_mask(a['trigger_timestamp_ns'].to_numpy())
                 ids.update(a.loc[bad, 'eventId'].astype(int).tolist())
