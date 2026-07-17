@@ -76,13 +76,15 @@ def load_subrun(cfg, ct, subrun, z, chi2_cut, veto_sparks):
     hits_dir = os.path.join(sub, 'combined_hits_root')
     m3_dir = os.path.join(sub, 'm3_tracking_root')
     m3 = pa.load_m3_positions(m3_dir, z, chi2_cut)
-    p2, hit_events = pa.load_p2_centroids(hits_dir, ct)
+    p2, hit_events = pa.load_p2_centroids(hits_dir, ct, min_amp=cfg.MIN_AMP,
+                                          drop_pads=cfg.NOISY_PADS)
     n_veto = 0
     if veto_sparks:
         hv_csv = os.path.join(sub, 'hv_monitor.csv')
         if os.path.isfile(hv_csv):
             sv = ps.SparkVeto.from_csv(hv_csv, cfg)
-            bad = sv.vetoed_ids_from_hits(hits_dir, ct.attrs['feus'])
+            bad = sv.vetoed_ids_from_hits(hits_dir, ct.attrs['feus'],
+                                          min_amp=cfg.MIN_AMP)
             n_veto = len(bad)
             m3 = m3[~m3['eventId'].isin(bad)].copy()
             p2 = p2[~p2['eventId'].isin(bad)].copy()
