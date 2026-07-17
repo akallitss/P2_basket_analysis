@@ -39,7 +39,13 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(_HERE)  # .../P2_basket_analysis
 
 # Where the fetched bench data lives (pull_run mirrors the DAQ layout here).
-DATA_ROOT = '/local/home/ak271430/Documents/PostDocSaclay/data/Cosmic_Bench'
+# Input run data (combined_hits_root / m3_tracking_root / hv_monitor.csv ...)
+# lives on the LaCie external drive; the internal disk was chronically full.
+DATA_ROOT = ('/media/ak271430/LaCie/Extras/Physics/Post-Doc-Saclay/'
+             'data/Cosmic_Bench')
+# Analysis products (plots, csv, pdf) stay on the internal disk as before.
+ANALYSIS_ROOT = ('/local/home/ak271430/Documents/PostDocSaclay/'
+                 'data/Cosmic_Bench/Analysis')
 
 # Gerber-derived pad mapping (channel_id -> pad geometry).
 MAP_CSV_PATH = os.path.join(
@@ -102,7 +108,8 @@ class _Config:
                  dead_connectors=(),
                  spark_channel='1:0', spark_imon_thr=2.0,
                  spark_guard_before=2.0, spark_guard_after=10.0,
-                 burst_npads=20, det_tag=None, match_r=20.0, plane_z=None):
+                 burst_npads=20, det_tag=None, match_r=20.0, plane_z=None,
+                 t_max_h=None, min_amp=0.0, out_tag=None, noisy_pads=()):
         self.KEY = key
         self.DATA_ROOT = data_root
         self.RUN = run
@@ -142,10 +149,29 @@ class _Config:
         # overrides the run_config det_center z in det_plane_z() — the fitted
         # plane wins over the nominal one if they disagree.
         self.PLANE_Z = plane_z
+        # --- per-run data-quality cuts (p2_io applies them at read time) ---- #
+        # Analysis time window [h since first trigger]. Events after t_max_h
+        # are dropped from BOTH the hits and the M3 rays (a detector that
+        # tripped mid-run must not dilute occupancy or efficiency). None = all.
+        self.T_MAX_H = t_max_h
+        # Minimum hit amplitude [ADC]. Kills a stale-pedestal noise floor
+        # (hits at ~threshold on every pad) before centroids / efficiency /
+        # burst counting. 0 = keep everything.
+        self.MIN_AMP = float(min_amp)
+        # channel_ids of pads with a KNOWN noisy/oscillating channel whose
+        # hits pass MIN_AMP (e.g. det3 pad 510 = FEU6 ch321 firing at
+        # 120-150 ADC, 55% of the 7-16 initial run's signal band). Excluded
+        # from centroids/efficiency; QA stages (02/05) still show them so
+        # the pathology stays visible.
+        self.NOISY_PADS = tuple(noisy_pads)
 
-        # Analysis/ tree, keyed by detector -> run -> sub_run.
-        self.OUT_BASE = os.path.join(data_root, 'Analysis',
-                                     self.DET_TAG, run, sub_run)
+        # Analysis/ tree (ANALYSIS_ROOT, internal disk), keyed by detector ->
+        # run -> sub_run. out_tag adds a suffix directory so a windowed variant
+        # of the same sub_run (e.g. the pre-discharge hours only) never
+        # overwrites the full-run products.
+        self.ANALYSIS_ROOT = ANALYSIS_ROOT
+        self.OUT_BASE = os.path.join(ANALYSIS_ROOT, self.DET_TAG, run,
+                                     sub_run + (f'_{out_tag}' if out_tag else ''))
 
     # -- input paths (mirror the DAQ layout under DATA_ROOT) ---------------- #
     @property
@@ -317,6 +343,98 @@ RUNS = {
         dead_connectors=(1, 8, 9, 10),   # see det2_long1
         match_r=40.0,
         plane_z=712.0),
+
+    # det4 (P2_4, bulked 8-7-26 Alex+Enzo, first with the cleanest evac line)
+    # at p1_z, FEUs 3+4 (connectors 2-9), mesh 1:0 / drift 1:1. 12 h long run
+    # at mesh 480 V / drift 700 V, started 2026-07-15 22:42; the same run also
+    # carries drift_scan_det4_* (drift 700->500, 50 V steps) and
+    # mesh_scan_det4_* (mesh 480->405, 5 V steps, drift in tandem) sub_runs.
+    'det4_long1': _Config(
+        'det4_long1',
+        run='p2_det4_long_run_drift_mesh_scan_7-15-26',
+        sub_run='long_run_det4_480_700',
+        det_name='P2_4',
+        det_tag='det4',
+        spark_channel='1:0',       # P2_4 mesh = CAEN card 1 ch 0
+        dead_connectors=(1, 10),   # physically disconnected
+        # Mesh 1:0 imon climbed from 2.2 h and CAEN tripped it at 5.72 h
+        # (04:25 7-16); everything after is mesh-off noise. The run also has
+        # a ~680 hits/event noise floor at ~18 ADC on every pad (stale
+        # pedestals: do_pedestal_threshold_run=False), so only hits above
+        # 100 ADC carry signal information.
+        t_max_h=5.7,
+        min_amp=100.0),
+
+    # Stable window ONLY: mesh imon is quiet (~0.02 uA) until 2.2 h, then the
+    # detector discharges continuously until the 5.72 h trip. This variant
+    # keeps just the healthy hours (products land in <sub_run>_stable0-2.2h/).
+    # NOTE: the m3 ray files for chunks 000-001 are empty on the DAQ, so there
+    # are NO reference tracks before 2.56 h -> no alignment/efficiency here
+    # unless the rays are reprocessed from the raw .fdf on rays_daplxa.
+    'det4_long1_stable': _Config(
+        'det4_long1_stable',
+        run='p2_det4_long_run_drift_mesh_scan_7-15-26',
+        sub_run='long_run_det4_480_700',
+        det_name='P2_4',
+        det_tag='det4',
+        spark_channel='1:0',
+        dead_connectors=(1, 10),
+        t_max_h=2.2,
+        min_amp=100.0,
+        out_tag='stable0-2.2h'),
+
+    # det3+det4 simultaneous drift scan (7-16-26): one sub_run per point,
+    # named drift_scan_det4_<mesh>_<drift>_det3_<mesh>_<drift>, 30 min each.
+    # det4 mesh 450 V / drift 450..900; det3 mesh 420 V / drift 420..900.
+    # The DAQ again ran with do_pedestal_threshold_run=False, so the ~18 ADC
+    # noise floor covers every pad -> min_amp cut required (as det4_long1).
+    # sub_run here is only the products directory (stage 16 loops sub_runs).
+    # Initial (working-point) run of the 7-16 evening det3-mesh-scan session:
+    # det3 at its drift-scan plateau (mesh 420 / drift 820), det4 at mesh 430 /
+    # drift 830 (mesh raised vs the flat drift scan at 450... note 430<450 —
+    # probing below the discharge threshold seen at 480 V). Same stale-pedestal
+    # noise floor (do_pedestal_threshold_run=False) -> min_amp=100.
+    'det3_initial1': _Config(
+        'det3_initial1',
+        run='p2_det3_mesh_scan_det4_initial_7-16-26',
+        sub_run='initial_run_det3_420_820_det4_430_830',
+        det_name='P2_3',
+        det_tag='det3',
+        spark_channel='1:2',
+        dead_connectors=(1, 8, 9, 10),
+        match_r=40.0,
+        min_amp=100.0,
+        noisy_pads=(510,)),   # FEU6 ch321: 120-150 ADC oscillation, 55% of hits
+    'det4_initial1': _Config(
+        'det4_initial1',
+        run='p2_det3_mesh_scan_det4_initial_7-16-26',
+        sub_run='initial_run_det3_420_820_det4_430_830',
+        det_name='P2_4',
+        det_tag='det4',
+        spark_channel='1:0',
+        dead_connectors=(1, 10),
+        min_amp=100.0),
+
+    'det3_driftscan1': _Config(
+        'det3_driftscan1',
+        run='p2_det3_det4_drift_scan_7-16-26',
+        sub_run='drift_scan',
+        det_name='P2_3',
+        det_tag='det3',
+        spark_channel='1:2',        # P2_3 mesh = CAEN card 1 ch 2
+        # c_2..c_7 wired (FEU6: conns 2-5 both halves, FEU7: conns 6-7)
+        dead_connectors=(1, 8, 9, 10),
+        match_r=40.0,               # far plane, like det2 (z ~702)
+        min_amp=100.0),
+    'det4_driftscan1': _Config(
+        'det4_driftscan1',
+        run='p2_det3_det4_drift_scan_7-16-26',
+        sub_run='drift_scan',
+        det_name='P2_4',
+        det_tag='det4',
+        spark_channel='1:0',        # P2_4 mesh = CAEN card 1 ch 0
+        dead_connectors=(1, 10),
+        min_amp=100.0),
 
     # Mesh-HV scan (mesh 345->420 V in 5 V steps, drift = mesh + 180 V), one
     # sub_run per HV point (mesh_<NNN>V_drift_<MMM>V).
