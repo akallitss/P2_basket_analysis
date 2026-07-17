@@ -36,10 +36,8 @@ from M3RefTracking import M3RefTracking, get_xy_angles
 # Configuration
 # ---------------------------------------------------------------------------
 
-DATA_BASE = os.path.expanduser(
-    '~/Documents/PostDocSaclay/data/Cosmic_Bench/'
-    'mx17_non_and_ZS_Test_6-17-26'
-)
+DATA_BASE = ('/media/ak271430/LaCie/Extras/Physics/Post-Doc-Saclay/'
+             'data/Cosmic_Bench/mx17_non_and_ZS_Test_6-17-26')
 
 RUNS = {
     'Non-ZS': f'{DATA_BASE}/run_non_zs/m3_tracking_root/',
