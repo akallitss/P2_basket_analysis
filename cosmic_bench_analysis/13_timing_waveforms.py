@@ -83,7 +83,7 @@ def main():
     cfg = qa.get_config(args.run_key)
     if args.sub_run:
         cfg.SUB_RUN = args.sub_run
-        cfg.OUT_BASE = os.path.join(cfg.DATA_ROOT, 'Analysis', cfg.DET_TAG,
+        cfg.OUT_BASE = os.path.join(cfg.ANALYSIS_ROOT, cfg.DET_TAG,
                                     cfg.RUN, args.sub_run)
     print(cfg)
     out_dir = cfg.out_dir('13_timing')
@@ -142,7 +142,8 @@ def main():
     # HV-spark / burst veto (same convention as the other stages)
     if args.veto_sparks:
         sv = ps.SparkVeto.from_cfg(cfg)
-        bad = sv.vetoed_ids_from_hits(cfg.combined_hits_dir, feus)
+        bad = sv.vetoed_ids_from_hits(cfg.combined_hits_dir, feus,
+                                      min_amp=cfg.MIN_AMP)
         keep = ~hits['eventId'].isin(bad)
         hits, waves = hits[keep].reset_index(drop=True), waves[keep.to_numpy()]
         print(f'  spark veto: {len(sv.sparks)} sparks + {sv.last_burst_events} '
