@@ -336,7 +336,7 @@ def main():
     cfg = qa.get_config(key)
     # Name the report after the run so multiple runs of the same detector (e.g.
     # two long runs) don't overwrite each other's PDF.
-    default_out = os.path.join(qa.DATA_ROOT, 'Analysis', cfg.DET_TAG,
+    default_out = os.path.join(qa.ANALYSIS_ROOT, cfg.DET_TAG,
                                f'{cfg.RUN}_final_qa.pdf')
     out = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--out=')), default_out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
