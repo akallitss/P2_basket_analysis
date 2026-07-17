@@ -177,7 +177,7 @@ def main():
 
     # HV-scan points: read their stage-13 toa tables (run 13 --sub-run first)
     scan_dirs = sorted(glob.glob(os.path.join(
-        cfg.DATA_ROOT, 'Analysis', cfg.DET_TAG, cfg.RUN,
+        cfg.ANALYSIS_ROOT, cfg.DET_TAG, cfg.RUN,
         'scan_mesh_*', '13_timing', f'toa_hits{sfx}.csv')))
     for fp in scan_dirs:
         sub = fp.split(os.sep)[-3]
