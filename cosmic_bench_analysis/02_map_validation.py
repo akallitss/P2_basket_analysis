@@ -34,53 +34,71 @@ import matplotlib
 matplotlib.use('Agg')  # headless
 
 import os
-import glob
 import argparse
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import uproot
 
 import p2_qa_config as qa
 import p2_mapping as pmap
 import p2_sparks as ps
+import p2_io as p2io
 
 _HIT_BRANCHES = ['eventId', 'trigger_timestamp_ns', 'channel', 'amplitude',
-                 'saturated', 'feu', 'time']
+                 'saturated', 'feu']
 
 
 # --------------------------------------------------------------------------- #
 # Data loading
 # --------------------------------------------------------------------------- #
-def load_p2_hits(hits_dir, feus):
-    """Load only the P2 FEU hits from every combined-hits ROOT file."""
-    files = sorted(glob.glob(os.path.join(hits_dir, '*.root')))
-    if not files:
-        raise FileNotFoundError(f'No combined-hits ROOT files in {hits_dir}')
-    feu_set = set(feus)
-    parts = []
-    for fp in files:
-        arr = uproot.open(f'{fp}:hits').arrays(_HIT_BRANCHES, library='pd')
-        parts.append(arr[arr['feu'].isin(feu_set)].copy())
-    df = pd.concat(parts, ignore_index=True)
-    print(f'Loaded {len(df):,} P2 hits (FEUs {sorted(feu_set)}) from '
-          f'{len(files)} files over {df["eventId"].nunique():,} events.')
-    return df
+def load_channel_stats(hits_dir, feus, spark_veto=None, t_max_h=None,
+                       min_amp=0.0):
+    """Stream the combined-hits chunks and reduce to per-(feu,channel) stats.
+
+    Never holds more than one chunk of hits in memory (the det4 long run has
+    ~18M hits per chunk; concatenating all chunks OOMs a 14 GB machine).
+    Returns (chan_stats [feu, channel, n_hits, sum_amp, n_sat], n_events,
+    n_hits_total, veto_stats)."""
+    agg = None
+    ev_parts = []
+    n_hits = 0
+    n_rm = n_burst = 0
+    for df in p2io.iter_hits(hits_dir, _HIT_BRANCHES, feus,
+                             t_max_h=t_max_h, min_amp=min_amp):
+        if spark_veto is not None:
+            df, rm = spark_veto.apply(df)
+            n_rm += rm
+            n_burst += spark_veto.last_burst_events
+        n_hits += len(df)
+        ev_parts.append(df['eventId'].unique())
+        df = df.assign(amplitude=df['amplitude'].astype(np.float64))
+        g = (df.groupby(['feu', 'channel'])
+             .agg(n_hits=('amplitude', 'size'),
+                  sum_amp=('amplitude', 'sum'),
+                  n_sat=('saturated', 'sum')))
+        agg = g if agg is None else agg.add(g, fill_value=0)
+    n_events = len(np.unique(np.concatenate(ev_parts))) if ev_parts else 0
+    print(f'Loaded {n_hits:,} P2 hits (FEUs {sorted(set(feus))}) over '
+          f'{n_events:,} events.')
+    return agg.reset_index(), n_events, n_hits, {'n_rm': n_rm,
+                                                 'n_burst': n_burst}
 
 
 # --------------------------------------------------------------------------- #
 # Per-pad aggregation
 # --------------------------------------------------------------------------- #
-def per_pad_stats(hits, channel_table):
-    """Aggregate hits onto pads. Returns the full pad table (all 1280 pads,
-    even silent ones) with n_hits and mean amplitude."""
-    h = pmap.attach_pads_to_hits(hits, channel_table)
+def per_pad_stats(chan_stats, channel_table):
+    """Aggregate per-(feu,channel) stats onto pads. Returns the full pad table
+    (all 1280 pads, even silent ones) with n_hits and mean amplitude."""
+    h = pmap.attach_pads_to_hits(chan_stats, channel_table)
     agg = (h.groupby('channel_id')
-           .agg(n_hits=('amplitude', 'size'),
-                mean_amp=('amplitude', 'mean'),
-                n_sat=('saturated', 'sum'))
+           .agg(n_hits=('n_hits', 'sum'),
+                sum_amp=('sum_amp', 'sum'),
+                n_sat=('n_sat', 'sum'))
            .reset_index())
+    agg['mean_amp'] = agg['sum_amp'] / agg['n_hits'].where(agg['n_hits'] > 0)
+    agg = agg.drop(columns='sum_amp')
     # start from the full channel table so silent pads are kept with n_hits=0
     base = channel_table.drop_duplicates('channel_id').copy()
     full = base.merge(agg, on='channel_id', how='left')
@@ -186,7 +204,7 @@ def plot_dead_map(full, out_dir, tag, suffix=''):
     print(f'  saved {p}')
 
 
-def plot_strategy_compare(hits, cfg, out_dir, tag,
+def plot_strategy_compare(chan_stats, cfg, out_dir, tag,
                           strategies=('linear', 'reverse', 'pairswap'),
                           suffix=''):
     fig, axes = plt.subplots(1, len(strategies),
@@ -198,7 +216,7 @@ def plot_strategy_compare(hits, cfg, out_dir, tag,
                                       det_type=cfg.DET_TYPE,
                                       det_name=cfg.DET_NAME, strategy=strat,
                                       drop_connectors=cfg.DEAD_CONNECTORS)
-        full = per_pad_stats(hits, ct)
+        full = per_pad_stats(chan_stats, ct)
         _pad_scatter(ax, full, 'n_hits', f'strategy = {strat}',
                      'hits', log=True, mask_zero=True)
     fig.suptitle(f'P2 within-connector ordering comparison — {tag}\n'
@@ -241,14 +259,18 @@ def main():
     if cfg.DEAD_CONNECTORS:
         print(f'  dropped dead connectors: {list(cfg.DEAD_CONNECTORS)}')
 
-    hits = load_p2_hits(cfg.combined_hits_dir, ct.attrs['feus'])
-    if args.veto_sparks:
-        sv = ps.SparkVeto.from_cfg(cfg)
-        hits, n_rm = sv.apply(hits)
-        print(f'Spark veto: dropped {n_rm:,} hits in {len(sv.sparks)} sparks '
-              f'({100*(1-sv.live_fraction()):.2f}% deadtime) + '
-              f'{sv.last_burst_events} burst events (>= {sv.burst_npads} pads).')
-    full = per_pad_stats(hits, ct)
+    sv = ps.SparkVeto.from_cfg(cfg) if args.veto_sparks else None
+    if cfg.T_MAX_H is not None or cfg.MIN_AMP:
+        print(f'Data-quality cuts: t_max_h={cfg.T_MAX_H}, '
+              f'min_amp={cfg.MIN_AMP:g} ADC')
+    chan_stats, n_events, n_hits, veto = load_channel_stats(
+        cfg.combined_hits_dir, ct.attrs['feus'], sv,
+        t_max_h=cfg.T_MAX_H, min_amp=cfg.MIN_AMP)
+    if sv is not None:
+        print(f'Spark veto: dropped {veto["n_rm"]:,} hits in {len(sv.sparks)} '
+              f'sparks ({100*(1-sv.live_fraction()):.2f}% deadtime) + '
+              f'{veto["n_burst"]} burst events (>= {sv.burst_npads} pads).')
+    full = per_pad_stats(chan_stats, ct)
 
     n_active = int((full['n_hits'] > 0).sum())
     print(f'Pads: {len(full)} total, {n_active} active, '
@@ -262,7 +284,7 @@ def main():
     plot_pad_amplitude(full, out_dir, tag, sfx)
     plot_dead_map(full, out_dir, tag, sfx)
     if args.compare_strategies:
-        plot_strategy_compare(hits, cfg, out_dir, tag, suffix=sfx)
+        plot_strategy_compare(chan_stats, cfg, out_dir, tag, suffix=sfx)
 
     stats_csv = os.path.join(out_dir, f'map_validation_stats{sfx}.csv')
     full.sort_values('channel_id').to_csv(stats_csv, index=False)
