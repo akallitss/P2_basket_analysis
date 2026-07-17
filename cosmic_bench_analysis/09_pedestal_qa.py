@@ -48,6 +48,7 @@ import p2_qa_config as qa
 import p2_mapping as pmap
 import p2_sparks as ps
 import p2_pad_sparks as pps
+import p2_io as p2io
 
 THRESHOLD_SIGMA = 5.0   # DREAM WaveformAnalyzer nominal hit threshold = 5*RMS
 
@@ -77,20 +78,26 @@ def load_pedestals(hits_root_dir, channel_table):
 
 
 def load_firing(cfg, ct, veto_sparks=True):
-    files = sorted(glob.glob(os.path.join(cfg.combined_hits_dir, '*.root')))
-    br = ['eventId', 'channel', 'amplitude', 'feu'] + (
+    """Per-pad firing fraction, streamed chunk by chunk (p2_io) so the full
+    hit table never sits in memory."""
+    br = ['eventId', 'channel', 'feu'] + (
         ['trigger_timestamp_ns'] if veto_sparks else [])
-    parts = []
-    for fp in files:
-        a = uproot.open(f'{fp}:hits').arrays(br, library='pd')
-        parts.append(a[a['feu'].isin(set(ct.attrs['feus']))].copy())
-    h = pd.concat(parts, ignore_index=True)
-    if veto_sparks:
-        h, _ = ps.SparkVeto.from_cfg(cfg).apply(h)
-    h = pmap.attach_pads_to_hits(h, ct)
-    h = h[h['mapped'] & h['pad_cx'].notna()]
-    nev = h['eventId'].nunique()
-    return (h.groupby('channel_id')['eventId'].nunique() / nev).rename('fire'), nev
+    sv = ps.SparkVeto.from_cfg(cfg) if veto_sparks else None
+    fire = None
+    ev_parts = []
+    for a in p2io.iter_hits(cfg.combined_hits_dir, br, ct.attrs['feus'],
+                            t_max_h=cfg.T_MAX_H, min_amp=cfg.MIN_AMP):
+        if sv is not None:
+            a, _ = sv.apply(a)
+        h = pmap.attach_pads_to_hits(a, ct)
+        h = h[h['mapped'] & h['pad_cx'].notna()]
+        if not len(h):
+            continue
+        ev_parts.append(h['eventId'].unique())
+        c = h.groupby('channel_id')['eventId'].nunique()
+        fire = c if fire is None else fire.add(c, fill_value=0)
+    nev = len(np.unique(np.concatenate(ev_parts))) if ev_parts else 0
+    return (fire / max(nev, 1)).rename('fire'), nev
 
 
 def _pad_map(ax, df, val, label, cmap='viridis'):
