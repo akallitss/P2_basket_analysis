@@ -170,10 +170,15 @@ def main():
 
     print(f'Loading M3 (z={z0:.0f}) + P2 centroids ...')
     m3 = pa.load_m3_positions(m3_dir, z0, args.chi2_cut)
-    p2, hit_events = pa.load_p2_centroids(hits_dir, ct)
+    m3 = pa.filter_events_by_time(m3, m3_dir, cfg.T_MAX_H)
+    p2, hit_events = pa.load_p2_centroids(hits_dir, ct,
+                                          min_amp=cfg.MIN_AMP,
+                                          t_max_h=cfg.T_MAX_H,
+                                          drop_pads=cfg.NOISY_PADS)
     if args.veto_sparks:
         sv = ps.SparkVeto.from_cfg(cfg)
-        bad = sv.vetoed_ids_from_hits(hits_dir, ct.attrs['feus'])
+        bad = sv.vetoed_ids_from_hits(hits_dir, ct.attrs['feus'],
+                                      min_amp=cfg.MIN_AMP)
         m3 = m3[~m3['eventId'].isin(bad)].copy()
         p2 = p2[~p2['eventId'].isin(bad)].copy()
         hit_events = hit_events - set(int(b) for b in bad)
@@ -319,21 +324,21 @@ def main():
 
     # ---------------------------------------------------------------- Test 4 #
     print('mapping-vs-dead: per-pad firing vs per-pad efficiency ...')
-    # per-pad hit counts from the raw hits (attach pads, count by channel_id)
-    import glob
-    import uproot
-    feu_set = set(ct.attrs['feus'])
-    parts = []
-    for fp in sorted(glob.glob(os.path.join(hits_dir, '*.root'))):
-        a = uproot.open(f'{fp}:hits').arrays(['eventId', 'channel', 'amplitude', 'feu'],
-                                             library='pd')
-        parts.append(a[a['feu'].isin(feu_set)].copy())
-    hits = pmap.attach_pads_to_hits(pd.concat(parts, ignore_index=True), ct)
-    hits = hits[hits['mapped'] & hits['pad_cx'].notna()]
-    if args.veto_sparks:
-        hits = hits[~hits['eventId'].isin(bad)]
+    # per-pad hit counts from the raw hits (attach pads, count by channel_id),
+    # reduced chunk by chunk so the full hit table never sits in memory
+    import p2_io as p2io
+    fire = None
+    for chunk in p2io.iter_hits(hits_dir, ['eventId', 'channel', 'feu'],
+                                ct.attrs['feus'],
+                                t_max_h=cfg.T_MAX_H, min_amp=cfg.MIN_AMP):
+        h = pmap.attach_pads_to_hits(chunk, ct)
+        h = h[h['mapped'] & h['pad_cx'].notna()]
+        if args.veto_sparks:
+            h = h[~h['eventId'].isin(bad)]
+        c = h.groupby('channel_id').size()
+        fire = c if fire is None else fire.add(c, fill_value=0)
     n_events = m3['eventId'].nunique()
-    fire = hits.groupby('channel_id').size().rename('n_fire')
+    fire = fire.rename('n_fire')
     padc = padc.merge(fire, on='channel_id', how='left')
     padc['n_fire'] = padc['n_fire'].fillna(0)
     padc['fire_frac'] = padc['n_fire'] / n_events
@@ -382,10 +387,23 @@ def main():
 
     # ---------------------------------------------------------------- Test 5 #
     print('estimator: centroid-within-R vs nearest-fired-pad-within-R ...')
-    hx, hy = T0.apply(hits['pad_cx'].to_numpy(), hits['pad_cy'].to_numpy())
+    # per-event fired-pad positions, streamed and kept only for the active
+    # rays (the old full in-memory hit table OOM'd large runs)
+    need_ev = set(int(e) for e in da['eventId'])
     hit_xy = {}
-    for ev, x, y in zip(hits['eventId'].to_numpy(), hx, hy):
-        hit_xy.setdefault(int(ev), []).append((x, y))
+    for chunk in p2io.iter_hits(hits_dir, ['eventId', 'channel', 'feu'],
+                                ct.attrs['feus'],
+                                t_max_h=cfg.T_MAX_H, min_amp=cfg.MIN_AMP):
+        h = pmap.attach_pads_to_hits(chunk, ct)
+        h = h[h['mapped'] & h['pad_cx'].notna()]
+        if cfg.NOISY_PADS:
+            h = h[~h['channel_id'].isin(set(cfg.NOISY_PADS))]
+        h = h[h['eventId'].isin(need_ev)]
+        if not len(h):
+            continue
+        hx, hy = T0.apply(h['pad_cx'].to_numpy(), h['pad_cy'].to_numpy())
+        for ev, x, y in zip(h['eventId'].to_numpy(), hx, hy):
+            hit_xy.setdefault(int(ev), []).append((x, y))
     hit_xy = {k: np.asarray(v) for k, v in hit_xy.items()}
     within_nn = np.zeros(len(da), dtype=bool)
     for i, (ev, x, y) in enumerate(zip(da['eventId'].to_numpy(),
@@ -438,7 +456,7 @@ def main():
         f.write(report + '\n')
 
     # one-page PDF: verdict table + the four diagnostic figures
-    pdf_path = os.path.join(qa.DATA_ROOT, 'Analysis', cfg.DET_TAG,
+    pdf_path = os.path.join(qa.ANALYSIS_ROOT, cfg.DET_TAG,
                             f'p2_{cfg.DET_TAG}_validation'
                             f'{qa.chi2_tag(args.chi2_cut)}.pdf')
     with PdfPages(pdf_path) as pdf:
