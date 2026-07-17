@@ -100,12 +100,17 @@ def main():
 
     # --- inputs ---
     m3 = pa.load_m3_positions(cfg.m3_tracking_dir, det_z, args.chi2_cut)
-    p2, hit_events = pa.load_p2_centroids(cfg.combined_hits_dir, ct)
+    m3 = pa.filter_events_by_time(m3, cfg.m3_tracking_dir, cfg.T_MAX_H)
+    p2, hit_events = pa.load_p2_centroids(cfg.combined_hits_dir, ct,
+                                          min_amp=cfg.MIN_AMP,
+                                          t_max_h=cfg.T_MAX_H,
+                                          drop_pads=cfg.NOISY_PADS)
 
     # --- HV spark veto: drop rays/events taken during a mesh discharge -------
     if args.veto_sparks:
         sv = ps.SparkVeto.from_cfg(cfg)
-        bad = sv.vetoed_ids_from_hits(cfg.combined_hits_dir, ct.attrs['feus'])
+        bad = sv.vetoed_ids_from_hits(cfg.combined_hits_dir, ct.attrs['feus'],
+                                      min_amp=cfg.MIN_AMP)
         n0m, n0p = len(m3), len(p2)
         m3 = m3[~m3['eventId'].isin(bad)].copy()
         p2 = p2[~p2['eventId'].isin(bad)].copy()
@@ -123,6 +128,10 @@ def main():
     if args.fit_fiducial > 0:
         fitm = matched[(matched['x_m3'].abs() < args.fit_fiducial) &
                        (matched['y_m3'].abs() < args.fit_fiducial)]
+    if len(fitm) < 50:
+        print(f'Too few matched events ({len(fitm)}) to fit the pad->M3 '
+              'transform — skipping the efficiency maps for this variant.')
+        return
     T = pa.fit_transform(fitm['x_m3'], fitm['y_m3'], fitm['x_pad'], fitm['y_pad'])
     print(f'transform: rotation {T.rotation_deg:.2f} deg, reflection {T.reflection}, '
           f'scale {T.s:.3f}, fit RMSE {T.rmse:.1f} mm (N={len(fitm)})')
