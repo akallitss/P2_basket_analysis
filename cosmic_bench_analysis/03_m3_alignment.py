@@ -62,6 +62,7 @@ import p2_qa_config as qa
 import p2_mapping as pmap
 import p2_align as pa
 import p2_sparks as ps
+import p2_io as p2io
 
 # M3RefTracking lives in the nTof_x17 analysis repo (same reader m3_comparison uses).
 _M3_PKG = os.path.expanduser(
@@ -69,9 +70,6 @@ _M3_PKG = os.path.expanduser(
 if _M3_PKG not in sys.path:
     sys.path.insert(0, _M3_PKG)
 from M3RefTracking import M3RefTracking  # noqa: E402
-
-_HIT_BRANCHES = ['eventId', 'trigger_timestamp_ns', 'channel', 'amplitude', 'feu']
-
 
 # --------------------------------------------------------------------------- #
 # Loaders
@@ -97,44 +95,21 @@ def load_m3_positions(m3_dir, z, chi2_cut=qa.M3_CHI2_CUT,
 
 
 def load_p2_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
-                      spark_veto=None):
-    """Per-event charge-weighted P2 pad centroid (or leading-pad position)."""
-    files = sorted(glob.glob(os.path.join(hits_dir, '*.root')))
-    if not files:
-        raise FileNotFoundError(f'No combined-hits ROOT files in {hits_dir}')
-    feu_set = set(channel_table.attrs['feus'])
-    parts = []
-    for fp in files:
-        arr = uproot.open(f'{fp}:hits').arrays(_HIT_BRANCHES, library='pd')
-        parts.append(arr[arr['feu'].isin(feu_set)].copy())
-    hits = pd.concat(parts, ignore_index=True)
+                      spark_veto=None, t_max_h=None, drop_pads=()):
+    """Per-event charge-weighted P2 pad centroid (or leading-pad position).
+    Streams the hits chunk by chunk (p2_io) so memory stays bounded."""
+    cen, _, veto = p2io.event_centroids(hits_dir, channel_table,
+                                        min_amp=min_amp,
+                                        leading_pad=leading_pad,
+                                        spark_veto=spark_veto,
+                                        t_max_h=t_max_h,
+                                        drop_pads=drop_pads)
     if spark_veto is not None:
-        hits, n_rm = spark_veto.apply(hits)
-        print(f'Spark veto: dropped {n_rm:,} hits in {len(spark_veto.sparks)} '
-              f'sparks ({100*(1-spark_veto.live_fraction()):.2f}% deadtime) + '
-              f'{spark_veto.last_burst_events} burst events '
+        print(f'Spark veto: dropped {veto["n_rm"]:,} hits in '
+              f'{len(spark_veto.sparks)} sparks '
+              f'({100*(1-spark_veto.live_fraction()):.2f}% deadtime) + '
+              f'{veto["n_burst"]} burst events '
               f'(>= {spark_veto.burst_npads} pads).')
-    if min_amp > 0:
-        hits = hits[hits['amplitude'] >= min_amp]
-
-    hits = pmap.attach_pads_to_hits(hits, channel_table)
-    hits = hits[hits['mapped'] & hits['pad_cx'].notna()]
-
-    if leading_pad:
-        idx = hits.groupby('eventId')['amplitude'].idxmax()
-        cen = hits.loc[idx, ['eventId', 'pad_cx', 'pad_cy']].copy()
-        cen = cen.rename(columns={'pad_cx': 'x_pad', 'pad_cy': 'y_pad'})
-        cen['n_pad'] = 1
-    else:
-        w = hits['amplitude'].clip(lower=0)
-        hits = hits.assign(_wx=w * hits['pad_cx'], _wy=w * hits['pad_cy'], _w=w)
-        g = hits.groupby('eventId')
-        cen = pd.DataFrame({
-            'x_pad': g['_wx'].sum() / g['_w'].sum(),
-            'y_pad': g['_wy'].sum() / g['_w'].sum(),
-            'n_pad': g.size(),
-        }).reset_index()
-    cen = cen[np.isfinite(cen['x_pad']) & np.isfinite(cen['y_pad'])]
     print(f'P2: {len(cen):,} events with a pad centroid '
           f'({"leading-pad" if leading_pad else "charge-weighted"}).')
     return cen
@@ -401,8 +376,11 @@ def main():
     # to any z during the height scan.
     sv = ps.SparkVeto.from_cfg(cfg) if args.veto_sparks else None
     ep = pa.load_m3_endpoints(cfg.m3_tracking_dir, args.chi2_cut)
-    p2 = load_p2_centroids(cfg.combined_hits_dir, ct, args.min_amp,
-                           args.leading_pad, spark_veto=sv)
+    ep = pa.filter_events_by_time(ep, cfg.m3_tracking_dir, cfg.T_MAX_H)
+    p2 = load_p2_centroids(cfg.combined_hits_dir, ct,
+                           max(args.min_amp, cfg.MIN_AMP),
+                           args.leading_pad, spark_veto=sv,
+                           t_max_h=cfg.T_MAX_H, drop_pads=cfg.NOISY_PADS)
     m = ep.merge(p2, on='eventId', how='inner')
     x0, y0 = pa.project_to_z(m, args.z)
     if args.m3_fiducial > 0:
