@@ -142,7 +142,7 @@ def build(cfg, df, csv, out):
                  wrap=True, linespacing=1.5,
                  bbox=dict(boxstyle='round,pad=0.8', fc='#f4f7fb', ec='#9db8d2', lw=1.0))
 
-        fig.text(0.06, 0.03, f'source: {os.path.relpath(csv, qa.DATA_ROOT)}',
+        fig.text(0.06, 0.03, f'source: {os.path.relpath(csv, qa.ANALYSIS_ROOT)}',
                  fontsize=7, color='#666666', family='monospace')
         fig.text(0.96, 0.008, datetime.date.today().isoformat(), ha='right',
                  fontsize=6, color='grey')
@@ -162,7 +162,7 @@ def main():
         print('No efficiency_vs_hv CSV found — run 11_hv_scan_efficiency.py first.')
         return
     print(f'  {len(df)} HV points, {int(df["hv"].min())}–{int(df["hv"].max())} V  ({csv})')
-    default_out = os.path.join(qa.DATA_ROOT, 'Analysis', cfg.DET_TAG,
+    default_out = os.path.join(qa.ANALYSIS_ROOT, cfg.DET_TAG,
                                f'p2_{cfg.DET_TAG}_hv_scan.pdf')
     out = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--out=')), default_out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
