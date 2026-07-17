@@ -22,7 +22,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Default run: the long P2 det1 sanity-check overnight run (6-27-26).
-DEFAULT_HITS_DIR="/local/home/ak271430/Documents/PostDocSaclay/data/Cosmic_Bench/mx17_det3_p2_det1_overnight_6-27-26/long_run_p2_det1_sanity_check/combined_hits_root"
+DEFAULT_HITS_DIR="/media/ak271430/LaCie/Extras/Physics/Post-Doc-Saclay/data/Cosmic_Bench/mx17_det3_p2_det1_overnight_6-27-26/long_run_p2_det1_sanity_check/combined_hits_root"
 
 # First positional arg overrides the hits dir; remaining args pass through.
 if [[ $# -ge 1 && "$1" != -* ]]; then
