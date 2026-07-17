@@ -14,7 +14,7 @@
 set -e
 
 TRACKING_DIR="$(cd "$(dirname "$0")/../../cosmic_bench_m3_tracking" && pwd)"
-DATA_BASE="$(cd "$(dirname "$0")/../../data/Cosmic_Bench/mx17_non_and_ZS_Test_6-17-26" && pwd)"
+DATA_BASE="/media/ak271430/LaCie/Extras/Physics/Post-Doc-Saclay/data/Cosmic_Bench/mx17_non_and_ZS_Test_6-17-26"
 
 NON_ZS_BASENAME="${DATA_BASE}/run_non_zs/raw_daq_data/MX17_run_non_zs_datrun_260617_09H21_"
 ZS_BASENAME="${DATA_BASE}/run_zs/raw_daq_data/MX17_run_zs_datrun_260617_09H32_"
