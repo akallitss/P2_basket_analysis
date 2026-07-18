@@ -403,8 +403,38 @@ RUNS = {
         spark_channel='1:2',
         dead_connectors=(1, 8, 9, 10),
         match_r=40.0,
-        min_amp=100.0,
+        min_amp=0.0,      # reprocessed w/ real pedestals (thr ~28 ADC)
         noisy_pads=(510,)),   # FEU6 ch321: 120-150 ADC oscillation, 55% of hits
+    # det3 mesh scan of the same 7-16 evening run (mesh 345..420 in 5 V steps,
+    # drift in tandem = mesh + 400). sub_run is only the products dir; stage 16
+    # --scan mesh loops the mesh_scan_det3_* sub_runs. Same noisy pad 510.
+    'det3_meshscan1': _Config(
+        'det3_meshscan1',
+        run='p2_det3_mesh_scan_det4_initial_7-16-26',
+        sub_run='mesh_scan',
+        det_name='P2_3',
+        det_tag='det3',
+        spark_channel='1:2',
+        dead_connectors=(1, 8, 9, 10),
+        match_r=40.0,
+        min_amp=0.0,      # reprocessed w/ real pedestals (thr ~28 ADC)
+        noisy_pads=(510,)),
+
+    # 10h run at det3's working point (mesh 420 / drift 820), 7-17 05:56-15:57,
+    # right after the descending mesh scan. Reprocessed with the 19H40 pedestal
+    # (FEU-regex fix) -> min_amp 0. Same noisy pad 510 masked from centroids.
+    'det3_final1': _Config(
+        'det3_final1',
+        run='p2_det3_mesh_scan_det4_initial_7-16-26',
+        sub_run='final_run_det3_420_820',
+        det_name='P2_3',
+        det_tag='det3',
+        spark_channel='1:2',
+        dead_connectors=(1, 8, 9, 10),
+        match_r=40.0,
+        min_amp=0.0,
+        noisy_pads=(510,)),
+
     'det4_initial1': _Config(
         'det4_initial1',
         run='p2_det3_mesh_scan_det4_initial_7-16-26',
@@ -413,7 +443,7 @@ RUNS = {
         det_tag='det4',
         spark_channel='1:0',
         dead_connectors=(1, 10),
-        min_amp=100.0),
+        min_amp=0.0),     # reprocessed w/ real pedestals (thr ~28 ADC)
 
     'det3_driftscan1': _Config(
         'det3_driftscan1',
@@ -425,7 +455,7 @@ RUNS = {
         # c_2..c_7 wired (FEU6: conns 2-5 both halves, FEU7: conns 6-7)
         dead_connectors=(1, 8, 9, 10),
         match_r=40.0,               # far plane, like det2 (z ~702)
-        min_amp=100.0),
+        min_amp=0.0),     # reprocessed w/ real pedestals (thr ~28 ADC)
     'det4_driftscan1': _Config(
         'det4_driftscan1',
         run='p2_det3_det4_drift_scan_7-16-26',
@@ -434,7 +464,40 @@ RUNS = {
         det_tag='det4',
         spark_channel='1:0',        # P2_4 mesh = CAEN card 1 ch 0
         dead_connectors=(1, 10),
-        min_amp=100.0),
+        min_amp=0.0),     # reprocessed w/ real pedestals (thr ~28 ADC)
+
+    # Fe55 mesh-HV scan of the SPS-telescope detectors on the banco bench
+    # (7-18-26, banco_daplxa:/local/home/banco/P2_data/Fe55/runs/run_1):
+    # det2 = P2_OUT (bulked 25-6-26, misaligned wall) and det3 = P2_MID
+    # (bulked 2-7-26). NO M3 telescope here: the DREAM DAQ self-triggers on
+    # the Fe55 source (TCM multiplicity), so none of the tracking/efficiency
+    # stages apply -- the analysis is 18_fe55_spectra.py (per-event charge
+    # spectrum + photopeak fit -> gain / resolution / rate vs mesh HV).
+    # One sub_run per HV point, fe55_<NN>_mesh_out<V>_mid<V> (out = P2_OUT
+    # mesh 420->365, mid = P2_MID mesh 510->455, both in 5 V steps with the
+    # drifts stepped in tandem 700->645), 5 min per point. FEU 3 = P2_OUT,
+    # FEU 4 = P2_MID, connectors 4-7 (both halves) each -- the channel table
+    # is built from the run_config wiring, so no dead-connector drop needed.
+    # Real pedestal/threshold run this time (do_pedestal_threshold_run=True).
+    # burst_npads=0: in self-trigger mode with the source the per-event pad
+    # multiplicity is naturally high (~12 hits/event on FEU 3 at 420 V), so
+    # the cosmic burst veto would eat real events; HV spark veto still applies.
+    'det2_fe55scan1': _Config(
+        'det2_fe55scan1',
+        run='p2_fe55_det2_det3_mesh_scan_7-18-26',
+        sub_run='fe55_scan',
+        det_name='P2_OUT',
+        det_tag='det2',
+        spark_channel='8:1',       # P2_OUT mesh = CAEN card 8 ch 1
+        burst_npads=0),
+    'det3_fe55scan1': _Config(
+        'det3_fe55scan1',
+        run='p2_fe55_det2_det3_mesh_scan_7-18-26',
+        sub_run='fe55_scan',
+        det_name='P2_MID',
+        det_tag='det3',
+        spark_channel='8:3',       # P2_MID mesh = CAEN card 8 ch 3
+        burst_npads=0),
 
     # Mesh-HV scan (mesh 345->420 V in 5 V steps, drift = mesh + 180 V), one
     # sub_run per HV point (mesh_<NNN>V_drift_<MMM>V).
