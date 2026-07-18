@@ -54,11 +54,14 @@ import p2_sparks as ps
 
 
 def find_subruns(cfg):
-    """Discover mesh_<NNN>V sub_runs under the scan run, ascending in mesh HV."""
+    """Discover HV-scan sub_runs, ascending in mesh HV. Two naming schemes:
+    the original `mesh_<NNN>V_drift_<MMM>V` (det1 7-2 scan) and the newer
+    `mesh_scan_<det_tag>_<mesh>_<drift>` (det3 7-16 scan)."""
     run_dir = cfg.run_dir
     out = []
     for name in sorted(os.listdir(run_dir)):
-        m = re.search(r'mesh_(\d+)V', name)
+        m = (re.search(r'mesh_(\d+)V', name)
+             or re.search(rf'mesh_scan_{cfg.DET_TAG}_(\d+)_\d+', name))
         if not m:
             continue
         hits = glob.glob(os.path.join(run_dir, name, 'combined_hits_root', '*.root'))
@@ -118,6 +121,11 @@ def main():
                     help='min matched events for an HV point to be plotted.')
     ap.add_argument('--veto-sparks', action=argparse.BooleanOptionalAction,
                     default=True, help='per-sub_run HV spark veto (default on).')
+    ap.add_argument('--fit-top', type=int, default=0,
+                    help='fit the pooled pad->M3 transform on only the N '
+                         'points with the most matched events (0 = all '
+                         'points, the original behaviour). Keeps noise '
+                         'matches from below-turn-on points out of the fit.')
     args = ap.parse_args()
 
     cfg = qa.get_config(args.run_key)
@@ -154,7 +162,14 @@ def main():
         data.append(dict(subrun=subrun, hv=hv, m3=m3, p2=p2,
                          hit_events=hit_events, matched=matched))
         pooled.append(matched)
-    pool = pd.concat(pooled, ignore_index=True)
+    if args.fit_top and len(data) > args.fit_top:
+        best = sorted(data, key=lambda a: len(a['matched']),
+                      reverse=True)[:args.fit_top]
+        print(f'transform fit restricted to {args.fit_top} points: '
+              + ', '.join(a['subrun'] for a in best))
+        pool = pd.concat([a['matched'] for a in best], ignore_index=True)
+    else:
+        pool = pd.concat(pooled, ignore_index=True)
     fitm = pool
     if args.fit_fiducial > 0:
         fitm = pool[(pool['x_m3'].abs() < args.fit_fiducial) &
