@@ -52,13 +52,16 @@ import p2_align as pa
 import p2_sparks as ps
 
 
-def find_subruns(cfg):
-    """Discover drift-scan sub_runs and this detector's (mesh, drift) from the
-    sub_run name (…_<det_tag>_<mesh>_<drift>…), ascending in drift V."""
+def find_subruns(cfg, scan='drift'):
+    """Discover <scan>_scan sub_runs and this detector's (mesh, drift) from the
+    sub_run name (…<det_tag>_<mesh>_<drift>…), ascending in the scanned V.
+
+    scan='drift': drift_scan_* names, x = drift (mesh fixed).
+    scan='mesh' : mesh_scan_*  names, x = mesh (drift moves in tandem)."""
     pat = re.compile(rf'{cfg.DET_TAG}_(\d+)_(\d+)')
     out = []
     for name in sorted(os.listdir(cfg.run_dir)):
-        if not name.startswith('drift_scan'):
+        if not name.startswith(f'{scan}_scan'):
             continue
         m = pat.search(name)
         if not m:
@@ -71,7 +74,7 @@ def find_subruns(cfg):
             out.append((name, int(m.group(1)), int(m.group(2))))
         else:
             print(f'  [skip] {name}: no hits/m3 root files yet')
-    return sorted(out, key=lambda x: x[2])
+    return sorted(out, key=lambda x: x[1] if scan == 'mesh' else x[2])
 
 
 def load_subrun(cfg, ct, subrun, z, chi2_cut, veto_sparks):
@@ -124,18 +127,34 @@ def main():
                     help='min pooled matched events to trust the transform fit.')
     ap.add_argument('--veto-sparks', action=argparse.BooleanOptionalAction,
                     default=True, help='per-sub_run HV spark veto (default on).')
+    ap.add_argument('--min-amp', type=float, default=None,
+                    help='override cfg.MIN_AMP [ADC] (e.g. 60: still above '
+                         'the det3 noise-floor q99~48 but keeps more of the '
+                         'low-gain signal Landau than the default 100).')
+    ap.add_argument('--fit-top', type=int, default=3,
+                    help='fit the pad->M3 transform on the N points with the '
+                         'most matched events (0 = pool all points). Keeps '
+                         'noise-matches from near-dead points out of the fit.')
+    ap.add_argument('--scan', default='drift', choices=['drift', 'mesh'],
+                    help='scanned voltage: drift (drift_scan_* sub_runs, mesh '
+                         'fixed) or mesh (mesh_scan_* sub_runs, drift in '
+                         'tandem). Default drift.')
     args = ap.parse_args()
 
     cfg = qa.get_config(args.run_key)
     print(cfg)
+    if args.min_amp is not None:
+        cfg.MIN_AMP = float(args.min_amp)
     if args.r is None:
         args.r = cfg.MATCH_R
     if args.z is None:
         args.z = cfg.det_plane_z()
     print(f'match radius R = {args.r:g} mm, projection z = {args.z:g} mm, '
           f'min_amp = {cfg.MIN_AMP:g} ADC')
-    out_dir = cfg.out_dir('16_drift_scan_efficiency')
+    out_dir = cfg.out_dir(f'16_{args.scan}_scan_efficiency')
     suffix = cfg.product_suffix(args.veto_sparks)
+    if args.min_amp is not None:
+        suffix += f'_minamp{args.min_amp:g}'   # never overwrite the defaults
 
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
@@ -144,13 +163,19 @@ def main():
     if cfg.DEAD_CONNECTORS:
         print(f'  dropped dead connectors: {list(cfg.DEAD_CONNECTORS)}')
 
-    subruns = find_subruns(cfg)
+    subruns = find_subruns(cfg, args.scan)
     if not subruns:
-        print(f'No drift_scan sub_runs for {cfg.DET_TAG} under {cfg.run_dir}')
+        print(f'No {args.scan}_scan sub_runs for {cfg.DET_TAG} under {cfg.run_dir}')
         return
-    mesh_v = subruns[0][1]
-    print(f'Drift-scan points ({len(subruns)}, mesh {mesh_v} V): ' +
-          ', '.join(f'{dv}V' for _, _, dv in subruns))
+    if args.scan == 'mesh':
+        fixed_lbl = (f'drift in tandem '
+                     f'{subruns[0][2]}-{subruns[-1][2]} V')
+        print(f'Mesh-scan points ({len(subruns)}, {fixed_lbl}): ' +
+              ', '.join(f'{mv}V' for _, mv, _ in subruns))
+    else:
+        fixed_lbl = f'mesh {subruns[0][1]} V fixed'
+        print(f'Drift-scan points ({len(subruns)}, {fixed_lbl}): ' +
+              ', '.join(f'{dv}V' for _, _, dv in subruns))
 
     # --- load every point, pool matched events for one transform fit -------- #
     data = []
@@ -159,12 +184,24 @@ def main():
         m3, p2, hit_events, n_veto = load_subrun(cfg, ct, subrun, args.z,
                                                  args.chi2_cut, args.veto_sparks)
         matched = m3.merge(p2, on='eventId', how='inner')
-        print(f'  drift {dv}V: M3 {len(m3):,} | P2 {len(p2):,} | matched '
+        xv = mv if args.scan == 'mesh' else dv
+        print(f'  {args.scan} {xv}V: M3 {len(m3):,} | P2 {len(p2):,} | matched '
               f'{len(matched):,}' + (f' | spark-vetoed {n_veto}' if n_veto else ''))
-        data.append(dict(subrun=subrun, drift=dv, m3=m3, p2=p2,
+        data.append(dict(subrun=subrun, mesh=mv, drift=dv, x=xv, m3=m3, p2=p2,
                          hit_events=hit_events, matched=matched))
         pooled.append(matched)
-    pool = pd.concat(pooled, ignore_index=True)
+    # transform fit sample: only the points with real response — pooling the
+    # near-dead points too mixes noise-matches into the fit and biases the
+    # frozen active area (seen on the det3 mesh scan: scale 0.85/RMSE 73 mm
+    # pooled vs 0.96/40 mm clean).
+    if args.fit_top and len(data) > args.fit_top:
+        best = sorted(data, key=lambda a: len(a['matched']),
+                      reverse=True)[:args.fit_top]
+        print(f'transform fit restricted to the {args.fit_top} points with '
+              f'most matches: ' + ', '.join(a['subrun'] for a in best))
+        pool = pd.concat([a['matched'] for a in best], ignore_index=True)
+    else:
+        pool = pd.concat(pooled, ignore_index=True)
     fitm = pool
     if args.fit_fiducial > 0:
         fitm = pool[(pool['x_m3'].abs() < args.fit_fiducial) &
@@ -219,72 +256,74 @@ def main():
         da = d[d['in_active']]
         n = len(da)
         if n < args.min_valid:
-            print(f'  [skip] drift {a["drift"]}V: only {n} active-area tracks')
+            print(f'  [skip] {args.scan} {a["x"]}V: only {n} active-area tracks')
             continue
         eff = da['within'].mean()
         err = np.sqrt(max(eff * (1 - eff), 1e-12) / n)
         eff_any = da['has_any'].mean()
         sx = _robust_sigma(dxres[d['in_active'].to_numpy()])
         sy = _robust_sigma(dyres[d['in_active'].to_numpy()])
-        rows.append(dict(drift=a['drift'], mesh=mesh_v, subrun=a['subrun'],
+        rows.append(dict(x=a['x'], drift=a['drift'], mesh=a['mesh'],
+                         subrun=a['subrun'],
                          n_active=n, n_within=int(da['within'].sum()),
                          n_p2_events=len(p2),
                          eff_reco=eff, eff_reco_err=err, eff_anyhit=eff_any,
                          sigma_x_mm=sx, sigma_y_mm=sy))
-        print(f'  drift {a["drift"]}V: eff(reco<{args.r:g}mm)={eff:.3f}+-{err:.3f}  '
+        print(f'  {args.scan} {a["x"]}V: eff(reco<{args.r:g}mm)={eff:.3f}+-{err:.3f}  '
               f'eff(any)={eff_any:.3f}  sigma=({sx:.1f},{sy:.1f})mm  '
               f'({int(da["within"].sum())}/{n})')
 
     if not rows:
-        print('No drift points had enough active-area tracks.')
+        print(f'No {args.scan} points had enough active-area tracks.')
         return
-    df = pd.DataFrame(rows).sort_values('drift').reset_index(drop=True)
-    df.to_csv(os.path.join(out_dir, f'efficiency_vs_drift{suffix}.csv'),
+    df = pd.DataFrame(rows).sort_values('x').reset_index(drop=True)
+    df.to_csv(os.path.join(out_dir, f'efficiency_vs_{args.scan}{suffix}.csv'),
               index=False)
 
     tag = f'{cfg.DET_TAG} {cfg.RUN}'
-    # efficiency vs drift V
+    xlbl = f'{args.scan} HV [V]'
+    # efficiency vs scanned V
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.errorbar(df['drift'], df['eff_reco'], yerr=df['eff_reco_err'], fmt='o-',
+    ax.errorbar(df['x'], df['eff_reco'], yerr=df['eff_reco_err'], fmt='o-',
                 color='steelblue', capsize=4, lw=2, ms=7,
                 label=f'reco within {args.r:g} mm')
-    ax.plot(df['drift'], df['eff_anyhit'], 's--', color='darkorange', ms=6,
+    ax.plot(df['x'], df['eff_anyhit'], 's--', color='darkorange', ms=6,
             alpha=0.8, label='any pad fired')
-    ax.set_xlabel('drift HV [V]')
+    ax.set_xlabel(xlbl)
     ax.set_ylabel('efficiency (fixed active area)')
     ax.set_ylim(0, 1.02)
     ax.grid(True, alpha=0.3)
     ax.legend()
-    ax.set_title(f'{cfg.DET_NAME} efficiency vs drift HV — {tag}\n'
-                 f'(mesh {mesh_v} V fixed, r<{args.r:g} mm, '
+    ax.set_title(f'{cfg.DET_NAME} efficiency vs {args.scan} HV — {tag}\n'
+                 f'({fixed_lbl}, r<{args.r:g} mm, '
                  f'min_amp {cfg.MIN_AMP:g} ADC, frozen active area)')
     fig.tight_layout()
-    fig.savefig(os.path.join(out_dir, f'efficiency_vs_drift{suffix}.png'),
+    fig.savefig(os.path.join(out_dir, f'efficiency_vs_{args.scan}{suffix}.png'),
                 dpi=200, bbox_inches='tight')
     plt.close(fig)
 
-    # resolution vs drift V
+    # resolution vs scanned V
     fig2, ax2 = plt.subplots(figsize=(8, 5))
-    ax2.plot(df['drift'], df['sigma_x_mm'], 'o-', color='steelblue', lw=2,
+    ax2.plot(df['x'], df['sigma_x_mm'], 'o-', color='steelblue', lw=2,
              ms=7, label='σ_x')
-    ax2.plot(df['drift'], df['sigma_y_mm'], 's--', color='darkorange', lw=2,
+    ax2.plot(df['x'], df['sigma_y_mm'], 's--', color='darkorange', lw=2,
              ms=6, label='σ_y')
-    ax2.set_xlabel('drift HV [V]')
+    ax2.set_xlabel(xlbl)
     ax2.set_ylabel('core residual σ [mm]')
     ax2.set_ylim(0, None)
     ax2.grid(True, alpha=0.3)
     ax2.legend()
-    ax2.set_title(f'{cfg.DET_NAME} residual width vs drift HV — {tag}\n'
+    ax2.set_title(f'{cfg.DET_NAME} residual width vs {args.scan} HV — {tag}\n'
                   f'(robust σ of aligned P2−M3 residual, active area)')
     fig2.tight_layout()
-    fig2.savefig(os.path.join(out_dir, f'resolution_vs_drift{suffix}.png'),
+    fig2.savefig(os.path.join(out_dir, f'resolution_vs_{args.scan}{suffix}.png'),
                  dpi=200, bbox_inches='tight')
     plt.close(fig2)
 
-    print(f'\n{"drift[V]":>8}  {"eff_reco":>9}  {"+-err":>6}  {"eff_any":>8}  '
+    print(f'\n{args.scan + "[V]":>8}  {"eff_reco":>9}  {"+-err":>6}  {"eff_any":>8}  '
           f'{"n_p2":>6}  {"tracks":>7}')
     for _, r in df.iterrows():
-        print(f'{r.drift:>8.0f}  {r.eff_reco:>9.3f}  {r.eff_reco_err:>6.3f}  '
+        print(f'{r.x:>8.0f}  {r.eff_reco:>9.3f}  {r.eff_reco_err:>6.3f}  '
               f'{r.eff_anyhit:>8.3f}  {r.n_p2_events:>6.0f}  {r.n_active:>7.0f}')
     print(f'\nWritten to: {out_dir}')
 
