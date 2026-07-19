@@ -50,6 +50,7 @@ import p2_qa_config as qa
 import p2_mapping as pmap
 import p2_align as pa
 import p2_sparks as ps
+import p2_io as p2io
 
 BINS = 40
 
@@ -104,7 +105,7 @@ def main():
     p2, hit_events = pa.load_p2_centroids(cfg.combined_hits_dir, ct,
                                           min_amp=cfg.MIN_AMP,
                                           t_max_h=cfg.T_MAX_H,
-                                          drop_pads=cfg.NOISY_PADS)
+                                          drop_pads=p2io.drop_pads_for(cfg, ct))
 
     # --- HV spark veto: drop rays/events taken during a mesh discharge -------
     if args.veto_sparks:
