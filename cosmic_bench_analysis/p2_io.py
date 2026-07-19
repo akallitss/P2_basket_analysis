@@ -227,6 +227,58 @@ def pad_amp_stats(hits_dir, channel_table, min_amp=0.0, t_max_h=None,
     return dict(n=n, mean=mean, sem=sem, median=float(median))
 
 
+def pad_time_spread(hits_dir, channel_table, sig_amp=300.0, min_amp=0.0,
+                    t_max_h=None, drop_pads=(), exclude_events=None,
+                    tmax=2000.0, dbin=2.0):
+    """Streamed spread of the hit peak-time (time_of_max) for signal-band pad
+    hits (amplitude >= sig_amp), a data proxy for the drift-time spread.
+
+    For cosmic tracks the ionisation is deposited ~uniformly across the drift
+    gap, so electrons arrive over a window ~ d_gap / v_drift: the WIDTH of the
+    time_of_max distribution measures that drift-time spread. The DREAM shaping
+    offset (~140 ns rise) and the per-event trigger phase are common to all
+    hits in a point, so they cancel in the spread (they shift, not widen it),
+    leaving diffusion + trigger-phase jitter as a roughly constant floor across
+    the scan -- so the TREND and the location of the minimum are robust even
+    though the absolute value carries that floor.
+
+    Percentiles come from a fine time_of_max histogram (0..tmax, dbin-wide) so
+    no per-hit array is held. Returns dict(n, p10, p50, p90, spread, iqr) [ns].
+    """
+    nb = int(round(tmax / dbin))
+    edges = np.linspace(0.0, tmax, nb + 1)
+    hist = np.zeros(nb, dtype=np.int64)
+    excl = set(exclude_events) if exclude_events is not None else None
+    thr = max(float(min_amp), float(sig_amp))
+    for df in iter_hits(hits_dir, ['eventId', 'channel', 'amplitude', 'feu',
+                                   'time_of_max'],
+                        channel_table.attrs['feus'], progress=False,
+                        t_max_h=t_max_h, min_amp=min_amp):
+        h = pmap.attach_pads_to_hits(df, channel_table)
+        h = h[h['mapped'] & h['pad_cx'].notna() & (h['amplitude'] >= thr)]
+        if drop_pads:
+            h = h[~h['channel_id'].isin(set(drop_pads))]
+        if excl is not None and len(h):
+            h = h[~h['eventId'].isin(excl)]
+        del df
+        if not len(h):
+            continue
+        tom = h['time_of_max'].to_numpy(dtype=np.float64)
+        hist += np.histogram(np.clip(tom, 0.0, tmax), bins=edges)[0]
+    n = int(hist.sum())
+    if n == 0:
+        return dict(n=0, p10=np.nan, p50=np.nan, p90=np.nan,
+                    spread=np.nan, iqr=np.nan)
+    cum = np.cumsum(hist)
+    ctr = 0.5 * (edges[:-1] + edges[1:])
+
+    def pct(q):
+        return float(ctr[min(int(np.searchsorted(cum, q * n)), nb - 1)])
+    p10, p25, p50, p75, p90 = (pct(q) for q in (0.10, 0.25, 0.50, 0.75, 0.90))
+    return dict(n=n, p10=p10, p50=p50, p90=p90,
+                spread=p90 - p10, iqr=p75 - p25)
+
+
 def _empty_cen():
     return pd.DataFrame({'eventId': pd.Series(dtype=np.int64),
                          'x_pad': pd.Series(dtype=np.float64),
