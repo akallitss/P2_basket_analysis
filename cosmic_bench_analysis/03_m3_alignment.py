@@ -380,7 +380,8 @@ def main():
     p2 = load_p2_centroids(cfg.combined_hits_dir, ct,
                            max(args.min_amp, cfg.MIN_AMP),
                            args.leading_pad, spark_veto=sv,
-                           t_max_h=cfg.T_MAX_H, drop_pads=cfg.NOISY_PADS)
+                           t_max_h=cfg.T_MAX_H,
+                           drop_pads=p2io.drop_pads_for(cfg, ct))
     m = ep.merge(p2, on='eventId', how='inner')
     x0, y0 = pa.project_to_z(m, args.z)
     if args.m3_fiducial > 0:
