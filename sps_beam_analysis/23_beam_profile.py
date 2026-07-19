@@ -281,6 +281,111 @@ def process_det(cfg, det, args, subruns, beam_df):
     return rows
 
 
+def process_det_chanspace(cfg, det, args, subruns, beam_df):
+    """Channel-space beam profiling when no pad geometry is available: per-(feu,
+    channel) occupancy, per-FEU hit fractions, hits/event, rate vs wall-clock
+    (spill structure) and a pile-up indicator. No x/y beam spot (needs the pad
+    map). Products under <det_tag>/<run>/<sub>/23_beam_profile_chanspace/."""
+    feus = det.feus
+    print(f'  {det.name}: CHANNEL-SPACE mode (no pad map), FEUs {feus}')
+    for sub in subruns:
+        out_dir = cfg.out_dir(det.det_tag, sub, '23_beam_profile_chanspace')
+        hits_dir = cfg.combined_hits_dir(sub)
+        try:
+            chunk0 = p2io.hit_files(hits_dir)[0]
+            counts, ev = scl.stream_chan_occupancy(hits_dir, feus,
+                                                   min_amp=cfg.MIN_AMP,
+                                                   progress=True)
+        except Exception as e:  # noqa: BLE001
+            print(f'    {sub}: unreadable (incomplete transfer?), skipping — {e}')
+            continue
+        if not len(ev):
+            print(f'    {sub}: no events')
+            continue
+        t0 = run_start_wallclock(chunk0)
+        # occupancy grid: FEU rows x channel cols
+        occ = np.zeros((len(feus), 512), dtype=float)
+        feu_idx = {f: i for i, f in enumerate(feus)}
+        for (f, ch), n in counts.items():
+            if f in feu_idx and 0 <= ch < 512:
+                occ[feu_idx[f], int(ch)] = n
+        per_feu = occ.sum(axis=1)
+        pd.DataFrame(occ, index=[f'FEU{f}' for f in feus]).to_csv(
+            os.path.join(out_dir, f'occupancy_{sub}.csv'))
+
+        fig, axes = plt.subplots(2, 2, figsize=(15, 9))
+        # (0,0) occupancy heatmap
+        ax = axes[0, 0]
+        im = ax.imshow(occ, aspect='auto', origin='lower', cmap='inferno',
+                       norm=matplotlib.colors.LogNorm(
+                           vmin=max(1, occ[occ > 0].min()) if (occ > 0).any()
+                           else 1),
+                       extent=[0, 512, -0.5, len(feus) - 0.5])
+        fig.colorbar(im, ax=ax, label='hits (log)')
+        ax.set_yticks(range(len(feus)))
+        ax.set_yticklabels([f'FEU{f}' for f in feus])
+        ax.set_xlabel('channel (0-511)'); ax.set_title('per-(FEU, channel) '
+                                                       'occupancy')
+        # (0,1) per-FEU hit fraction
+        ax = axes[0, 1]
+        frac = 100 * per_feu / per_feu.sum()
+        ax.bar([f'FEU{f}' for f in feus], frac, color='steelblue')
+        for i, v in enumerate(frac):
+            ax.text(i, v, f'{v:.1f}%', ha='center', va='bottom', fontsize=9)
+        ax.set_ylabel('hit fraction [%]'); ax.set_title('beam illumination '
+                                                       'across FEUs')
+        ax.grid(True, axis='y', alpha=0.3)
+        # (1,0) rate vs time
+        ax = axes[1, 0]
+        t = ev['t'].to_numpy(); t = t - t.min()
+        nb = max(4, int(t.max() / 0.5) + 1)
+        h, e = np.histogram(t, bins=nb)
+        cr = 0.5 * (e[:-1] + e[1:])
+        ax.plot(cr, h / (e[1] - e[0]), '-', color='steelblue', lw=1.2,
+                label='DAQ trigger rate')
+        ax.set_xlabel('time since first event [s]')
+        ax.set_ylabel('rate [Hz]', color='steelblue'); ax.grid(True, alpha=0.3)
+        if beam_df is not None and t0 is not None:
+            w0 = t0 + pd.to_timedelta(ev['t'].min(), unit='s')
+            sel = ((beam_df['wall'] >= w0 - pd.Timedelta(seconds=2)) &
+                   (beam_df['wall'] <= w0 + pd.to_timedelta(t.max() + 2,
+                                                            unit='s')))
+            b = beam_df[sel]
+            if len(b):
+                ax2 = ax.twinx()
+                ax2.plot((b['wall'] - w0).dt.total_seconds(),
+                         b['intensity_e10'], 's--', color='darkorange', ms=3,
+                         alpha=0.8)
+                ax2.set_ylabel(r'intensity [$10^{10}$]', color='darkorange')
+        ax.set_title('rate vs time (spill structure)')
+        # (1,1) pile-up: mean hits/event vs instantaneous rate
+        ax = axes[1, 1]
+        order = np.argsort(ev['t'].to_numpy())
+        ts = ev['t'].to_numpy()[order]; nh = ev['n_hit'].to_numpy()[order]
+        win = 0.2
+        lo = np.searchsorted(ts, ts - win); hi = np.searchsorted(ts, ts + win)
+        inst = (hi - lo) / (2 * win)
+        rb = np.linspace(inst.min(), np.percentile(inst, 99), 15)
+        idx = np.clip(np.digitize(inst, rb), 1, len(rb) - 1)
+        mean_nh = [nh[idx == k].mean() if (idx == k).any() else np.nan
+                   for k in range(1, len(rb))]
+        ax.plot(0.5 * (rb[:-1] + rb[1:]), mean_nh, 'o-', color='purple', lw=1.5)
+        ax.set_xlabel('instantaneous rate [Hz]')
+        ax.set_ylabel('mean hits / event'); ax.grid(True, alpha=0.3)
+        ax.set_title('pile-up indicator')
+
+        fig.suptitle(f'{det.name} beam profile (channel space) — {sub}   '
+                     f'[{len(ev):,} events]', fontsize=13)
+        fig.tight_layout(rect=(0, 0, 1, 0.97))
+        fig.savefig(os.path.join(out_dir, f'profile_chanspace_{sub}.png'),
+                    dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        print(f'    {sub}: {len(ev):,} ev, per-FEU % = '
+              f'{dict(zip(["FEU%d" % f for f in feus], frac.round(1)))}, '
+              f'median hits/ev {ev["n_hit"].median():.0f}')
+        print(f'    -> {out_dir}')
+
+
 def main():
     ap = argparse.ArgumentParser(description='Beam-spot + time-structure '
                                              'profiling.')
@@ -312,7 +417,10 @@ def main():
     if args.det:
         dets = [d for d in dets if args.det in (d.name, d.det_tag)]
     for det in dets:
-        process_det(cfg, det, args, subruns, beam_df)
+        if cfg.HAS_GEOMETRY:
+            process_det(cfg, det, args, subruns, beam_df)
+        else:
+            process_det_chanspace(cfg, det, args, subruns, beam_df)
 
 
 if __name__ == '__main__':

@@ -57,21 +57,40 @@ def setup_paths() -> None:
 setup_paths()
 
 # --------------------------------------------------------------------------- #
-# Paths
+# Paths — SITE-AWARE so the same code runs on the laptop and on the banco DAQ
+# machine during the beam test (no file copying). Resolution order per root:
+#   1. explicit env var  (SPS_DATA_ROOT / SPS_ANALYSIS_ROOT / SPS_COSMIC_BENCH_ROOT)
+#   2. banco auto-detect (the DAQ machine: /local/home/banco exists)
+#   3. laptop defaults
+# On banco the beam DAQ writes runs under <base_data_dir>/runs/, so point
+# SPS_DATA_ROOT at that 'runs' dir (e.g. /local/home/banco/P2_data/<beamtest>/runs)
+# and select a run with the 'live' registry entry + SPS_RUN=<run_name>.
 # --------------------------------------------------------------------------- #
-# Where the SPS beam-test run data lives (mirrors the DAQ layout). Individual
-# registry entries may override data_root (e.g. the Fe55 telescope dry-run
-# entry, whose data still lives under the cosmic-bench tree).
-DATA_ROOT = ('/media/ak271430/LaCie/Extras/Physics/Post-Doc-Saclay/'
-             'data/SPS_Beam_Test')
-# The Fe55 telescope-scan data used as a dry-run stand-in (same combined-hits
-# format, same two-station wiring the beam telescope will have).
-COSMIC_BENCH_ROOT = ('/media/ak271430/LaCie/Extras/Physics/Post-Doc-Saclay/'
-                     'data/Cosmic_Bench')
+_ON_BANCO = os.path.isdir('/local/home/banco')
 
-# Analysis products (plots, csv, pdf) on the internal disk.
-ANALYSIS_ROOT = ('/local/home/ak271430/Documents/PostDocSaclay/'
-                 'data/SPS_Beam_Test/Analysis')
+def _root(env, banco_default, laptop_default):
+    v = os.environ.get(env)
+    if v:
+        return v
+    return banco_default if _ON_BANCO else laptop_default
+
+# Where the SPS beam-test run data lives (mirrors the DAQ layout). Registry
+# entries may override data_root (the laptop dry-run fixtures do).
+DATA_ROOT = _root(
+    'SPS_DATA_ROOT',
+    '/local/home/banco/P2_data',
+    '/media/ak271430/LaCie/Extras/Physics/Post-Doc-Saclay/data/SPS_Beam_Test')
+# The cosmic-bench tree (Fe55 dry-run stand-in data on the laptop).
+COSMIC_BENCH_ROOT = _root(
+    'SPS_COSMIC_BENCH_ROOT',
+    '/local/home/banco/P2_data',
+    '/media/ak271430/LaCie/Extras/Physics/Post-Doc-Saclay/data/Cosmic_Bench')
+
+# Analysis products (plots, csv, pdf).
+ANALYSIS_ROOT = _root(
+    'SPS_ANALYSIS_ROOT',
+    '/local/home/banco/P2_data/Analysis',
+    '/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/Analysis')
 
 # Gerber-derived pad mapping + insulation-mask pillar Gerber (shared with the
 # bench: same P2 BASKET PCB).
@@ -342,11 +361,28 @@ RUNS = {
         run='run_19',
         data_root='/local/home/ak271430/Documents/PostDocSaclay/data/'
                   'nov25_run19_test',
-        has_geometry=False,
+        has_geometry=True,
         burst_npads=0,
-        note='Nov-2025 SPS TbSPS25 run_19 (1 large P2 detector across 5 FEUs; '
-             'channel-space only until the FEU->pad wiring is provided)'),
+        note='Nov-2025 SPS TbSPS25 run_19. Large P2 detector P2_SPS25 = physical '
+             'connectors 1-4 on FEU 5 (full 512 ch = channel_id 0-511, sectors '
+             '0-3), covered by P2_BASKET_mapping.csv. FEUs 1-4 read other, small '
+             'P2 detectors (not modelled). Wiring from Alexandra 2026-07-19.'),
 }
+
+
+# 'live' — the beam-test workhorse on banco: select any run the DAQ has written
+# under DATA_ROOT by name, e.g.  SPS_DATA_ROOT=/local/home/banco/P2_data/<bt>/runs
+# SPS_RUN=run_5 python 24_event_sync_qa.py live . Detector wiring comes from that
+# run's DAQ-written run_config.json, so no per-run code change is needed. Only
+# added when SPS_RUN is set, so importing the module is always safe.
+_live_run = os.environ.get('SPS_RUN')
+if _live_run:
+    try:
+        RUNS['live'] = RunConfig(
+            key='live', run=_live_run, data_root=DATA_ROOT, has_geometry=True,
+            note=f'Live beam-test run {_live_run!r} under {DATA_ROOT} (SPS_RUN env)')
+    except Exception as _e:
+        print(f'[sps_config] could not register live run {_live_run!r}: {_e}')
 
 
 def get_config(key=None) -> RunConfig:

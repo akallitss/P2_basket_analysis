@@ -122,17 +122,28 @@ def fit_landau(q, fit_min, nbins=200):
     if sel.sum() < 8 or fc[sel].sum() < 200:
         return out
     smooth = np.convolve(fc.astype(float), np.ones(5) / 5, mode='same')
-    mode = float(ctr[sel][np.argmax(smooth[sel])])
-    p0 = [fc[sel].max() * 0.3 * mode, mode, 0.15 * mode]
-    try:
-        p, cov = curve_fit(_landau, ctr[sel], fc[sel], p0=p0, maxfev=10000,
-                           bounds=([0, fit_min, 1e-3],
-                                   [np.inf, edges[-1], edges[-1]]))
-    except (RuntimeError, ValueError):
-        return out
-    mpv, scale = float(p[1]), abs(float(p[2]))
-    if not (fit_min <= mpv < edges[-1]):
-        return out
+    # seed the MPV at the smoothed peak (the rising edge above fit_min locates
+    # the Landau maximum, not the low-charge noise floor)
+    mpv = float(ctr[sel][np.argmax(smooth[sel])])
+    cov = None
+    # iterate a moyal fit in a window AROUND the peak: the Landau tail is
+    # heavier than a single moyal, so fitting the whole [fit_min, end] range
+    # would drag `loc` off the mode -- a peak window keeps loc == MPV.
+    for _ in range(3):
+        win = (ctr >= max(fit_min, 0.35 * mpv)) & (ctr <= 3.0 * mpv)
+        if win.sum() < 6:
+            return out
+        try:
+            p, cov = curve_fit(_landau, ctr[win], fc[win],
+                               p0=[fc[win].max() * 0.3 * mpv, mpv, 0.15 * mpv],
+                               maxfev=10000,
+                               bounds=([0, 0, 1e-3],
+                                       [np.inf, edges[-1], edges[-1]]))
+        except (RuntimeError, ValueError):
+            return out
+        mpv, scale = float(p[1]), abs(float(p[2]))
+        if not (0 < mpv < edges[-1]):
+            return out
     out.update(mpv=mpv, mpv_err=float(np.sqrt(max(cov[1][1], 0.0))),
                scale=scale, fwhm=_FWHM_MOYAL * scale, ok=True)
     return out
