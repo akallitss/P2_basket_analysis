@@ -1,0 +1,5 @@
+# transient run artifacts (result CSVs are regenerable via run_lxplus.sh and are
+# already covered by the repo-wide *.csv / *.png ignore, like garfield_inputs/)
+results/*.log
+results/.gaslist.txt
+figs/
