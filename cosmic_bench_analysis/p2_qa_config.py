@@ -109,7 +109,8 @@ class _Config:
                  spark_channel='1:0', spark_imon_thr=2.0,
                  spark_guard_before=2.0, spark_guard_after=10.0,
                  burst_npads=20, det_tag=None, match_r=20.0, plane_z=None,
-                 t_max_h=None, min_amp=0.0, out_tag=None, noisy_pads=()):
+                 t_max_h=None, min_amp=0.0, out_tag=None, noisy_pads=(),
+                 hot_pad_ratio=5.0):
         self.KEY = key
         self.DATA_ROOT = data_root
         self.RUN = run
@@ -164,6 +165,13 @@ class _Config:
         # from centroids/efficiency; QA stages (02/05) still show them so
         # the pathology stays visible.
         self.NOISY_PADS = tuple(noisy_pads)
+        # Automatic hot-pad cut (p2_io.auto_hot_pads): a pad carrying more
+        # than hot_pad_ratio x the median occupancy of the fired pads (and
+        # >= 30 hits) is constantly firing -- not spark-like, so the HV/burst
+        # vetoes never catch it, but it kills hitmap colour scales and biases
+        # centroids (e.g. det1 7-19 pad 1089 at 12x median). Flagged per
+        # sub_run at load time and dropped like NOISY_PADS. 0 disables.
+        self.HOT_PAD_RATIO = float(hot_pad_ratio)
 
         # Analysis/ tree (ANALYSIS_ROOT, internal disk), keyed by detector ->
         # run -> sub_run. out_tag adds a suffix directory so a windowed variant
@@ -434,6 +442,35 @@ RUNS = {
         match_r=40.0,
         min_amp=0.0,
         noisy_pads=(510,)),
+
+    # det1 (P2_1) repaired and re-installed at p2_z (det3's old slot) for the
+    # 7-19-26 run: FEUs 6+7 with connectors 2-9 cabled (1 and 10 unbonded),
+    # mesh on CAEN 1:2 / drift 1:3. 2 h initial run at mesh 430 / drift 740
+    # (gap 310 V), then a descending mesh scan 430->355 V in 5 V steps with
+    # the drift in tandem (drift = mesh + 310), 30 min per point. A fresh
+    # pedestal run was taken at 00:21, 2 min before the run -> min_amp 0.
+    'det1_initial1': _Config(
+        'det1_initial1',
+        run='p2_det1_long_run_mesh_scan_7-19-26',
+        sub_run='initial_run_det1_430_740',
+        det_name='P2_1',
+        det_tag='det1',
+        spark_channel='1:2',
+        dead_connectors=(1, 10),
+        match_r=40.0,               # far plane, like det2/det3 (z ~702)
+        min_amp=0.0),
+    # Mesh scan of the same run; sub_run is only the products dir, stage 16
+    # --scan mesh (and stage 11) loop the mesh_scan_det1_* sub_runs.
+    'det1_meshscan1': _Config(
+        'det1_meshscan1',
+        run='p2_det1_long_run_mesh_scan_7-19-26',
+        sub_run='mesh_scan',
+        det_name='P2_1',
+        det_tag='det1',
+        spark_channel='1:2',
+        dead_connectors=(1, 10),
+        match_r=40.0,
+        min_amp=0.0),
 
     'det4_initial1': _Config(
         'det4_initial1',
