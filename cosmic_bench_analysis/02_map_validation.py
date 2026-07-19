@@ -278,10 +278,22 @@ def main():
     print('Total hits per connector:')
     print(full.groupby('connector_N')['n_hits'].sum().to_string())
 
+    # Hot-pad flag (same rule as the load-time cut in the analysis stages):
+    # kept in the CSV, excluded from the occupancy/amplitude colour scales.
+    full['hot'] = p2io.hot_pad_mask(full['n_hits'].to_numpy(),
+                                    ratio=cfg.HOT_PAD_RATIO) \
+        if cfg.HOT_PAD_RATIO else False
+    if full['hot'].any():
+        h = full[full['hot']]
+        print(f'Hot pads (>{cfg.HOT_PAD_RATIO:g}x median occupancy, dropped '
+              f'from the occupancy/amplitude maps): '
+              + ', '.join(f'{int(r.channel_id)} ({int(r.n_hits):,} hits)'
+                          for r in h.itertuples()))
+
     tag = f'{cfg.DET_TAG} {cfg.RUN}/{cfg.SUB_RUN} [{args.strategy}]'
     sfx = cfg.product_suffix(args.veto_sparks)
-    plot_pad_occupancy(full, out_dir, tag, sfx)
-    plot_pad_amplitude(full, out_dir, tag, sfx)
+    plot_pad_occupancy(full[~full['hot']], out_dir, tag, sfx)
+    plot_pad_amplitude(full[~full['hot']], out_dir, tag, sfx)
     plot_dead_map(full, out_dir, tag, sfx)
     if args.compare_strategies:
         plot_strategy_compare(chan_stats, cfg, out_dir, tag, suffix=sfx)
