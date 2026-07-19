@@ -7,10 +7,15 @@
 # stage is run twice (once spark-vetoed, once not) so the report can show both.
 #
 # Usage:
-#   ./run_p2_pipeline.sh [run_key]      # default: det1_long2
+#   ./run_p2_pipeline.sh [run_key]                # long run, stages 02..12
+#   ./run_p2_pipeline.sh [run_key] --scan drift   # drift scan (stage 16) + PDF
+#   ./run_p2_pipeline.sh [run_key] --scan mesh    # mesh scan (11+16) + PDF
 #
-# This is for a *long run at a single working point*, NOT an HV scan. The HV
-# scan uses stage 11 + build_hv_scan_pdf.py instead (see build_hv_scan_pdf.py).
+# Default (no --scan) is a *long run at a single working point*: stages 02..12,
+# then build_final_pdf.py. The --scan modes instead run the voltage-scan stage
+# for that run key and build the matching scan report:
+#   drift -> 16_drift_scan_efficiency.py --scan drift -> build_drift_scan_pdf.py
+#   mesh  -> 11_hv_scan_efficiency.py + 16 --scan mesh -> build_hv_scan_pdf.py
 #
 # Stages 09 (pedestal QA) needs the per-FEU hits_root/ tree; if it is absent the
 # stage is skipped with a warning rather than failing the whole pipeline.
@@ -26,7 +31,22 @@ if [[ -z "${P2_MEMCAPPED:-}" ]] && command -v systemd-run >/dev/null 2>&1; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-RUN_KEY="${1:-det1_long2}"
+
+# -- args: [run_key] [--scan drift|mesh] ------------------------------------- #
+RUN_KEY=""
+SCAN=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --scan)   SCAN="$2"; shift 2 ;;
+        --scan=*) SCAN="${1#*=}"; shift ;;
+        -*)       echo "unknown option: $1" >&2; exit 2 ;;
+        *)        RUN_KEY="$1"; shift ;;
+    esac
+done
+RUN_KEY="${RUN_KEY:-det1_long2}"
+if [[ -n "${SCAN}" && "${SCAN}" != "drift" && "${SCAN}" != "mesh" ]]; then
+    echo "invalid --scan '${SCAN}' (use drift or mesh)" >&2; exit 2
+fi
 
 if [[ -f "${SCRIPT_DIR}/../.venv/bin/activate" ]]; then
     # shellcheck disable=SC1091
@@ -36,7 +56,7 @@ fi
 cd "${SCRIPT_DIR}"
 
 echo "=================================================================="
-echo " P2 QA pipeline  |  run_key = ${RUN_KEY}"
+echo " P2 QA pipeline  |  run_key = ${RUN_KEY}${SCAN:+  |  ${SCAN} scan}"
 echo "=================================================================="
 
 run () {   # run <stage.py> <args...>
@@ -44,6 +64,26 @@ run () {   # run <stage.py> <args...>
     echo ">>> python3 $*"
     python3 "$@"
 }
+
+# -- voltage-scan pipelines: scan stage + matching PDF, then done ------------- #
+if [[ "${SCAN}" == "drift" ]]; then
+    run 16_drift_scan_efficiency.py "${RUN_KEY}" --scan drift
+    run build_drift_scan_pdf.py "${RUN_KEY}"
+    echo ""
+    echo "=================================================================="
+    echo " Drift scan done for ${RUN_KEY}. Report: p2_<det>_drift_scan.pdf"
+    echo "=================================================================="
+    exit 0
+elif [[ "${SCAN}" == "mesh" ]]; then
+    run 11_hv_scan_efficiency.py "${RUN_KEY}"
+    run 16_drift_scan_efficiency.py "${RUN_KEY}" --scan mesh
+    run build_hv_scan_pdf.py "${RUN_KEY}"
+    echo ""
+    echo "=================================================================="
+    echo " Mesh scan done for ${RUN_KEY}. Report: p2_<det>_hv_scan.pdf"
+    echo "=================================================================="
+    exit 0
+fi
 
 # -- 02 map validation: non-vetoed (+ strategy comparison) and vetoed --------- #
 run 02_map_validation.py "${RUN_KEY}" --no-veto-sparks --compare-strategies
