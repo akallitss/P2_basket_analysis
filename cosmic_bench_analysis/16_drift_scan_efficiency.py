@@ -52,6 +52,21 @@ import p2_align as pa
 import p2_sparks as ps
 import p2_io as p2io
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_GAS_TABLE = os.path.join(_HERE, 'garfield_inputs', 'gas_table.csv')
+
+
+def load_drift_velocity(gas_csv):
+    """Magboltz drift-velocity table for the fill gas: return a function
+    E [V/cm] -> v_d [um/ns] (linear interp, clipped to the tabulated range).
+    gas_table.csv has E_Vcm and vz [cm/ns] (see 14_timing_simulation.py)."""
+    if not os.path.isfile(gas_csv):
+        return None
+    g = pd.read_csv(gas_csv).sort_values('E_Vcm')
+    e = g['E_Vcm'].to_numpy(float)
+    v = g['vz'].to_numpy(float) * 1e4          # cm/ns -> um/ns
+    return lambda E: np.interp(E, e, v, left=v[0], right=v[-1])
+
 
 def find_subruns(cfg, scan='drift'):
     """Discover <scan>_scan sub_runs and this detector's (mesh, drift) from the
@@ -78,10 +93,11 @@ def find_subruns(cfg, scan='drift'):
     return sorted(out, key=lambda x: x[1] if scan == 'mesh' else x[2])
 
 
-def load_subrun(cfg, ct, subrun, z, chi2_cut, veto_sparks):
-    """Return (m3, p2, hit_events, n_veto, amp) for one scan point.
+def load_subrun(cfg, ct, subrun, z, chi2_cut, veto_sparks, sig_amp=300.0):
+    """Return (m3, p2, hit_events, n_veto, amp, tspread) for one scan point.
 
-    amp is the per-point pad-amplitude summary (gain proxy) over the same hits
+    amp is the per-point pad-amplitude summary (gain proxy); tspread is the
+    signal-hit peak-time spread (drift-time proxy). Both are over the same hits
     that feed the efficiency (hot pads dropped, spark-vetoed events excluded)."""
     sub = cfg.subrun_dir(subrun)
     hits_dir = os.path.join(sub, 'combined_hits_root')
@@ -104,7 +120,10 @@ def load_subrun(cfg, ct, subrun, z, chi2_cut, veto_sparks):
             hit_events = hit_events - bad
     amp = p2io.pad_amp_stats(hits_dir, ct, min_amp=cfg.MIN_AMP,
                              drop_pads=drop, exclude_events=bad)
-    return m3, p2, hit_events, n_veto, amp
+    tspread = p2io.pad_time_spread(hits_dir, ct, sig_amp=sig_amp,
+                                   min_amp=cfg.MIN_AMP, drop_pads=drop,
+                                   exclude_events=bad)
+    return m3, p2, hit_events, n_veto, amp, tspread
 
 
 def _robust_sigma(v):
@@ -112,6 +131,86 @@ def _robust_sigma(v):
     if len(v) < 10:
         return np.nan
     return float(1.4826 * np.median(np.abs(v - np.median(v))))
+
+
+def _drift_velocity_plot(df, cfg, tag, out_dir, suffix, vd_fn, args):
+    """Two-panel drift-velocity / timing figure for a drift scan:
+      left  — efficiency (data) + Magboltz v_d(E) (model) vs drift HV
+      right — measured peak-time spread (timing FoM) + apparent v_d vs drift HV
+    The optimal-timing window (efficient AND smallest time spread) is shaded.
+    """
+    d = df[df['eff_reco'].notna()].copy()
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(13, 5.2))
+
+    # -- left: efficiency + Magboltz v_d ---------------------------------- #
+    axL.errorbar(d['x'], d['eff_reco'], yerr=d['eff_reco_err'], fmt='o-',
+                 color='steelblue', capsize=4, lw=2, ms=7,
+                 label=f'efficiency (reco <{args.r:g} mm)')
+    axL.set_xlabel('drift HV [V]')
+    axL.set_ylabel('efficiency (fixed active area)', color='steelblue')
+    axL.tick_params(axis='y', labelcolor='steelblue')
+    axL.set_ylim(0, 1.02); axL.grid(True, alpha=0.3)
+    axv = axL.twinx()
+    # smooth Magboltz curve over the scanned field range
+    if vd_fn is not None:
+        vv = np.linspace(max(d['drift'].min(), d['mesh'].iloc[0] + 1),
+                         d['drift'].max(), 200)
+        ee = (vv - d['mesh'].iloc[0]) / (args.drift_gap_mm / 10.0)
+        axv.plot(vv, vd_fn(ee), '-', color='seagreen', lw=2,
+                 label='Magboltz $v_d$ (nominal gas)')
+        ipk = int(np.argmax(vd_fn(ee)))
+        axv.annotate(f'nominal $v_d$ peak {ee[ipk]:.0f} V/cm',
+                     xy=(vv[ipk], vd_fn(ee[ipk])),
+                     xytext=(vv[ipk] + 60, vd_fn(ee[ipk]) * 0.80),
+                     fontsize=7.5, color='seagreen', ha='left', va='top',
+                     arrowprops=dict(arrowstyle='->', color='seagreen', lw=0.8))
+    axv.set_ylabel('drift velocity $v_d$ [µm/ns]', color='seagreen')
+    axv.tick_params(axis='y', labelcolor='seagreen')
+    axv.set_ylim(0, None)
+    h1, l1 = axL.get_legend_handles_labels()
+    h2, l2 = axv.get_legend_handles_labels()
+    axL.legend(h1 + h2, l1 + l2, fontsize=8, loc='lower right')
+    axL.set_title('Efficiency + nominal drift velocity', fontsize=11)
+
+    # -- right: measured peak-time spread + apparent v_d ------------------ #
+    axR.plot(d['x'], d['tom_spread_ns'], 'o-', color='crimson', lw=2, ms=7,
+             label='peak-time spread p90−p10 (data)')
+    axR.set_xlabel('drift HV [V]')
+    axR.set_ylabel('peak-time spread [ns]  (smaller = better timing)',
+                   color='crimson')
+    axR.tick_params(axis='y', labelcolor='crimson')
+    axR.set_ylim(0, None); axR.grid(True, alpha=0.3)
+    axa = axR.twinx()
+    axa.plot(d['x'], d['vd_apparent_um_ns'], 's--', color='seagreen', ms=6,
+             alpha=0.85, label='apparent $v_d$ = 0.8 d/spread')
+    if vd_fn is not None:
+        axa.plot(d['x'], d['vd_magboltz_um_ns'], '-', color='seagreen',
+                 lw=1, alpha=0.4, label='Magboltz $v_d$ (nominal)')
+    axa.set_ylabel('apparent drift velocity [µm/ns]', color='seagreen')
+    axa.tick_params(axis='y', labelcolor='seagreen'); axa.set_ylim(0, None)
+    # shade the optimal window: efficient AND within 10% of the min spread
+    good = d[d['eff_reco'] > 0.5]
+    if len(good):
+        smin = good['tom_spread_ns'].min()
+        opt = good[good['tom_spread_ns'] <= 1.10 * smin]
+        axR.axvspan(opt['x'].min() - 10, opt['x'].max() + 10,
+                    color='gold', alpha=0.20,
+                    label='best-timing window (efficient)')
+    h1, l1 = axR.get_legend_handles_labels()
+    h2, l2 = axa.get_legend_handles_labels()
+    axR.legend(h1 + h2, l1 + l2, fontsize=8, loc='center right',
+               framealpha=0.92)
+    axR.set_title('Measured drift-time spread (timing figure of merit)',
+                  fontsize=11)
+
+    fig.suptitle(
+        f'{cfg.DET_NAME} drift velocity & timing vs drift HV — {tag}\n'
+        f'(mesh {d["mesh"].iloc[0]:.0f} V fixed, {args.drift_gap_mm:g} mm gap; '
+        'nominal-gas Magboltz vs measured peak-time spread)')
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, f'drift_velocity_vs_drift{suffix}.png'),
+                dpi=200, bbox_inches='tight')
+    plt.close(fig)
 
 
 def main():
@@ -147,6 +246,19 @@ def main():
                     help='scanned voltage: drift (drift_scan_* sub_runs, mesh '
                          'fixed) or mesh (mesh_scan_* sub_runs, drift in '
                          'tandem). Default drift.')
+    ap.add_argument('--drift-gap-mm', type=float, default=3.0,
+                    help='conversion (drift) gap thickness [mm], for the drift '
+                         'field E=(V_drift-V_mesh)/gap and the drift-velocity '
+                         'overlay. Default 3.0 (P2 Micromegas).')
+    ap.add_argument('--amp-gap-um', type=float, default=150.0,
+                    help='amplification gap [um], only for the reported '
+                         'avalanche field. Default 150 (P2 Micromegas).')
+    ap.add_argument('--gas-table', default=DEFAULT_GAS_TABLE,
+                    help='Magboltz drift-velocity table (E_Vcm, vz[cm/ns]) for '
+                         'the fill gas; overlaid on the drift scan.')
+    ap.add_argument('--sig-amp', type=float, default=300.0,
+                    help='signal amplitude threshold [ADC] for the data '
+                         'arrival-time (drift-time) spread measurement.')
     args = ap.parse_args()
 
     cfg = qa.get_config(args.run_key)
@@ -163,6 +275,15 @@ def main():
     suffix = cfg.product_suffix(args.veto_sparks)
     if args.min_amp is not None:
         suffix += f'_minamp{args.min_amp:g}'   # never overwrite the defaults
+
+    # drift-field geometry + Magboltz drift velocity (drift scan only)
+    gap_cm = args.drift_gap_mm / 10.0
+    vd_fn = load_drift_velocity(args.gas_table) if args.scan == 'drift' else None
+    if args.scan == 'drift':
+        print(f'drift gap {args.drift_gap_mm:g} mm, amp gap {args.amp_gap_um:g} '
+              f'um; drift field E=(V_drift-V_mesh)/{gap_cm:g}cm')
+        if vd_fn is None:
+            print(f'  [warn] no gas table at {args.gas_table} — vd overlay off')
 
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
@@ -189,15 +310,18 @@ def main():
     data = []
     pooled = []
     for subrun, mv, dv in subruns:
-        m3, p2, hit_events, n_veto, amp = load_subrun(
-            cfg, ct, subrun, args.z, args.chi2_cut, args.veto_sparks)
+        m3, p2, hit_events, n_veto, amp, tspread = load_subrun(
+            cfg, ct, subrun, args.z, args.chi2_cut, args.veto_sparks,
+            sig_amp=args.sig_amp)
         matched = m3.merge(p2, on='eventId', how='inner')
         xv = mv if args.scan == 'mesh' else dv
         print(f'  {args.scan} {xv}V: M3 {len(m3):,} | P2 {len(p2):,} | matched '
               f'{len(matched):,}' + (f' | spark-vetoed {n_veto}' if n_veto else '')
-              + f' | pad amp mean {amp["mean"]:.0f} / med {amp["median"]:.0f} ADC')
+              + f' | pad amp mean {amp["mean"]:.0f} ADC'
+              + f' | t_max spread {tspread["spread"]:.0f} ns')
         data.append(dict(subrun=subrun, mesh=mv, drift=dv, x=xv, m3=m3, p2=p2,
-                         hit_events=hit_events, matched=matched, amp=amp))
+                         hit_events=hit_events, matched=matched, amp=amp,
+                         tspread=tspread))
         pooled.append(matched)
     # transform fit sample: only the points with real response — pooling the
     # near-dead points too mixes noise-matches into the fit and biases the
@@ -273,6 +397,16 @@ def main():
         sx = _robust_sigma(dxres[d['in_active'].to_numpy()])
         sy = _robust_sigma(dyres[d['in_active'].to_numpy()])
         amp = a['amp']
+        ts = a['tspread']
+        # drift field + drift velocity (drift scan only). The measured p90-p10
+        # window of the peak-time spans ~ 0.8 * d_gap / v_drift for a uniformly
+        # illuminated gap, so an "apparent" v_d follows from the spread (carries
+        # a constant diffusion+trigger-phase floor; the trend is the signal).
+        e_drift = (a['drift'] - a['mesh']) / gap_cm if args.scan == 'drift' else np.nan
+        vd_mag = float(vd_fn(e_drift)) if (vd_fn is not None and e_drift > 0) else np.nan
+        vd_app = (0.8 * args.drift_gap_mm * 1e3 / ts['spread']
+                  if (args.scan == 'drift' and ts['spread'] and ts['spread'] > 0)
+                  else np.nan)
         rows.append(dict(x=a['x'], drift=a['drift'], mesh=a['mesh'],
                          subrun=a['subrun'],
                          n_active=n, n_within=int(da['within'].sum()),
@@ -280,7 +414,10 @@ def main():
                          eff_reco=eff, eff_reco_err=err, eff_anyhit=eff_any,
                          sigma_x_mm=sx, sigma_y_mm=sy,
                          amp_mean=amp['mean'], amp_mean_err=amp['sem'],
-                         amp_median=amp['median'], n_hits_amp=amp['n']))
+                         amp_median=amp['median'], n_hits_amp=amp['n'],
+                         e_drift_Vcm=e_drift, vd_magboltz_um_ns=vd_mag,
+                         tom_spread_ns=ts['spread'], tom_iqr_ns=ts['iqr'],
+                         vd_apparent_um_ns=vd_app))
         print(f'  {args.scan} {a["x"]}V: eff(reco<{args.r:g}mm)={eff:.3f}+-{err:.3f}  '
               f'eff(any)={eff_any:.3f}  sigma=({sx:.1f},{sy:.1f})mm  '
               f'({int(da["within"].sum())}/{n})')
@@ -314,7 +451,10 @@ def main():
                 dpi=200, bbox_inches='tight')
     plt.close(fig)
 
-    # mean pad amplitude (gain proxy) vs scanned V -- linear + log(exp gain)
+    # mean pad amplitude vs scanned V -- linear + log panels. In a MESH scan
+    # amplitude tracks the (exponential) gas gain; in a DRIFT scan the gain is
+    # fixed, so amplitude instead tracks charge collection / mesh transparency
+    # through the drift gap -- keep the log-panel caption scan-aware.
     fig3, (ax3, ax3b) = plt.subplots(1, 2, figsize=(12, 5))
     for axi in (ax3, ax3b):
         axi.errorbar(df['x'], df['amp_mean'], yerr=df['amp_mean_err'], fmt='o-',
@@ -326,10 +466,15 @@ def main():
         axi.grid(True, alpha=0.3); axi.legend()
     ax3.set_ylim(0, None); ax3.set_title('linear')
     ax3b.set_yscale('log')
-    ax3b.set_title('log y — exponential gas gain is a straight line')
+    ax3b.set_title('log y — exponential gas gain is a straight line'
+                   if args.scan == 'mesh'
+                   else 'log y (gain fixed: amplitude = charge collection)')
+    amp_note = ('mapped pad hits, hot pads + spark events removed'
+                if args.scan == 'mesh' else
+                'gain fixed at the mesh working point; amplitude tracks '
+                'drift-gap charge collection')
     fig3.suptitle(f'{cfg.DET_NAME} mean pad amplitude vs {args.scan} HV — {tag}\n'
-                  f'({fixed_lbl}, mapped pad hits, hot pads + spark events '
-                  'removed)')
+                  f'({fixed_lbl}, {amp_note})')
     fig3.tight_layout()
     fig3.savefig(os.path.join(out_dir, f'amplitude_vs_{args.scan}{suffix}.png'),
                  dpi=200, bbox_inches='tight')
@@ -353,12 +498,30 @@ def main():
                  dpi=200, bbox_inches='tight')
     plt.close(fig2)
 
+    # drift velocity & timing (drift scan only): the fill-gas Magboltz v_d(E)
+    # mapped onto each drift point, plus the measured peak-time spread (a data
+    # proxy for the drift-time = d_gap/v_d) -> which drift HV gives BEST timing.
+    if args.scan == 'drift' and df['e_drift_Vcm'].notna().any():
+        _drift_velocity_plot(df, cfg, tag, out_dir, suffix, vd_fn, args)
+
     print(f'\n{args.scan + "[V]":>8}  {"eff_reco":>9}  {"+-err":>6}  {"eff_any":>8}  '
           f'{"n_p2":>6}  {"tracks":>7}  {"amp_mean":>9}  {"amp_med":>8}')
     for _, r in df.iterrows():
         print(f'{r.x:>8.0f}  {r.eff_reco:>9.3f}  {r.eff_reco_err:>6.3f}  '
               f'{r.eff_anyhit:>8.3f}  {r.n_p2_events:>6.0f}  {r.n_active:>7.0f}  '
               f'{r.amp_mean:>9.0f}  {r.amp_median:>8.0f}')
+    if args.scan == 'drift' and df['e_drift_Vcm'].notna().any():
+        print(f'\n{"drift[V]":>8}  {"E[V/cm]":>8}  {"vd_mag":>7}  {"t_spread":>9}  '
+              f'{"vd_app":>7}   (vd in um/ns, spread in ns)')
+        for _, r in df.iterrows():
+            print(f'{r.x:>8.0f}  {r.e_drift_Vcm:>8.0f}  {r.vd_magboltz_um_ns:>7.1f}  '
+                  f'{r.tom_spread_ns:>9.0f}  {r.vd_apparent_um_ns:>7.1f}')
+        good = df[df['eff_reco'] > 0.5]
+        if len(good):
+            best = good.loc[good['tom_spread_ns'].idxmin()]
+            print(f'\n  best timing (min peak-time spread) among efficient '
+                  f'points: drift {best.x:.0f} V (E={best.e_drift_Vcm:.0f} V/cm, '
+                  f'spread {best.tom_spread_ns:.0f} ns, eff {best.eff_reco:.2f})')
     print(f'\nWritten to: {out_dir}')
 
 
