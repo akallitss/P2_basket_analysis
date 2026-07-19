@@ -500,6 +500,22 @@ RUNS = {
         match_r=40.0,
         min_amp=0.0),
 
+    # det1 24 h efficiency long run (7-19-26 19:24) at the working point chosen
+    # from today's mesh + drift scans: mesh 415 V / drift 615 V (drift gap
+    # 200 V, E ~ 667 V/cm) -- the timing-optimal AND efficiency-plateau point.
+    # Single sub_run long_run_det1_415_615. Same 00:21 pedestal -> min_amp 0.
+    # Fetched mid-run (products grow as the on-the-fly processor catches up).
+    'det1_long5': _Config(
+        'det1_long5',
+        run='p2_det1_long_run_efficiency_7-19-26',
+        sub_run='long_run_det1_415_615',
+        det_name='P2_1',
+        det_tag='det1',
+        spark_channel='1:2',
+        dead_connectors=(1, 10),
+        match_r=40.0,
+        min_amp=0.0),
+
     'det3_driftscan1': _Config(
         'det3_driftscan1',
         run='p2_det3_det4_drift_scan_7-16-26',
