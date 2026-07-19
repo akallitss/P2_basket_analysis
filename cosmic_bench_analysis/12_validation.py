@@ -54,6 +54,7 @@ import p2_qa_config as qa
 import p2_mapping as pmap
 import p2_align as pa
 import p2_sparks as ps
+import p2_io as p2io
 
 
 # --------------------------------------------------------------------------- #
@@ -171,10 +172,11 @@ def main():
     print(f'Loading M3 (z={z0:.0f}) + P2 centroids ...')
     m3 = pa.load_m3_positions(m3_dir, z0, args.chi2_cut)
     m3 = pa.filter_events_by_time(m3, m3_dir, cfg.T_MAX_H)
+    drop_pads = p2io.drop_pads_for(cfg, ct)
     p2, hit_events = pa.load_p2_centroids(hits_dir, ct,
                                           min_amp=cfg.MIN_AMP,
                                           t_max_h=cfg.T_MAX_H,
-                                          drop_pads=cfg.NOISY_PADS)
+                                          drop_pads=drop_pads)
     if args.veto_sparks:
         sv = ps.SparkVeto.from_cfg(cfg)
         bad = sv.vetoed_ids_from_hits(hits_dir, ct.attrs['feus'],
@@ -326,7 +328,6 @@ def main():
     print('mapping-vs-dead: per-pad firing vs per-pad efficiency ...')
     # per-pad hit counts from the raw hits (attach pads, count by channel_id),
     # reduced chunk by chunk so the full hit table never sits in memory
-    import p2_io as p2io
     fire = None
     for chunk in p2io.iter_hits(hits_dir, ['eventId', 'channel', 'feu'],
                                 ct.attrs['feus'],
@@ -396,8 +397,8 @@ def main():
                                 t_max_h=cfg.T_MAX_H, min_amp=cfg.MIN_AMP):
         h = pmap.attach_pads_to_hits(chunk, ct)
         h = h[h['mapped'] & h['pad_cx'].notna()]
-        if cfg.NOISY_PADS:
-            h = h[~h['channel_id'].isin(set(cfg.NOISY_PADS))]
+        if drop_pads:
+            h = h[~h['channel_id'].isin(set(drop_pads))]
         h = h[h['eventId'].isin(need_ev)]
         if not len(h):
             continue
