@@ -103,6 +103,130 @@ def iter_hits(hits_dir, branches, feus=None, progress=True,
         yield df
 
 
+def hot_pad_mask(counts, ratio=5.0, min_n=30):
+    """Boolean mask of 'hot' pads from per-pad hit counts.
+
+    A pad is hot when it carries more than `ratio` times the median occupancy
+    of the pads that fired at all AND at least `min_n` hits (so a low-stats
+    sub_run cannot flag Poisson fluctuations). Cosmic illumination is smooth,
+    so genuine pads stay within ~2-3x of the median; constantly-firing pads
+    (oscillating channels, HV pickup) sit an order of magnitude above it
+    without ever tripping the spark/burst vetoes."""
+    counts = np.asarray(counts, dtype=float)
+    fired = counts > 0
+    if not fired.any():
+        return np.zeros(len(counts), dtype=bool)
+    med = float(np.median(counts[fired]))
+    return (counts > ratio * med) & (counts >= min_n)
+
+
+_HOT_CACHE = {}
+
+
+def auto_hot_pads(hits_dir, channel_table, min_amp=0.0, t_max_h=None,
+                  ratio=5.0, min_n=30, verbose=True):
+    """Auto-detect constantly-firing pads in a sub_run (see hot_pad_mask).
+
+    Streamed occupancy pre-pass: only per-pad counts are held (one row per
+    pad), so memory stays bounded like every other reduction here. The result
+    is cached per (hits_dir, cuts) so stages that load the same sub_run more
+    than once in a process scan it only once.
+
+    Returns a sorted tuple of hot channel_ids (empty if ratio is falsy)."""
+    if not ratio:
+        return ()
+    key = (hits_dir, float(min_amp), t_max_h, float(ratio), int(min_n))
+    if key in _HOT_CACHE:
+        return _HOT_CACHE[key]
+    counts = None
+    for df in iter_hits(hits_dir, ['channel', 'feu'],
+                        channel_table.attrs['feus'], progress=False,
+                        t_max_h=t_max_h, min_amp=min_amp):
+        h = pmap.attach_pads_to_hits(df, channel_table)
+        h = h[h['mapped'] & h['pad_cx'].notna()]
+        del df
+        if not len(h):
+            continue
+        c = h.groupby('channel_id').size()
+        counts = c if counts is None else counts.add(c, fill_value=0)
+    if counts is None:
+        _HOT_CACHE[key] = ()
+        return ()
+    hot = hot_pad_mask(counts.to_numpy(), ratio=ratio, min_n=min_n)
+    ids = tuple(sorted(int(i) for i in counts.index[hot]))
+    if verbose and ids:
+        med = float(np.median(counts[counts > 0]))
+        det = ', '.join(f'{i} ({int(counts[i]):,} hits, '
+                        f'{counts[i] / med:.1f}x median)' for i in ids)
+        print(f'Hot-pad cut (>{ratio:g}x median occupancy, >={min_n} hits): '
+              f'masking {len(ids)} pad(s): {det}', flush=True)
+    _HOT_CACHE[key] = ids
+    return ids
+
+
+def drop_pads_for(cfg, channel_table, hits_dir=None):
+    """Channels to drop at load time: manual cfg.NOISY_PADS plus the pads
+    auto-flagged by the occupancy cut (cfg.HOT_PAD_RATIO; 0 disables).
+    Pass hits_dir for stages that loop per-sub_run directories (11/16)."""
+    drop = set(cfg.NOISY_PADS)
+    ratio = getattr(cfg, 'HOT_PAD_RATIO', 0.0)
+    if ratio:
+        drop |= set(auto_hot_pads(hits_dir or cfg.combined_hits_dir,
+                                  channel_table, min_amp=cfg.MIN_AMP,
+                                  t_max_h=cfg.T_MAX_H, ratio=ratio))
+    return tuple(sorted(drop))
+
+
+def pad_amp_stats(hits_dir, channel_table, min_amp=0.0, t_max_h=None,
+                  drop_pads=(), exclude_events=None, amax=20000.0, dbin=2.0):
+    """Streamed pad-amplitude summary for one sub_run (gain proxy vs HV).
+
+    Mean and its standard error come from exact running sums; the median comes
+    from a fine ADC histogram (0..amax, dbin-wide bins) so no per-hit array is
+    ever held -- memory stays bounded like every other reduction here (the det4
+    chunks carry ~18M hits). Amplitudes above amax are clipped into the top bin
+    (P2 saturates well below 20k ADC, so this only guards pathological values).
+
+    drop_pads (hot/noisy pads) and exclude_events (e.g. spark-vetoed eventIds,
+    so the amplitude matches the efficiency sample) are applied before the
+    reduction. Returns dict(n, mean, sem, median).
+    """
+    nb = int(round(amax / dbin))
+    edges = np.linspace(0.0, amax, nb + 1)
+    hist = np.zeros(nb, dtype=np.int64)
+    excl = set(exclude_events) if exclude_events is not None else None
+    n = 0
+    s = 0.0
+    s2 = 0.0
+    for df in iter_hits(hits_dir, ['eventId', 'channel', 'amplitude', 'feu'],
+                        channel_table.attrs['feus'], progress=False,
+                        t_max_h=t_max_h, min_amp=min_amp):
+        h = pmap.attach_pads_to_hits(df, channel_table)
+        h = h[h['mapped'] & h['pad_cx'].notna()]
+        if drop_pads:
+            h = h[~h['channel_id'].isin(set(drop_pads))]
+        if excl is not None and len(h):
+            h = h[~h['eventId'].isin(excl)]
+        del df
+        if not len(h):
+            continue
+        a = h['amplitude'].to_numpy(dtype=np.float64)
+        n += len(a)
+        s += float(a.sum())
+        s2 += float((a * a).sum())
+        hist += np.histogram(np.clip(a, 0.0, amax), bins=edges)[0]
+    if n == 0:
+        return dict(n=0, mean=np.nan, sem=np.nan, median=np.nan)
+    mean = s / n
+    var = max(s2 / n - mean * mean, 0.0)
+    sem = float(np.sqrt(var / n))
+    cum = np.cumsum(hist)
+    k = int(np.searchsorted(cum, 0.5 * n))
+    k = min(k, nb - 1)
+    median = 0.5 * (edges[k] + edges[k + 1])
+    return dict(n=n, mean=mean, sem=sem, median=float(median))
+
+
 def _empty_cen():
     return pd.DataFrame({'eventId': pd.Series(dtype=np.int64),
                          'x_pad': pd.Series(dtype=np.float64),
