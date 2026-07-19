@@ -51,6 +51,7 @@ import p2_qa_config as qa
 import p2_mapping as pmap
 import p2_align as pa
 import p2_sparks as ps
+import p2_io as p2io
 
 
 def find_subruns(cfg):
@@ -74,14 +75,21 @@ def find_subruns(cfg):
 
 
 def load_subrun(cfg, ct, subrun, z, chi2_cut, veto_sparks):
-    """Return (m3, p2, hit_events) for one HV sub_run, optionally spark-vetoed."""
+    """Return (m3, p2, hit_events, n_veto, amp) for one HV sub_run.
+
+    amp is the per-sub_run pad-amplitude summary (gain proxy) over the same
+    hits that feed the efficiency (hot pads dropped, spark-vetoed events
+    excluded), streamed memory-safely by p2_io.pad_amp_stats.
+    """
     sub = cfg.subrun_dir(subrun)
     hits_dir = os.path.join(sub, 'combined_hits_root')
     m3_dir = os.path.join(sub, 'm3_tracking_root')
+    drop = p2io.drop_pads_for(cfg, ct, hits_dir=hits_dir)
     m3 = pa.load_m3_positions(m3_dir, z, chi2_cut)
     p2, hit_events = pa.load_p2_centroids(hits_dir, ct, min_amp=cfg.MIN_AMP,
-                                          drop_pads=cfg.NOISY_PADS)
+                                          drop_pads=drop)
     n_veto = 0
+    bad = None
     if veto_sparks:
         hv_csv = os.path.join(sub, 'hv_monitor.csv')
         if os.path.isfile(hv_csv):
@@ -92,7 +100,9 @@ def load_subrun(cfg, ct, subrun, z, chi2_cut, veto_sparks):
             m3 = m3[~m3['eventId'].isin(bad)].copy()
             p2 = p2[~p2['eventId'].isin(bad)].copy()
             hit_events = hit_events - bad
-    return m3, p2, hit_events, n_veto
+    amp = p2io.pad_amp_stats(hits_dir, ct, min_amp=cfg.MIN_AMP,
+                             drop_pads=drop, exclude_events=bad)
+    return m3, p2, hit_events, n_veto, amp
 
 
 def _robust_sigma(v):
@@ -154,13 +164,14 @@ def main():
     data = []
     pooled = []
     for subrun, hv in subruns:
-        m3, p2, hit_events, n_veto = load_subrun(cfg, ct, subrun, args.z,
-                                                 args.chi2_cut, args.veto_sparks)
+        m3, p2, hit_events, n_veto, amp = load_subrun(
+            cfg, ct, subrun, args.z, args.chi2_cut, args.veto_sparks)
         matched = m3.merge(p2, on='eventId', how='inner')
         print(f'  mesh {hv}V: M3 {len(m3):,} | P2 {len(p2):,} | matched '
-              f'{len(matched):,}' + (f' | spark-vetoed {n_veto}' if n_veto else ''))
+              f'{len(matched):,}' + (f' | spark-vetoed {n_veto}' if n_veto else '')
+              + f' | pad amp mean {amp["mean"]:.0f} / med {amp["median"]:.0f} ADC')
         data.append(dict(subrun=subrun, hv=hv, m3=m3, p2=p2,
-                         hit_events=hit_events, matched=matched))
+                         hit_events=hit_events, matched=matched, amp=amp))
         pooled.append(matched)
     if args.fit_top and len(data) > args.fit_top:
         best = sorted(data, key=lambda a: len(a['matched']),
@@ -215,10 +226,13 @@ def main():
         eff_any = da['has_any'].mean()
         sx = _robust_sigma(dxres[d['in_active'].to_numpy()])
         sy = _robust_sigma(dyres[d['in_active'].to_numpy()])
+        amp = a['amp']
         rows.append(dict(hv=a['hv'], subrun=a['subrun'], n_active=n,
                          n_within=int(da['within'].sum()),
                          eff_reco=eff, eff_reco_err=err, eff_anyhit=eff_any,
-                         sigma_x_mm=sx, sigma_y_mm=sy))
+                         sigma_x_mm=sx, sigma_y_mm=sy,
+                         amp_mean=amp['mean'], amp_mean_err=amp['sem'],
+                         amp_median=amp['median'], n_hits_amp=amp['n']))
         print(f'  mesh {a["hv"]}V: eff(reco<{args.r:g}mm)={eff:.3f}+-{err:.3f}  '
               f'eff(any)={eff_any:.3f}  sigma=({sx:.1f},{sy:.1f})mm  '
               f'({int(da["within"].sum())}/{n})')
@@ -245,6 +259,24 @@ def main():
     fig.savefig(os.path.join(out_dir, f'efficiency_vs_hv{suffix}.png'),
                 dpi=200, bbox_inches='tight'); plt.close(fig)
 
+    # mean pad amplitude (gain proxy) vs HV -- linear + log(exp gain) panels
+    fig3, (ax3, ax3b) = plt.subplots(1, 2, figsize=(12, 5))
+    for ax in (ax3, ax3b):
+        ax.errorbar(df['hv'], df['amp_mean'], yerr=df['amp_mean_err'], fmt='o-',
+                    color='steelblue', capsize=4, lw=2, ms=7, label='mean pad amp')
+        ax.plot(df['hv'], df['amp_median'], 's--', color='darkorange', ms=6,
+                alpha=0.8, label='median pad amp')
+        ax.set_xlabel('mesh HV [V]'); ax.set_ylabel('pad amplitude [ADC]')
+        ax.grid(True, alpha=0.3); ax.legend()
+    ax3.set_ylim(0, None); ax3.set_title('linear')
+    ax3b.set_yscale('log')
+    ax3b.set_title('log y — exponential gas gain is a straight line')
+    fig3.suptitle(f'{cfg.DET_NAME} mean pad amplitude vs mesh HV — {tag}\n'
+                  '(mapped pad hits, hot pads + spark events removed)')
+    fig3.tight_layout()
+    fig3.savefig(os.path.join(out_dir, f'amplitude_vs_hv{suffix}.png'),
+                 dpi=200, bbox_inches='tight'); plt.close(fig3)
+
     # resolution vs HV
     fig2, ax2 = plt.subplots(figsize=(8, 5))
     ax2.plot(df['hv'], df['sigma_x_mm'], 'o-', color='steelblue', lw=2, ms=7, label='σ_x')
@@ -257,10 +289,12 @@ def main():
     fig2.savefig(os.path.join(out_dir, f'resolution_vs_hv{suffix}.png'),
                  dpi=200, bbox_inches='tight'); plt.close(fig2)
 
-    print(f'\n{"HV[V]":>6}  {"eff_reco":>9}  {"+-err":>6}  {"eff_any":>8}  {"tracks":>7}')
+    print(f'\n{"HV[V]":>6}  {"eff_reco":>9}  {"+-err":>6}  {"eff_any":>8}  '
+          f'{"tracks":>7}  {"amp_mean":>9}  {"amp_med":>8}')
     for _, r in df.iterrows():
         print(f'{r.hv:>6.0f}  {r.eff_reco:>9.3f}  {r.eff_reco_err:>6.3f}  '
-              f'{r.eff_anyhit:>8.3f}  {r.n_active:>7.0f}')
+              f'{r.eff_anyhit:>8.3f}  {r.n_active:>7.0f}  {r.amp_mean:>9.0f}  '
+              f'{r.amp_median:>8.0f}')
     print(f'\nWritten to: {out_dir}')
 
 
