@@ -98,21 +98,29 @@ def _pad_range(df, pad=15):
 
 
 def plot_surface_hitmap(padc, channel_table, out_dir, cfg, n_hits, n_events,
-                        suffix='', pillars=None):
+                        suffix='', pillars=None, masked_pads=()):
     """Hit counts drawn on the real pad tiles (not a uniform-grid histogram, so
-    the fan geometry tiles contiguously). Never-fired live pads are grey."""
+    the fan geometry tiles contiguously). Never-fired live pads are grey;
+    hot/noisy pads cut from the aggregates are hatched, not shown as dead."""
     from matplotlib.collections import PolyCollection
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
     if pmap.has_tile_geometry(channel_table):
         pads, verts = pmap.pad_tiles(channel_table)
         counts = padc['n'].reindex(pads['channel_id']).fillna(0).to_numpy()
-        fired = counts > 0
+        masked = pads['channel_id'].isin(set(masked_pads)).to_numpy()
+        fired = (counts > 0) & ~masked
         for ax, norm, tag in [(axes[0], None, 'linear'),
                               (axes[1], matplotlib.colors.LogNorm(vmin=1), 'log')]:
-            dead = PolyCollection(verts[~fired], facecolors='0.92',
+            dead = PolyCollection(verts[~fired & ~masked], facecolors='0.92',
                                   edgecolors='0.7', linewidths=0.3)
             ax.add_collection(dead)
+            if masked.any():
+                hotc = PolyCollection(verts[masked], facecolors='white',
+                                      edgecolors='tab:blue', hatch='////',
+                                      linewidths=0.6,
+                                      label=f'hot pad masked ({int(masked.sum())})')
+                ax.add_collection(hotc)
             pc = PolyCollection(verts[fired], array=counts[fired], cmap='inferno',
                                 norm=norm, edgecolors='face', linewidths=0.2)
             ax.add_collection(pc)
@@ -120,8 +128,9 @@ def plot_surface_hitmap(padc, channel_table, out_dir, cfg, n_hits, n_events,
             ax.set_xlabel('pad_cx [mm]'); ax.set_ylabel('pad_cy [mm]')
             ax.autoscale_view(); ax.set_aspect('equal')
             ax.set_title(f'Surface hitmap ({tag}) — grey = never fired')
-            if pillars is not None and len(pillars):
-                pmap.draw_pillars(ax, pillars, small=False)
+            if (pillars is not None and len(pillars)) or masked.any():
+                if pillars is not None and len(pillars):
+                    pmap.draw_pillars(ax, pillars, small=False)
                 ax.legend(loc='upper right', fontsize=7, framealpha=0.9)
     else:  # old map CSV without tile geometry: fall back to the grid histogram
         gm = (channel_table.drop_duplicates('channel_id')
@@ -278,10 +287,16 @@ def main():
     if cfg.DEAD_CONNECTORS:
         print(f'  dropped dead connectors: {list(cfg.DEAD_CONNECTORS)}')
     n_pads = ct['channel_id'].nunique()
-    drop = cfg.NOISY_PADS if args.mask_noisy_pads else ()
-    if drop:
+    # Constantly-firing (hot) pads are always cut -- they swamp the hitmap
+    # colour scale and the multiplicity/centroid aggregates -- but stay
+    # visible: outlined on the surface hitmap and listed in the summary.
+    hot = p2io.auto_hot_pads(cfg.combined_hits_dir, ct, min_amp=cfg.MIN_AMP,
+                             t_max_h=cfg.T_MAX_H, ratio=cfg.HOT_PAD_RATIO)
+    drop = set(hot)
+    if args.mask_noisy_pads and cfg.NOISY_PADS:
+        drop |= set(cfg.NOISY_PADS)
         sfx += '_noisy_masked'
-        print(f'  masking noisy pads: {list(drop)}')
+        print(f'  masking noisy pads: {list(cfg.NOISY_PADS)}')
     sv = ps.SparkVeto.from_cfg(cfg) if args.veto_sparks else None
     padc, events, n_hits = load_aggregates(cfg, ct, spark_veto=sv,
                                            drop_pads=drop)
@@ -292,12 +307,16 @@ def main():
                f'  events with any pad hit: {n_events:,}',
                f'  total pad hits: {n_hits:,}  ({n_hits/max(n_events, 1):.2f} hits/event)',
                f'  distinct pads fired: {len(padc)} / {n_pads}']
+    if hot:
+        summary.append(f'  hot pads auto-masked (>{cfg.HOT_PAD_RATIO:g}x '
+                       f'median occupancy): {list(hot)}')
 
     pil = pmap.load_pillars(cfg.MASK_GBR_PATH)
     if len(pil):
         print(f'  insulation-mask pillars: {int(pil["big"].sum())} big + '
               f'{int((~pil["big"]).sum()):,} small (overlaid on hitmaps)')
-    plot_surface_hitmap(padc, ct, out_dir, cfg, n_hits, n_events, sfx, pillars=pil)
+    plot_surface_hitmap(padc, ct, out_dir, cfg, n_hits, n_events, sfx,
+                        pillars=pil, masked_pads=drop)
     n_cen, n_muonlike = plot_centroid_hitmap(events, ct, out_dir, cfg, sfx,
                                              pillars=pil)
     summary.append(f'  event centroids: {n_cen:,}  (muon-like n_pad<=3: {n_muonlike:,})')
