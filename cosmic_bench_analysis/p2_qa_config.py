@@ -482,6 +482,24 @@ RUNS = {
         dead_connectors=(1, 10),
         min_amp=0.0),     # reprocessed w/ real pedestals (thr ~28 ADC)
 
+    # det1 DRIFT scan (7-19-26 afternoon), taken right after the mesh scan
+    # settled on 415 V as the working point: mesh FIXED at 415 V, drift stepped
+    # 415->965 V in 50 V steps (drift gap 0->550 V), 30 min per point. Probes
+    # the drift-field response at fixed gain. sub_runs named
+    # drift_scan_det1_415_<drift>; sub_run here is only the products dir (stage
+    # 16 --scan drift loops them). Same 00:21 pedestal as det1_meshscan1 ->
+    # min_amp 0. Fetched mid-run (processor lags the DAQ ~5-10 min/point).
+    'det1_driftscan2': _Config(
+        'det1_driftscan2',
+        run='p2_det1_drift_scan_7-19-26',
+        sub_run='drift_scan',
+        det_name='P2_1',
+        det_tag='det1',
+        spark_channel='1:2',
+        dead_connectors=(1, 10),
+        match_r=40.0,
+        min_amp=0.0),
+
     'det3_driftscan1': _Config(
         'det3_driftscan1',
         run='p2_det3_det4_drift_scan_7-16-26',
