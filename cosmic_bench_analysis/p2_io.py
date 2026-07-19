@@ -279,6 +279,62 @@ def pad_time_spread(hits_dir, channel_table, sig_amp=300.0, min_amp=0.0,
                 spread=p90 - p10, iqr=p75 - p25)
 
 
+def event_time_resolution(hits_dir, channel_table, sig_amp=300.0, min_amp=0.0,
+                          t_max_h=None, drop_pads=(), exclude_events=None,
+                          estimator='leading'):
+    """Per-event detector timestamp resolution [ns] from the pad peak-times.
+
+    One timestamp is formed per event from the signal-band pad hits
+    (amplitude >= sig_amp):
+      'leading'  time_of_max of the highest-amplitude pad (best S/N, robust)
+      'earliest' the earliest time_of_max (leading-edge / first electron)
+    time_of_max is fine-time-step corrected and referenced to the readout start
+    (the trigger, set by the scintillators), so the robust spread of this
+    per-event time across events IS the time resolution -- the constant trigger
+    latency only shifts the mean. Returns dict(n_events, sigma_ns, mad_ns,
+    median_ns); sigma = (p84.1 - p15.9)/2 (Gaussian-core robust).
+
+    Streamed: only a per-event running best (argmax amplitude, or min time) is
+    held -- one float pair per event, so memory stays bounded (~n_events).
+    """
+    excl = set(exclude_events) if exclude_events is not None else None
+    thr = max(float(min_amp), float(sig_amp))
+    best_t = {}          # eventId -> chosen time_of_max
+    best_a = {}          # eventId -> amplitude at that time (leading only)
+    for df in iter_hits(hits_dir, ['eventId', 'channel', 'amplitude', 'feu',
+                                   'time_of_max'],
+                        channel_table.attrs['feus'], progress=False,
+                        t_max_h=t_max_h, min_amp=min_amp):
+        h = pmap.attach_pads_to_hits(df, channel_table)
+        h = h[h['mapped'] & h['pad_cx'].notna() & (h['amplitude'] >= thr)]
+        if drop_pads:
+            h = h[~h['channel_id'].isin(set(drop_pads))]
+        if excl is not None and len(h):
+            h = h[~h['eventId'].isin(excl)]
+        del df
+        if not len(h):
+            continue
+        if estimator == 'earliest':
+            g = h.groupby('eventId')['time_of_max'].min()
+            for ev, t in g.items():
+                if ev not in best_t or t < best_t[ev]:
+                    best_t[ev] = float(t)
+        else:  # leading pad = max amplitude
+            idx = h.groupby('eventId')['amplitude'].idxmax()
+            sel = h.loc[idx, ['eventId', 'amplitude', 'time_of_max']]
+            for ev, a, t in sel.itertuples(index=False):
+                if ev not in best_a or a > best_a[ev]:
+                    best_a[ev] = float(a)
+                    best_t[ev] = float(t)
+    t = np.fromiter(best_t.values(), dtype=np.float64)
+    if len(t) < 20:
+        return dict(n_events=len(t), sigma_ns=np.nan, mad_ns=np.nan,
+                    median_ns=np.nan)
+    p16, p50, p84 = np.percentile(t, [15.865, 50.0, 84.135])
+    return dict(n_events=len(t), sigma_ns=0.5 * (p84 - p16),
+                mad_ns=1.4826 * np.median(np.abs(t - p50)), median_ns=p50)
+
+
 def _empty_cen():
     return pd.DataFrame({'eventId': pd.Series(dtype=np.int64),
                          'x_pad': pd.Series(dtype=np.float64),
