@@ -108,10 +108,10 @@ def main():
 
     # --- inputs ---
     m3 = pa.load_m3_positions(cfg.m3_tracking_dir, det_z, args.chi2_cut)
-    m3 = pa.filter_events_by_time(m3, cfg.m3_tracking_dir, cfg.T_MAX_H)
+    m3 = pa.filter_events_by_time(m3, cfg.m3_tracking_dir, cfg.T_MAX_H, t_min_h=cfg.T_MIN_H)
     p2, hit_events = pa.load_p2_centroids(cfg.combined_hits_dir, ct,
                                           min_amp=cfg.MIN_AMP,
-                                          t_max_h=cfg.T_MAX_H,
+                                          t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H,
                                           drop_pads=p2io.drop_pads_for(cfg, ct))
 
     # --- HV spark veto: drop rays/events taken during a mesh discharge -------
