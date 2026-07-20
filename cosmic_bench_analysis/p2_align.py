@@ -92,37 +92,45 @@ def project_to_z(ep, z):
 
 
 def load_p2_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
-                      t_max_h=None, drop_pads=()):
+                      t_max_h=None, drop_pads=(), t_min_h=None):
     """Per-event P2 pad centroid (charge-weighted or leading-pad), keyed by eventId.
     Also returns the set of eventIds with any mapped P2 hit.
 
     Streams the combined-hits chunks (p2_io) so memory stays bounded no matter
-    how many chunks the run has. min_amp / t_max_h / drop_pads are the per-run
-    data-quality cuts (cfg.MIN_AMP / cfg.T_MAX_H / cfg.NOISY_PADS)."""
+    how many chunks the run has. min_amp / t_min_h / t_max_h / drop_pads are the
+    per-run data-quality cuts (cfg.MIN_AMP / cfg.T_MIN_H / cfg.T_MAX_H /
+    cfg.NOISY_PADS)."""
     cen, hit_ev, _ = p2io.event_centroids(hits_dir, channel_table,
                                           min_amp=min_amp,
                                           leading_pad=leading_pad,
-                                          t_max_h=t_max_h,
+                                          t_max_h=t_max_h, t_min_h=t_min_h,
                                           drop_pads=drop_pads)
     return cen, set(int(e) for e in hit_ev)
 
 
-def filter_events_by_time(df, m3_dir, t_max_h, id_col='eventId'):
-    """Drop rows whose event happened later than t_max_h hours after run
-    start (event times from the m3 tracking files, same clock as the hits'
-    trigger_timestamp_ns). Used so a detector trip mid-run does not leave
-    dead-time rays in the efficiency denominator."""
-    if t_max_h is None:
+def filter_events_by_time(df, m3_dir, t_max_h, id_col='eventId', t_min_h=None):
+    """Drop rows whose event fell outside the [t_min_h, t_max_h] window (hours
+    after run start; event times from the m3 tracking files, same clock as the
+    hits' trigger_timestamp_ns). Used so a detector trip mid-run does not leave
+    dead-time rays in the efficiency denominator, and to split a run into
+    before/after a mid-run failure."""
+    if t_max_h is None and t_min_h is None:
         return df
     # t_sec (= trigger_timestamp_ns/1e9) starts at ~0 at run start, so the cut
     # is on absolute run time. Do NOT reference the first m3 event: the
     # on-the-fly ray processor can start hours into a run (det4 7-15: first
     # ray file begins 2.56 h in), which would shift the window.
     et = load_event_times(m3_dir)
-    good = set(et.loc[et['t_sec'] <= t_max_h * 3600.0, 'eventId'])
+    ok = np.ones(len(et), dtype=bool)
+    if t_max_h is not None:
+        ok &= (et['t_sec'].to_numpy() <= t_max_h * 3600.0)
+    if t_min_h is not None:
+        ok &= (et['t_sec'].to_numpy() >= t_min_h * 3600.0)
+    good = set(et.loc[ok, 'eventId'])
     kept = df[df[id_col].isin(good)]
-    print(f'  t_max_h={t_max_h:g} h: kept {len(kept):,}/{len(df):,} '
-          f'{id_col} rows.')
+    win = (f't_min_h={t_min_h:g} ' if t_min_h is not None else '') + \
+          (f't_max_h={t_max_h:g}' if t_max_h is not None else '')
+    print(f'  {win} h: kept {len(kept):,}/{len(df):,} {id_col} rows.')
     return kept
 
 
