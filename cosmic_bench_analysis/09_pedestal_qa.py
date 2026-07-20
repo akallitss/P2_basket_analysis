@@ -86,7 +86,7 @@ def load_firing(cfg, ct, veto_sparks=True):
     fire = None
     ev_parts = []
     for a in p2io.iter_hits(cfg.combined_hits_dir, br, ct.attrs['feus'],
-                            t_max_h=cfg.T_MAX_H, min_amp=cfg.MIN_AMP):
+                            t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H, min_amp=cfg.MIN_AMP):
         if sv is not None:
             a, _ = sv.apply(a)
         h = pmap.attach_pads_to_hits(a, ct)
