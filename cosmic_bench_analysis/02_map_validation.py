@@ -53,7 +53,7 @@ _HIT_BRANCHES = ['eventId', 'trigger_timestamp_ns', 'channel', 'amplitude',
 # Data loading
 # --------------------------------------------------------------------------- #
 def load_channel_stats(hits_dir, feus, spark_veto=None, t_max_h=None,
-                       min_amp=0.0):
+                       min_amp=0.0, t_min_h=None):
     """Stream the combined-hits chunks and reduce to per-(feu,channel) stats.
 
     Never holds more than one chunk of hits in memory (the det4 long run has
@@ -65,7 +65,7 @@ def load_channel_stats(hits_dir, feus, spark_veto=None, t_max_h=None,
     n_hits = 0
     n_rm = n_burst = 0
     for df in p2io.iter_hits(hits_dir, _HIT_BRANCHES, feus,
-                             t_max_h=t_max_h, min_amp=min_amp):
+                             t_max_h=t_max_h, t_min_h=t_min_h, min_amp=min_amp):
         if spark_veto is not None:
             df, rm = spark_veto.apply(df)
             n_rm += rm
@@ -260,12 +260,12 @@ def main():
         print(f'  dropped dead connectors: {list(cfg.DEAD_CONNECTORS)}')
 
     sv = ps.SparkVeto.from_cfg(cfg) if args.veto_sparks else None
-    if cfg.T_MAX_H is not None or cfg.MIN_AMP:
-        print(f'Data-quality cuts: t_max_h={cfg.T_MAX_H}, '
+    if cfg.T_MAX_H is not None or cfg.T_MIN_H is not None or cfg.MIN_AMP:
+        print(f'Data-quality cuts: t_min_h={cfg.T_MIN_H}, t_max_h={cfg.T_MAX_H}, '
               f'min_amp={cfg.MIN_AMP:g} ADC')
     chan_stats, n_events, n_hits, veto = load_channel_stats(
         cfg.combined_hits_dir, ct.attrs['feus'], sv,
-        t_max_h=cfg.T_MAX_H, min_amp=cfg.MIN_AMP)
+        t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H, min_amp=cfg.MIN_AMP)
     if sv is not None:
         print(f'Spark veto: dropped {veto["n_rm"]:,} hits in {len(sv.sparks)} '
               f'sparks ({100*(1-sv.live_fraction()):.2f}% deadtime) + '
