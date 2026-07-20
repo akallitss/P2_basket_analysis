@@ -22,6 +22,7 @@ Usage: python3 05_detector_deep_qa.py [run_key] [--strategy reverse]
 """
 
 import os
+import json
 import argparse
 import matplotlib
 matplotlib.use('Agg')
@@ -29,6 +30,7 @@ matplotlib.use('Agg')
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 import p2_qa_config as qa
 import p2_mapping as pmap
@@ -36,6 +38,7 @@ import p2_sparks as ps
 import p2_io as p2io
 
 _BRANCHES = ['eventId', 'trigger_timestamp_ns', 'channel', 'amplitude', 'feu']
+RATE_BIN_MIN = 10.0   # per-connector rate-vs-time bin width [min]
 
 
 def load_aggregates(cfg, channel_table, spark_veto=None, drop_pads=()):
@@ -43,14 +46,19 @@ def load_aggregates(cfg, channel_table, spark_veto=None, drop_pads=()):
     the deep-QA plots need, so the full per-hit table never sits in memory
     (the det4 long run has ~18M hits per chunk -> OOM if concatenated).
 
-    Returns (padc, events, n_hits):
-      padc    per-channel_id: n (hits), nev (events the pad fired in)
-      events  per-event: ts, npad (distinct pads), n_hit, charge-weighted
-              centroid x/y, npad_feu<F> per FEU
-      n_hits  total mapped hits
+    Returns (padc, events, conn_rate, n_hits):
+      padc      per-channel_id: n (hits), nev (events the pad fired in)
+      events    per-event: ts, npad (distinct pads), n_hit, charge-weighted
+                centroid x/y, npad_feu<F> per FEU
+      conn_rate per-(connector_N, time_bin) hit counts, bin = ts // RATE_BIN_MIN
+                (a Series with a (connector_N, tbin) MultiIndex); exposes a
+                connector/FEU that drops out mid-run at fixed HV
+      n_hits    total mapped hits
     """
     feus = sorted(channel_table.attrs['feus'])
+    binw_ns = int(RATE_BIN_MIN * 60 * 1e9)
     padc = None
+    conn_ct = None
     ev_parts = []
     n_hits = 0
     n_rm = n_burst = 0
@@ -71,6 +79,9 @@ def load_aggregates(cfg, channel_table, spark_veto=None, drop_pads=()):
         c = h.groupby('channel_id').agg(n=('eventId', 'size'),
                                         nev=('eventId', 'nunique'))
         padc = c if padc is None else padc.add(c, fill_value=0)
+        cb = (h.assign(_tb=(h['trigger_timestamp_ns'] // binw_ns).astype(np.int64))
+              .groupby(['connector_N', '_tb']).size())
+        conn_ct = cb if conn_ct is None else conn_ct.add(cb, fill_value=0)
         w = h['amplitude'].clip(lower=0).astype(np.float64)
         t = h.assign(_wx=w * h['pad_cx'], _wy=w * h['pad_cy'], _w=w)
         g = t.groupby('eventId')
@@ -85,11 +96,13 @@ def load_aggregates(cfg, channel_table, spark_veto=None, drop_pads=()):
         ev_parts.append(ev.reset_index())
     events = pd.concat(ev_parts, ignore_index=True)
     padc = padc.astype({'n': int, 'nev': int})
+    conn_rate = (conn_ct.astype(np.int64) if conn_ct is not None
+                 else pd.Series(dtype=np.int64))
     if spark_veto is not None:
         print(f'Spark veto: dropped {n_rm:,} hits in {len(spark_veto.sparks)} '
               f'sparks ({100*(1-spark_veto.live_fraction()):.2f}% deadtime) + '
               f'{n_burst} burst events (>= {spark_veto.burst_npads} pads).')
-    return padc, events, n_hits
+    return padc, events, conn_rate, n_hits
 
 
 def _pad_range(df, pad=15):
@@ -261,6 +274,80 @@ def plot_mult_vs_time(mult, out_dir, cfg, suffix=''):
     plt.close(fig)
 
 
+def plot_connector_rate_vs_time(conn_rate, out_dir, cfg, summary, suffix=''):
+    """Per-connector hit rate vs wall-clock time. One line per connector: a
+    connector (or whole FEU) that drops out mid-run at fixed HV — an electronics
+    dropout or a discharge hanging its DREAM channels — falls to ~0 while the
+    others hold, so a partial failure is obvious and time-stamped. A dropout is
+    flagged when a connector's rate in the last bins collapses to <20% of its
+    own earlier median while the rest of the detector keeps running."""
+    if conn_rate is None or not len(conn_rate):
+        return
+    tbl = conn_rate.rename('n').reset_index()          # connector_N, _tb, n
+    binw_s = RATE_BIN_MIN * 60.0
+    tb0 = int(tbl['_tb'].min())
+    tbl['t_s'] = (tbl['_tb'] - tb0) * binw_s
+    tbl['rate'] = tbl['n'] / binw_s                    # hits/s
+    try:
+        t0 = pd.to_datetime(json.load(open(cfg.run_config_path)).get('start_time'))
+    except Exception:
+        t0 = None
+    conns = sorted(tbl['connector_N'].unique())
+    tb_max = int(tbl['_tb'].max())
+    n_bins = tb_max - tb0 + 1
+    # full time grid so a dropout to zero is drawn as zero, not a gap
+    grid = np.arange(tb0, tb_max + 1)
+    xs = ((grid - tb0) * binw_s)
+    wall = (t0 + pd.to_timedelta(xs, unit='s')) if t0 is not None else None
+
+    fig, ax = plt.subplots(figsize=(11, 4.6))
+    cmap = plt.get_cmap('tab10')
+    dropouts = []
+    for i, c in enumerate(conns):
+        s = tbl[tbl['connector_N'] == c].set_index('_tb')['rate']
+        y = s.reindex(grid, fill_value=0.0).to_numpy()
+        x = wall if wall is not None else xs
+        ax.plot(x, y, '-', lw=1.4, color=cmap(i % 10), label=f'c{int(c)}')
+        # dropout test: needs enough bins and a real early rate
+        if n_bins >= 6:
+            early = np.median(y[: max(1, n_bins // 2)])
+            late = np.median(y[-max(2, n_bins // 10):])
+            if early > 0.05 and late < 0.20 * early:
+                # first bin where it collapsed below 20% of early (after mid)
+                below = np.where(y < 0.20 * early)[0]
+                below = below[below >= n_bins // 4]
+                when = wall[below[0]] if (wall is not None and len(below)) else None
+                dropouts.append((int(c), early, late,
+                                 when.strftime('%m-%d %H:%M') if when is not None else '?'))
+    if wall is not None:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        ax.set_xlabel(f'wall clock (run start {t0})')
+    else:
+        ax.set_xlabel('time since run start [s]')
+    ax.set_ylabel(f'hit rate per connector [Hz]  ({RATE_BIN_MIN:g}-min bins)')
+    ax.set_ylim(0, None); ax.grid(True, alpha=0.3)
+    ax.legend(ncol=min(len(conns), 8), fontsize=8, loc='upper right')
+    title = f'{cfg.DET_NAME} per-connector hit rate vs time — {cfg.RUN}/{cfg.SUB_RUN}'
+    if dropouts:
+        title += '\n⚠ DROPOUT: ' + ', '.join(
+            f'c{c} at {when} ({early:.1f}→{late:.2f} Hz)'
+            for c, early, late, when in dropouts)
+    ax.set_title(title, fontsize=10)
+    fig.tight_layout()
+    fig.savefig(f'{out_dir}/connector_rate_vs_time{suffix}.png', dpi=150,
+                bbox_inches='tight')
+    plt.close(fig)
+
+    if dropouts:
+        summary.append('  ⚠ CONNECTOR DROPOUT(S) detected (rate vs time):')
+        for c, early, late, when in dropouts:
+            summary.append(f'      connector {c}: {early:.1f} Hz -> {late:.2f} Hz '
+                           f'at ~{when} (others still live)')
+    else:
+        summary.append(f'  per-connector rate vs time: no dropouts '
+                       f'({len(conns)} connectors steady)')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('run_key', nargs='?', default=qa.DEFAULT_RUN)
@@ -298,8 +385,8 @@ def main():
         sfx += '_noisy_masked'
         print(f'  masking noisy pads: {list(cfg.NOISY_PADS)}')
     sv = ps.SparkVeto.from_cfg(cfg) if args.veto_sparks else None
-    padc, events, n_hits = load_aggregates(cfg, ct, spark_veto=sv,
-                                           drop_pads=drop)
+    padc, events, conn_rate, n_hits = load_aggregates(cfg, ct, spark_veto=sv,
+                                                      drop_pads=drop)
     n_events = len(events)
     summary = [f'Deep QA — {cfg.DET_NAME}  {cfg.RUN}/{cfg.SUB_RUN}',
                f'  spark veto: {"ON" if args.veto_sparks else "OFF"}'
@@ -325,6 +412,7 @@ def main():
     mult = events[['npad', 'ts']]
     plot_multiplicity(events, ct.attrs['feus'], mult, out_dir, cfg, summary, sfx)
     plot_mult_vs_time(mult, out_dir, cfg, sfx)
+    plot_connector_rate_vs_time(conn_rate, out_dir, cfg, summary, sfx)
 
     txt = '\n'.join(summary)
     print(txt)
