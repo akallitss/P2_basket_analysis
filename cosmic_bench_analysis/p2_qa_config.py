@@ -542,6 +542,22 @@ RUNS = {
         dead_connectors=(1, 10), match_r=40.0, min_amp=0.0,
         t_min_h=11.7, out_tag='post_drop'),
 
+    # det4 (P2_4) long run 7-20-26 21:56, now at the far plane (z=702) on FEUs
+    # 6+7 (moved from p1_z/FEUs 3+4). Connectors 3,4,5,6,8,9 wired -> dead
+    # (1,2,7,10). Mesh 410 / drift 610 V, mesh on CAEN 1:0. Fresh pedestal at
+    # 21:53 (3 min before start) -> min_amp 0. Single sub_run
+    # long_run_det4_410_610 (~10.4 h planned).
+    'det4_long2': _Config(
+        'det4_long2',
+        run='p2_det4_long_run_7-20-26',
+        sub_run='long_run_det4_410_610',
+        det_name='P2_4',
+        det_tag='det4',
+        spark_channel='1:0',            # P2_4 mesh = CAEN card 1 ch 0
+        dead_connectors=(1, 2, 7, 10),  # not wired this run
+        match_r=40.0,                   # far plane (z ~702)
+        min_amp=0.0),
+
     'det3_driftscan1': _Config(
         'det3_driftscan1',
         run='p2_det3_det4_drift_scan_7-16-26',
