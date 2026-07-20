@@ -128,7 +128,7 @@ def load_event_multiplicity(cfg, channel_table):
     parts = []
     for df in p2io.iter_hits(cfg.combined_hits_dir, _BRANCHES,
                              channel_table.attrs['feus'],
-                             t_max_h=cfg.T_MAX_H, min_amp=cfg.MIN_AMP):
+                             t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H, min_amp=cfg.MIN_AMP):
         df = pmap.attach_pads_to_hits(df, channel_table)
         df = df[df['mapped'] & df['pad_cx'].notna()]
         if not len(df):
