@@ -63,7 +63,7 @@ def load_aggregates(cfg, channel_table, spark_veto=None, drop_pads=()):
     n_hits = 0
     n_rm = n_burst = 0
     for df in p2io.iter_hits(cfg.combined_hits_dir, _BRANCHES, feus,
-                             t_max_h=cfg.T_MAX_H, min_amp=cfg.MIN_AMP):
+                             t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H, min_amp=cfg.MIN_AMP):
         if spark_veto is not None:
             df, rm = spark_veto.apply(df)
             n_rm += rm
@@ -378,7 +378,7 @@ def main():
     # colour scale and the multiplicity/centroid aggregates -- but stay
     # visible: outlined on the surface hitmap and listed in the summary.
     hot = p2io.auto_hot_pads(cfg.combined_hits_dir, ct, min_amp=cfg.MIN_AMP,
-                             t_max_h=cfg.T_MAX_H, ratio=cfg.HOT_PAD_RATIO)
+                             t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H, ratio=cfg.HOT_PAD_RATIO)
     drop = set(hot)
     if args.mask_noisy_pads and cfg.NOISY_PADS:
         drop |= set(cfg.NOISY_PADS)
