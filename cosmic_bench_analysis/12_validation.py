@@ -171,11 +171,11 @@ def main():
 
     print(f'Loading M3 (z={z0:.0f}) + P2 centroids ...')
     m3 = pa.load_m3_positions(m3_dir, z0, args.chi2_cut)
-    m3 = pa.filter_events_by_time(m3, m3_dir, cfg.T_MAX_H)
+    m3 = pa.filter_events_by_time(m3, m3_dir, cfg.T_MAX_H, t_min_h=cfg.T_MIN_H)
     drop_pads = p2io.drop_pads_for(cfg, ct)
     p2, hit_events = pa.load_p2_centroids(hits_dir, ct,
                                           min_amp=cfg.MIN_AMP,
-                                          t_max_h=cfg.T_MAX_H,
+                                          t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H,
                                           drop_pads=drop_pads)
     if args.veto_sparks:
         sv = ps.SparkVeto.from_cfg(cfg)
@@ -331,7 +331,7 @@ def main():
     fire = None
     for chunk in p2io.iter_hits(hits_dir, ['eventId', 'channel', 'feu'],
                                 ct.attrs['feus'],
-                                t_max_h=cfg.T_MAX_H, min_amp=cfg.MIN_AMP):
+                                t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H, min_amp=cfg.MIN_AMP):
         h = pmap.attach_pads_to_hits(chunk, ct)
         h = h[h['mapped'] & h['pad_cx'].notna()]
         if args.veto_sparks:
@@ -394,7 +394,7 @@ def main():
     hit_xy = {}
     for chunk in p2io.iter_hits(hits_dir, ['eventId', 'channel', 'feu'],
                                 ct.attrs['feus'],
-                                t_max_h=cfg.T_MAX_H, min_amp=cfg.MIN_AMP):
+                                t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H, min_amp=cfg.MIN_AMP):
         h = pmap.attach_pads_to_hits(chunk, ct)
         h = h[h['mapped'] & h['pad_cx'].notna()]
         if drop_pads:
