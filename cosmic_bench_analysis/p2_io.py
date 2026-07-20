@@ -47,16 +47,19 @@ def hit_files(hits_dir):
 
 
 def iter_hits(hits_dir, branches, feus=None, progress=True,
-              t_max_h=None, min_amp=0.0):
+              t_max_h=None, min_amp=0.0, t_min_h=None):
     """Yield one downcast, FEU-filtered DataFrame per combined-hits chunk.
 
     Reduce each yielded frame before requesting the next one; never
     concatenate the raw frames (that is exactly the OOM this module removes).
 
-    Per-run data-quality cuts (cfg.T_MAX_H / cfg.MIN_AMP):
+    Per-run data-quality cuts (cfg.T_MIN_H / cfg.T_MAX_H / cfg.MIN_AMP):
+      t_min_h  drop hits EARLIER than this many hours after the first trigger
+               (window start); chunks entirely before it are skipped.
       t_max_h  drop hits later than this many hours after the first trigger
-               (e.g. the detector tripped mid-run); chunks are time-ordered so
-               iteration stops early once the window is exhausted.
+               (window end); chunks are time-ordered so iteration stops early
+               once the window is exhausted. t_min_h/t_max_h together carve a
+               mid-run window (e.g. before/after a mid-run failure).
       min_amp  drop hits below this amplitude [ADC] (stale-pedestal noise
                floor). Applied BEFORE any spark/burst veto the caller runs, so
                burst pad counts see only signal-like hits.
@@ -64,11 +67,12 @@ def iter_hits(hits_dir, branches, feus=None, progress=True,
     files = hit_files(hits_dir)
     feu_set = set(feus) if feus is not None else None
     read = list(branches)
-    if t_max_h is not None and 'trigger_timestamp_ns' not in read:
+    if (t_max_h is not None or t_min_h is not None) \
+            and 'trigger_timestamp_ns' not in read:
         read.append('trigger_timestamp_ns')
     if min_amp and 'amplitude' not in read:
         read.append('amplitude')
-    t_end = None
+    t0 = t_end = t_start = None
     for i, fp in enumerate(files):
         if progress:
             print(f'    chunk {i + 1}/{len(files)}: {os.path.basename(fp)}',
@@ -79,17 +83,26 @@ def iter_hits(hits_dir, branches, feus=None, progress=True,
                                               copy=False)
                            for b in read})
         del arrs
-        if t_max_h is not None:
-            ts = df['trigger_timestamp_ns'].astype(np.int64)
-            if t_end is None:
-                t_end = int(ts.iloc[0]) + int(t_max_h * 3.6e12)
-            if ts.iloc[0] > t_end:   # chunks are time-ordered: nothing left
+        if t_max_h is not None or t_min_h is not None:
+            ts = df['trigger_timestamp_ns'].astype(np.int64).to_numpy()
+            if t0 is None:                       # first trigger = run start
+                t0 = int(ts[0])
+                t_end = t0 + int(t_max_h * 3.6e12) if t_max_h is not None else None
+                t_start = t0 + int(t_min_h * 3.6e12) if t_min_h is not None else None
+            if t_end is not None and ts[0] > t_end:  # time-ordered: none left
                 if progress:
                     print(f'    t_max_h={t_max_h:g} h reached — skipping the '
                           f'remaining {len(files) - i} chunk(s).', flush=True)
                 break
-            if ts.iloc[-1] > t_end:
-                df = df[ts <= t_end]
+            if t_start is not None and ts[-1] < t_start:
+                continue                         # chunk entirely before window
+            tm = np.ones(len(df), dtype=bool)
+            if t_end is not None:
+                tm &= (ts <= t_end)
+            if t_start is not None:
+                tm &= (ts >= t_start)
+            if not tm.all():
+                df = df[tm]
         m = np.ones(len(df), dtype=bool)
         if feu_set is not None and 'feu' in df.columns:
             m &= df['feu'].isin(feu_set).to_numpy()
@@ -124,7 +137,7 @@ _HOT_CACHE = {}
 
 
 def auto_hot_pads(hits_dir, channel_table, min_amp=0.0, t_max_h=None,
-                  ratio=5.0, min_n=30, verbose=True):
+                  ratio=5.0, min_n=30, verbose=True, t_min_h=None):
     """Auto-detect constantly-firing pads in a sub_run (see hot_pad_mask).
 
     Streamed occupancy pre-pass: only per-pad counts are held (one row per
@@ -135,13 +148,13 @@ def auto_hot_pads(hits_dir, channel_table, min_amp=0.0, t_max_h=None,
     Returns a sorted tuple of hot channel_ids (empty if ratio is falsy)."""
     if not ratio:
         return ()
-    key = (hits_dir, float(min_amp), t_max_h, float(ratio), int(min_n))
+    key = (hits_dir, float(min_amp), t_max_h, t_min_h, float(ratio), int(min_n))
     if key in _HOT_CACHE:
         return _HOT_CACHE[key]
     counts = None
     for df in iter_hits(hits_dir, ['channel', 'feu'],
                         channel_table.attrs['feus'], progress=False,
-                        t_max_h=t_max_h, min_amp=min_amp):
+                        t_max_h=t_max_h, t_min_h=t_min_h, min_amp=min_amp):
         h = pmap.attach_pads_to_hits(df, channel_table)
         h = h[h['mapped'] & h['pad_cx'].notna()]
         del df
@@ -173,12 +186,15 @@ def drop_pads_for(cfg, channel_table, hits_dir=None):
     if ratio:
         drop |= set(auto_hot_pads(hits_dir or cfg.combined_hits_dir,
                                   channel_table, min_amp=cfg.MIN_AMP,
-                                  t_max_h=cfg.T_MAX_H, ratio=ratio))
+                                  t_max_h=cfg.T_MAX_H,
+                                  t_min_h=getattr(cfg, 'T_MIN_H', None),
+                                  ratio=ratio))
     return tuple(sorted(drop))
 
 
 def pad_amp_stats(hits_dir, channel_table, min_amp=0.0, t_max_h=None,
-                  drop_pads=(), exclude_events=None, amax=20000.0, dbin=2.0):
+                  drop_pads=(), exclude_events=None, amax=20000.0, dbin=2.0,
+                  t_min_h=None):
     """Streamed pad-amplitude summary for one sub_run (gain proxy vs HV).
 
     Mean and its standard error come from exact running sums; the median comes
@@ -200,7 +216,7 @@ def pad_amp_stats(hits_dir, channel_table, min_amp=0.0, t_max_h=None,
     s2 = 0.0
     for df in iter_hits(hits_dir, ['eventId', 'channel', 'amplitude', 'feu'],
                         channel_table.attrs['feus'], progress=False,
-                        t_max_h=t_max_h, min_amp=min_amp):
+                        t_max_h=t_max_h, t_min_h=t_min_h, min_amp=min_amp):
         h = pmap.attach_pads_to_hits(df, channel_table)
         h = h[h['mapped'] & h['pad_cx'].notna()]
         if drop_pads:
@@ -229,7 +245,7 @@ def pad_amp_stats(hits_dir, channel_table, min_amp=0.0, t_max_h=None,
 
 def pad_time_spread(hits_dir, channel_table, sig_amp=300.0, min_amp=0.0,
                     t_max_h=None, drop_pads=(), exclude_events=None,
-                    tmax=2000.0, dbin=2.0):
+                    tmax=2000.0, dbin=2.0, t_min_h=None):
     """Streamed spread of the hit peak-time (time_of_max) for signal-band pad
     hits (amplitude >= sig_amp), a data proxy for the drift-time spread.
 
@@ -253,7 +269,7 @@ def pad_time_spread(hits_dir, channel_table, sig_amp=300.0, min_amp=0.0,
     for df in iter_hits(hits_dir, ['eventId', 'channel', 'amplitude', 'feu',
                                    'time_of_max'],
                         channel_table.attrs['feus'], progress=False,
-                        t_max_h=t_max_h, min_amp=min_amp):
+                        t_max_h=t_max_h, t_min_h=t_min_h, min_amp=min_amp):
         h = pmap.attach_pads_to_hits(df, channel_table)
         h = h[h['mapped'] & h['pad_cx'].notna() & (h['amplitude'] >= thr)]
         if drop_pads:
@@ -281,7 +297,7 @@ def pad_time_spread(hits_dir, channel_table, sig_amp=300.0, min_amp=0.0,
 
 def event_time_resolution(hits_dir, channel_table, sig_amp=300.0, min_amp=0.0,
                           t_max_h=None, drop_pads=(), exclude_events=None,
-                          estimator='leading'):
+                          estimator='leading', t_min_h=None):
     """Per-event detector timestamp resolution [ns] from the pad peak-times.
 
     One timestamp is formed per event from the signal-band pad hits
@@ -304,7 +320,7 @@ def event_time_resolution(hits_dir, channel_table, sig_amp=300.0, min_amp=0.0,
     for df in iter_hits(hits_dir, ['eventId', 'channel', 'amplitude', 'feu',
                                    'time_of_max'],
                         channel_table.attrs['feus'], progress=False,
-                        t_max_h=t_max_h, min_amp=min_amp):
+                        t_max_h=t_max_h, t_min_h=t_min_h, min_amp=min_amp):
         h = pmap.attach_pads_to_hits(df, channel_table)
         h = h[h['mapped'] & h['pad_cx'].notna() & (h['amplitude'] >= thr)]
         if drop_pads:
@@ -343,7 +359,7 @@ def _empty_cen():
 
 
 def event_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
-                    spark_veto=None, t_max_h=None, drop_pads=()):
+                    spark_veto=None, t_max_h=None, drop_pads=(), t_min_h=None):
     """Per-event P2 pad centroid (charge-weighted or leading-pad), streamed.
 
     Returns (cen, hit_events, veto_stats):
@@ -363,7 +379,7 @@ def event_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
     parts, ev_parts = [], []
     n_rm = n_burst = 0
     for df in iter_hits(hits_dir, branches, channel_table.attrs['feus'],
-                        t_max_h=t_max_h, min_amp=min_amp):
+                        t_max_h=t_max_h, t_min_h=t_min_h, min_amp=min_amp):
         if spark_veto is not None:
             df, rm = spark_veto.apply(df)
             n_rm += rm
