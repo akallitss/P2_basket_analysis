@@ -110,7 +110,7 @@ class _Config:
                  spark_guard_before=2.0, spark_guard_after=10.0,
                  burst_npads=20, det_tag=None, match_r=20.0, plane_z=None,
                  t_max_h=None, min_amp=0.0, out_tag=None, noisy_pads=(),
-                 hot_pad_ratio=5.0):
+                 hot_pad_ratio=5.0, t_min_h=None):
         self.KEY = key
         self.DATA_ROOT = data_root
         self.RUN = run
@@ -152,9 +152,12 @@ class _Config:
         self.PLANE_Z = plane_z
         # --- per-run data-quality cuts (p2_io applies them at read time) ---- #
         # Analysis time window [h since first trigger]. Events after t_max_h
-        # are dropped from BOTH the hits and the M3 rays (a detector that
-        # tripped mid-run must not dilute occupancy or efficiency). None = all.
+        # (or before t_min_h) are dropped from BOTH the hits and the M3 rays --
+        # a detector that tripped mid-run must not dilute occupancy/efficiency,
+        # and t_min_h/t_max_h together carve a mid-run window so one run can be
+        # split into before/after a failure. None = open on that side.
         self.T_MAX_H = t_max_h
+        self.T_MIN_H = t_min_h
         # Minimum hit amplitude [ADC]. Kills a stale-pedestal noise floor
         # (hits at ~threshold on every pad) before centroids / efficiency /
         # burst counting. 0 = keep everything.
@@ -178,6 +181,7 @@ class _Config:
         # of the same sub_run (e.g. the pre-discharge hours only) never
         # overwrites the full-run products.
         self.ANALYSIS_ROOT = ANALYSIS_ROOT
+        self.OUT_TAG = out_tag       # windowed-variant tag (e.g. pre_drop)
         self.OUT_BASE = os.path.join(ANALYSIS_ROOT, self.DET_TAG, run,
                                      sub_run + (f'_{out_tag}' if out_tag else ''))
 
@@ -515,6 +519,28 @@ RUNS = {
         dead_connectors=(1, 10),
         match_r=40.0,
         min_amp=0.0),
+
+    # det1_long5 split around the FEU6 (conns 3/4/5) readout dropout at ~06:54
+    # on 7-20 (11.5 h into the run, at fixed HV; a spark hung the FEU6 front
+    # end). Two windows to characterise before vs after the drop:
+    #   PRE  = 0 -> 11.3 h  (06:42, healthy full detector ~80% eff)
+    #   POST = 11.7 h -> end (07:06+, FEU6 half dark ~54% eff)
+    # The transition 11.3-11.7 h is excluded from both. out_tag puts products
+    # in separate _pre_drop / _post_drop dirs so they don't overwrite det1_long5.
+    'det1_long5_pre': _Config(
+        'det1_long5_pre',
+        run='p2_det1_long_run_efficiency_7-19-26',
+        sub_run='long_run_det1_415_615',
+        det_name='P2_1', det_tag='det1', spark_channel='1:2',
+        dead_connectors=(1, 10), match_r=40.0, min_amp=0.0,
+        t_max_h=11.3, out_tag='pre_drop'),
+    'det1_long5_post': _Config(
+        'det1_long5_post',
+        run='p2_det1_long_run_efficiency_7-19-26',
+        sub_run='long_run_det1_415_615',
+        det_name='P2_1', det_tag='det1', spark_channel='1:2',
+        dead_connectors=(1, 10), match_r=40.0, min_amp=0.0,
+        t_min_h=11.7, out_tag='post_drop'),
 
     'det3_driftscan1': _Config(
         'det3_driftscan1',
