@@ -95,14 +95,14 @@ def load_m3_positions(m3_dir, z, chi2_cut=qa.M3_CHI2_CUT,
 
 
 def load_p2_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
-                      spark_veto=None, t_max_h=None, drop_pads=()):
+                      spark_veto=None, t_max_h=None, drop_pads=(), t_min_h=None):
     """Per-event charge-weighted P2 pad centroid (or leading-pad position).
     Streams the hits chunk by chunk (p2_io) so memory stays bounded."""
     cen, _, veto = p2io.event_centroids(hits_dir, channel_table,
                                         min_amp=min_amp,
                                         leading_pad=leading_pad,
                                         spark_veto=spark_veto,
-                                        t_max_h=t_max_h,
+                                        t_max_h=t_max_h, t_min_h=t_min_h,
                                         drop_pads=drop_pads)
     if spark_veto is not None:
         print(f'Spark veto: dropped {veto["n_rm"]:,} hits in '
@@ -376,11 +376,11 @@ def main():
     # to any z during the height scan.
     sv = ps.SparkVeto.from_cfg(cfg) if args.veto_sparks else None
     ep = pa.load_m3_endpoints(cfg.m3_tracking_dir, args.chi2_cut)
-    ep = pa.filter_events_by_time(ep, cfg.m3_tracking_dir, cfg.T_MAX_H)
+    ep = pa.filter_events_by_time(ep, cfg.m3_tracking_dir, cfg.T_MAX_H, t_min_h=cfg.T_MIN_H)
     p2 = load_p2_centroids(cfg.combined_hits_dir, ct,
                            max(args.min_amp, cfg.MIN_AMP),
                            args.leading_pad, spark_veto=sv,
-                           t_max_h=cfg.T_MAX_H,
+                           t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H,
                            drop_pads=p2io.drop_pads_for(cfg, ct))
     m = ep.merge(p2, on='eventId', how='inner')
     x0, y0 = pa.project_to_z(m, args.z)
