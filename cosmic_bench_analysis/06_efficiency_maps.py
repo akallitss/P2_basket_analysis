@@ -194,6 +194,21 @@ def main():
     d['within'] = within
     d['resid'] = resid
 
+    # optional last-N-hours window: restrict the WHOLE efficiency analysis
+    # (spatial maps + integrated eff + eff-vs-time) to the run tail, with its
+    # own product suffix so the full-run products are not overwritten. The
+    # pad->M3 transform above stays fit on the full run (geometry is
+    # time-independent), giving the windowed maps a stable alignment.
+    ev_times = pa.load_event_times(cfg.m3_tracking_dir)
+    d = d.merge(ev_times, on='eventId', how='left')
+    run_dur_h = (d['t_sec'].max() / 3600.0) if d['t_sec'].notna().any() else 0.0
+    if args.time_window_h > 0 and run_dur_h > 0:
+        keep = (d['t_sec'] / 3600.0 >= run_dur_h - args.time_window_h).fillna(False)
+        d = d[keep].copy()
+        sfx += f'_last{args.time_window_h:g}h'
+        print(f'  time window: last {args.time_window_h:g} h of the '
+              f'{run_dur_h:.1f} h run ({len(d):,} rays kept)')
+
     da = d[d['in_active']]
     n_act = len(da)
     eff_within = da['within'].mean() * 100 if n_act else float('nan')
@@ -352,20 +367,18 @@ def main():
     plt.close(fig)
 
     # efficiency vs time: exposes gain dropouts (the integrated numbers above
-    # are duty-cycle averages when the detector response is intermittent)
-    times = pa.load_event_times(cfg.m3_tracking_dir)
-    dat = da.merge(times, on='eventId', how='left')
-    dat = dat[np.isfinite(dat['t_sec'])]
+    # are duty-cycle averages when the detector response is intermittent).
+    # da already carries t_sec (merged above) and is windowed if requested.
+    dat = da[da['t_sec'].notna()].copy()
     t_h = dat['t_sec'].to_numpy() / 3600.0
     dur_h = t_h.max() if len(t_h) else 0.0
     bw_h = args.time_bin_min / 60.0                       # bin width [h]
-    # non-default binning/windowing -> its own product name (keeps the
-    # standard 30-min efficiency_vs_time from being overwritten).
+    # non-default bin width -> its own product name (keeps the standard 30-min
+    # efficiency_vs_time from being overwritten). sfx already carries the
+    # _last<N>h window tag when windowed.
     tsfx = sfx
     if args.time_bin_min != 30.0:
         tsfx += f'_{args.time_bin_min:g}min'
-    if args.time_window_h > 0:
-        tsfx += f'_last{args.time_window_h:g}h'
     min_rays = max(int(100 * bw_h / 0.5), 20)             # ≥100 at 30 min, scaled
     tb = pd.DataFrame()
     if dur_h > 0:
@@ -377,8 +390,6 @@ def main():
                            'eff_within': g['within'].mean(),
                            'eff_any': g['has_any'].mean()})
         tb = tb[tb['n_rays'] >= min_rays]
-        if args.time_window_h > 0:
-            tb = tb[tb['t_h'] >= dur_h - args.time_window_h]
         with open(cfg.run_config_path) as f:
             t0 = pd.to_datetime(json.load(f).get('start_time'))
         wall = t0 + pd.to_timedelta(tb['t_h'], unit='h')
