@@ -335,9 +335,11 @@ def main():
     key = args[0] if args else 'det1_long'
     cfg = qa.get_config(key)
     # Name the report after the run so multiple runs of the same detector (e.g.
-    # two long runs) don't overwrite each other's PDF.
+    # two long runs) don't overwrite each other's PDF; add the out_tag so
+    # windowed variants (e.g. pre_drop/post_drop) get their own file too.
+    tag = f'_{cfg.OUT_TAG}' if getattr(cfg, 'OUT_TAG', None) else ''
     default_out = os.path.join(qa.ANALYSIS_ROOT, cfg.DET_TAG,
-                               f'{cfg.RUN}_final_qa.pdf')
+                               f'{cfg.RUN}{tag}_final_qa.pdf')
     out = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--out=')), default_out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     print(cfg)
