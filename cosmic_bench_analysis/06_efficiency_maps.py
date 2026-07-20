@@ -83,6 +83,13 @@ def main():
     ap.add_argument('--veto-sparks', action=argparse.BooleanOptionalAction,
                     default=True,
                     help='drop rays/events taken during an HV spark (default on).')
+    ap.add_argument('--time-bin-min', type=float, default=30.0,
+                    help='efficiency-vs-time bin width [min] (default 30). A '
+                         'non-default value writes a separate _<N>min product '
+                         'so the standard 30-min one is not overwritten.')
+    ap.add_argument('--time-window-h', type=float, default=0.0,
+                    help='if >0, restrict the efficiency-vs-time plot/CSV to '
+                         'the LAST N hours (zoom on the run tail).')
     args = ap.parse_args()
 
     cfg = qa.get_config(args.run_key)
@@ -351,36 +358,57 @@ def main():
     dat = dat[np.isfinite(dat['t_sec'])]
     t_h = dat['t_sec'].to_numpy() / 3600.0
     dur_h = t_h.max() if len(t_h) else 0.0
+    bw_h = args.time_bin_min / 60.0                       # bin width [h]
+    # non-default binning/windowing -> its own product name (keeps the
+    # standard 30-min efficiency_vs_time from being overwritten).
+    tsfx = sfx
+    if args.time_bin_min != 30.0:
+        tsfx += f'_{args.time_bin_min:g}min'
+    if args.time_window_h > 0:
+        tsfx += f'_last{args.time_window_h:g}h'
+    min_rays = max(int(100 * bw_h / 0.5), 20)             # ≥100 at 30 min, scaled
     tb = pd.DataFrame()
     if dur_h > 0:
-        nbin = max(int(np.ceil(dur_h / 0.5)), 1)          # 30-min bins
-        dat = dat.assign(_bin=np.clip((t_h / 0.5).astype(int), 0, nbin - 1))
+        nbin = max(int(np.ceil(dur_h / bw_h)), 1)
+        dat = dat.assign(_bin=np.clip((t_h / bw_h).astype(int), 0, nbin - 1))
         g = dat.groupby('_bin')
-        tb = pd.DataFrame({'t_h': g['_bin'].first() * 0.5 + 0.25,
+        tb = pd.DataFrame({'t_h': g['_bin'].first() * bw_h + bw_h / 2,
                            'n_rays': g.size(),
                            'eff_within': g['within'].mean(),
                            'eff_any': g['has_any'].mean()})
-        tb = tb[tb['n_rays'] >= 100]
+        tb = tb[tb['n_rays'] >= min_rays]
+        if args.time_window_h > 0:
+            tb = tb[tb['t_h'] >= dur_h - args.time_window_h]
         with open(cfg.run_config_path) as f:
             t0 = pd.to_datetime(json.load(f).get('start_time'))
         wall = t0 + pd.to_timedelta(tb['t_h'], unit='h')
-        tb['wallclock'] = wall.dt.strftime('%Y-%m-%d %H:%M')
-        tb.to_csv(f'{out_dir}/efficiency_vs_time{sfx}.csv', index=False)
+        tb = tb.assign(wallclock=wall.dt.strftime('%Y-%m-%d %H:%M'))
+        tb.to_csv(f'{out_dir}/efficiency_vs_time{tsfx}.csv', index=False)
 
+        bin_lbl = (f'{args.time_bin_min:g}-min bins'
+                   if args.time_bin_min != 60 else 'hourly bins')
+        win_lbl = (f', last {args.time_window_h:g} h'
+                   if args.time_window_h > 0 else '')
         fig, ax = plt.subplots(figsize=(11, 4.2))
         for col, lab, ccol in [('eff_within', f'within {R:g} mm', 'seagreen'),
                                ('eff_any', 'has_any', 'goldenrod')]:
             err = np.sqrt(tb[col] * (1 - tb[col]) / tb['n_rays'])
-            ax.errorbar(wall, 100 * tb[col], yerr=100 * err, fmt='o-', ms=3,
+            ax.errorbar(wall, 100 * tb[col], yerr=100 * err, fmt='o-', ms=4,
                         lw=1, color=ccol, label=lab)
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        ax.set_ylim(0, 100)
+        # auto-zoom y when windowed so a few-% drop is visible
+        if args.time_window_h > 0 and len(tb):
+            lo = 100 * tb[['eff_within', 'eff_any']].min().min()
+            hi = 100 * tb[['eff_within', 'eff_any']].max().max()
+            ax.set_ylim(max(0, lo - 8), min(100, hi + 8))
+        else:
+            ax.set_ylim(0, 100)
         ax.set_xlabel(f'wall clock (run start {t0})')
         ax.set_ylabel('efficiency [%]'); ax.grid(True, alpha=0.3); ax.legend()
-        ax.set_title(f'{cfg.DET_NAME} efficiency vs time (30-min bins, active area)\n'
-                     f'{cfg.RUN}/{cfg.SUB_RUN}')
+        ax.set_title(f'{cfg.DET_NAME} efficiency vs time ({bin_lbl}{win_lbl}, '
+                     f'active area)\n{cfg.RUN}/{cfg.SUB_RUN}')
         fig.tight_layout()
-        fig.savefig(f'{out_dir}/efficiency_vs_time{sfx}.png', dpi=150,
+        fig.savefig(f'{out_dir}/efficiency_vs_time{tsfx}.png', dpi=150,
                     bbox_inches='tight')
         plt.close(fig)
 
