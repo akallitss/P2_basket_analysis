@@ -21,15 +21,21 @@ With a non-default --chi2-cut every product gets a '_chi2' filename tag
 
 import os
 import sys
+import glob
 import json
 import argparse
+import datetime
 import matplotlib
 matplotlib.use('Agg')
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import uproot
 
 import p2_qa_config as qa
+
+CHI2_BIN_MIN = 10.0   # chi2-acceptance-vs-time bin width [min]
 
 _M3_PKG = os.path.expanduser(
     '~/Documents/PostDocSaclay/nTof_x17/cosmic_bench_analysis')
@@ -145,6 +151,101 @@ def plot_angles_and_positions(cfg, m3_dir, out_dir, det_z, chi2_cut, sfx):
     return n_clean
 
 
+def plot_chi2_acceptance_vs_time(cfg, out_dir, chi2_cut, sfx, summary):
+    """Fraction of M3 single tracks passing the Chi2X,Chi2Y < chi2_cut cut, in
+    time bins across the run. The M3 telescope is the efficiency REFERENCE, so a
+    transient collapse of its track quality (chi2 tail blowing up) silently
+    corrupts the efficiency denominator without touching the P2 detector -- it
+    reads as a fake efficiency dip. This trace exposes such reference glitches
+    and time-stamps them; a glitch is flagged when the acceptance drops below
+    50% of its own run median while the raw single-track rate stays up.
+
+    Reads evttime + rayN + Chi2X/Chi2Y straight from the m3 tracking files
+    (Chi2X/Chi2Y are per-track std::vector<double>; single tracks -> length 1)."""
+    files = sorted(glob.glob(os.path.join(cfg.m3_tracking_dir, '*.root')))
+    if not files:
+        summary.append('  chi2 acceptance vs time: no m3 tracking files')
+        return
+    ev, c2x, c2y, ok1 = [], [], [], []
+    for f in files:
+        with uproot.open(f) as fh:
+            a = fh[fh.keys()[0]].arrays(['evttime', 'rayN', 'Chi2X', 'Chi2Y'],
+                                        library='np')
+        one = a['rayN'] == 1                       # single-track events
+        if not one.any():
+            continue
+        ev.append(a['evttime'][one].astype(np.float64))
+        c2x.append(np.array([x[0] if len(x) else np.nan for x in a['Chi2X'][one]]))
+        c2y.append(np.array([y[0] if len(y) else np.nan for y in a['Chi2Y'][one]]))
+    if not ev:
+        summary.append('  chi2 acceptance vs time: no single tracks')
+        return
+    ev = np.concatenate(ev)
+    c2x = np.concatenate(c2x); c2y = np.concatenate(c2y)
+    good = (c2x < chi2_cut) & (c2y < chi2_cut)
+    t_h = (ev * 10 - ev.min() * 10) / 1e9 / 3600.0   # evttime = trig_ns/10
+    bw = CHI2_BIN_MIN / 60.0
+    edges = np.arange(0.0, t_h.max() + bw, bw)
+    n_all = np.histogram(t_h, bins=edges)[0]
+    n_good = np.histogram(t_h[good], bins=edges)[0]
+    enough = n_all >= 50
+    acc = np.divide(n_good, n_all, out=np.full(len(n_all), np.nan),
+                    where=enough)
+    ctr_h = edges[:-1] + bw / 2
+
+    try:
+        t0 = datetime.datetime.fromisoformat(
+            json.load(open(cfg.run_config_path))['start_time'])
+        x = np.array([t0 + datetime.timedelta(hours=float(h)) for h in ctr_h])
+        use_wall = True
+    except Exception:
+        x, use_wall = ctr_h, False
+
+    base = np.nanmedian(acc)                          # run-median acceptance
+    glitch = enough & (acc < 0.5 * base)
+    fig, ax = plt.subplots(figsize=(11, 4.2))
+    ax.plot(x, 100 * acc, 'o-', color='crimson', ms=4, lw=1.4)
+    ax.axhline(100 * base, ls=':', color='grey',
+               label=f'run median {100*base:.0f}%')
+    win = None
+    if glitch.any():
+        gx = x[glitch]
+        lo, hi = gx.min(), gx.max()
+        pad = (datetime.timedelta(minutes=CHI2_BIN_MIN) if use_wall
+               else CHI2_BIN_MIN / 60.0)
+        ax.axvspan(lo - pad, hi + pad, color='gold', alpha=0.25,
+                   label='reference glitch')
+        win = (lo, hi)
+    if use_wall:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        ax.set_xlabel(f'wall clock (run start {t0:%Y-%m-%d %H:%M})')
+    else:
+        ax.set_xlabel('time since run start [h]')
+    ax.set_ylim(0, 100); ax.grid(True, alpha=0.3); ax.legend(fontsize=8)
+    ttl = (f'{cfg.DET_NAME} M3 reference: fraction of tracks passing '
+           f'chi2<{chi2_cut:g} vs time — {cfg.RUN}')
+    if win is not None:
+        wl = (f'{win[0]:%m-%d %H:%M}-{win[1]:%H:%M}' if use_wall
+              else f'{win[0]:.1f}-{win[1]:.1f} h')
+        ttl += f'\n⚠ REFERENCE GLITCH: acceptance collapsed at {wl}'
+    ax.set_title(ttl, fontsize=10)
+    fig.tight_layout()
+    fig.savefig(f'{out_dir}/m3_chi2_acceptance_vs_time{sfx}.png', dpi=150,
+                bbox_inches='tight')
+    plt.close(fig)
+
+    if win is not None:
+        wl = (f'{win[0]:%m-%d %H:%M}-{win[1]:%H:%M}' if use_wall
+              else f'{win[0]:.1f}-{win[1]:.1f} h')
+        summary.append(f'  ⚠ M3 REFERENCE GLITCH: chi2<{chi2_cut:g} acceptance '
+                       f'collapsed to <{50}% of the {100*base:.0f}% median at '
+                       f'~{wl} — efficiency in that window is unreliable '
+                       f'(reference, not the P2 detector).')
+    else:
+        summary.append(f'  M3 chi2<{chi2_cut:g} acceptance steady at '
+                       f'~{100*base:.0f}% (no reference glitch).')
+
+
 def main():
     ap = argparse.ArgumentParser(description='M3 reference-tracker QA.')
     ap.add_argument('run_key', nargs='?', default=qa.DEFAULT_RUN)
@@ -161,8 +262,14 @@ def main():
     n_events = plot_chi2(cfg, m3_dir, out_dir, args.chi2_cut, sfx)
     n_clean = plot_angles_and_positions(cfg, m3_dir, out_dir, det_z,
                                         args.chi2_cut, sfx)
-    print(f'M3 events: {n_events:,} | clean single tracks: {n_clean:,} '
-          f'({100 * n_clean / max(n_events, 1):.1f}%)')
+    summary = [f'M3 reference QA — {cfg.DET_NAME}  {cfg.RUN}/{cfg.SUB_RUN}',
+               f'  M3 events: {n_events:,} | clean single tracks: {n_clean:,} '
+               f'({100 * n_clean / max(n_events, 1):.1f}%)']
+    plot_chi2_acceptance_vs_time(cfg, out_dir, args.chi2_cut, sfx, summary)
+    txt = '\n'.join(summary)
+    print(txt)
+    with open(f'{out_dir}/m3_reference_summary{sfx}.txt', 'w') as f:
+        f.write(txt + '\n')
     print(f'M3 reference QA written to: {out_dir}')
 
 
