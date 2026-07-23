@@ -105,6 +105,7 @@ DEFAULTS = dict(
     sat_warn=0.02,
     sat_fail=0.10,
     gap_frac_warn=0.25,        # longest trigger-free gap / DAQ run time
+    min_hits_per_ch=5.0,       # below this, occupancy is too sparse to judge
     livetime_spills=2.0,       # unobserved run time, in SPS spill periods
     empty_warn=0.30,           # fraction of triggers with no hit anywhere
     empty_fail=0.70,
@@ -414,20 +415,32 @@ def detector_verdicts(m, thr, best_share):
         v['trigger_share'] = (FAIL if r < thr['share_fail'] else
                               WARN if r < thr['share_warn'] else PASS)
 
-    v['connectors'] = FAIL if m['dead_connectors'] else PASS
-    v['dead_channels'] = (FAIL if m['dead_frac'] > thr['dead_fail'] else
-                          WARN if m['dead_frac'] > thr['dead_warn'] else PASS)
-    if m['det_type'] != 'P2' and v['dead_channels'] == FAIL:
-        # A P2 uses all 64 channels of every connector it occupies, so a dead
-        # channel there is a fault. A strip detector (the uRWELL references)
-        # generally has fewer strips per view than the connector has channels,
-        # so its unconnected channels are silent BY CONSTRUCTION -- never let
-        # that FAIL the run; it is reported, not judged.
-        v['dead_channels'] = WARN
-        m['dead_note'] = ('non-P2 detector: silent channels are most likely '
-                          'unconnected strips, not a readout fault')
-    v['hot_channels'] = (FAIL if m['hot_frac'] > thr['hot_fail'] else
-                         WARN if m['hot_frac'] > thr['hot_warn'] else PASS)
+    # "Zero hits" only means a channel is dead once enough hits were thrown at
+    # it that zero is surprising. P2_IN showed 252/512 "dead" on 934 events and
+    # 29/512 on 8941 events of the SAME detector at the same latency -- that is
+    # Poisson, not hardware. Below a few expected hits per channel, say nothing.
+    exp_per_ch = m['n_hits'] / max(1, m['ch_hi'] - m['ch_lo'] + 1)
+    m['expected_hits_per_channel'] = float(exp_per_ch)
+    if exp_per_ch < thr['min_hits_per_ch']:
+        v['connectors'] = v['dead_channels'] = v['hot_channels'] = NA
+        m['dead_note'] = (f'too few hits to judge occupancy '
+                          f'({exp_per_ch:.1f} hits/channel expected)')
+    else:
+        v['connectors'] = FAIL if m['dead_connectors'] else PASS
+        v['dead_channels'] = (FAIL if m['dead_frac'] > thr['dead_fail'] else
+                              WARN if m['dead_frac'] > thr['dead_warn']
+                              else PASS)
+        if m['det_type'] != 'P2' and v['dead_channels'] == FAIL:
+            # A P2 uses all 64 channels of every connector it occupies, so a
+            # dead channel there is a fault. A strip detector (the uRWELL
+            # references) generally has fewer strips per view than the connector
+            # has channels, so its unconnected channels are silent BY
+            # CONSTRUCTION -- never let that FAIL the run; report, don't judge.
+            v['dead_channels'] = WARN
+            m['dead_note'] = ('non-P2 detector: silent channels are most likely '
+                              'unconnected strips, not a readout fault')
+        v['hot_channels'] = (FAIL if m['hot_frac'] > thr['hot_fail'] else
+                             WARN if m['hot_frac'] > thr['hot_warn'] else PASS)
 
     if m['max_sample_peak'] is None:
         v['latency'] = NA
@@ -805,9 +818,11 @@ def write_csv(res, path):
         rows.append(row)
     if not rows:
         return
-    keys = list(rows[0])
+    # Union, not rows[0]: optional keys (e.g. dead_note) appear on some
+    # detectors only, and DictWriter raises on any key it was not told about.
+    keys = list(dict.fromkeys(k for r in rows for k in r))
     with open(path, 'w', newline='') as fh:
-        w = csv.DictWriter(fh, fieldnames=keys)
+        w = csv.DictWriter(fh, fieldnames=keys, restval='')
         w.writeheader()
         w.writerows(rows)
 
