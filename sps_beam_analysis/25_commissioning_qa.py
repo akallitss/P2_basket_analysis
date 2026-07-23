@@ -105,8 +105,7 @@ DEFAULTS = dict(
     sat_warn=0.02,
     sat_fail=0.10,
     gap_frac_warn=0.25,        # longest trigger-free gap / DAQ run time
-    livetime_warn=0.80,        # trigger-timestamp span / DAQ run time
-    livetime_fail=0.40,
+    livetime_spills=2.0,       # unobserved run time, in SPS spill periods
     empty_warn=0.30,           # fraction of triggers with no hit anywhere
     empty_fail=0.70,
     hv_setpoint_tol=0.02,      # |vmon - v0| / v0
@@ -354,6 +353,31 @@ def detector_metrics(a, thr, n_triggers, ms_edges, t_edges, n_samples,
                 m['gap_frac'] = float(m['max_gap_s'] / duration_s)
         m['ts_span_s'] = span
     return m
+
+
+def spill_period(ev, bin_s=1.0, frac=0.10):
+    """SPS spill cadence [s] estimated from a detector's trigger timestamps.
+
+    Needed because the naive "livetime" -- first-to-last trigger span over the
+    DAQ run time -- is NOT a health metric under slow extraction: triggers only
+    exist during spills, so a 162 s run holding 3 spills of a 43 s cycle spans
+    only ~86 s of triggers no matter how perfectly the DAQ ran. Comparing the
+    unobserved time against the SPILL PERIOD instead turns that into a real
+    dropout test. Returns (period_s, n_spills), (None, n) if under 2 spills.
+    """
+    if len(ev) < 50:
+        return None, 0
+    t = (ev['ts'].to_numpy(np.float64) - float(ev['ts'].min())) / 1e9
+    span = float(t.max())
+    if not (0 < span < 24 * 3600):
+        return None, 0
+    nb = max(4, int(span / bin_s))
+    cnt, edges = np.histogram(t, bins=nb, range=(0, span))
+    on = cnt > frac * cnt.max()
+    starts = edges[:-1][on & ~np.concatenate(([False], on[:-1]))]
+    if len(starts) < 2:
+        return None, int(len(starts))
+    return float(np.median(np.diff(starts))), int(len(starts))
 
 
 def detector_verdicts(m, thr, best_share):
@@ -717,11 +741,13 @@ def print_table(res):
     print(f'\n  sub_run {res["sub_run"]}   triggers {res["n_triggers"]} '
           f'({res["n_triggers_with_hits"]} with hits, '
           f'{100 * ef:.0f}% empty [{res["run_checks"]["empty_triggers"]}])')
-    print(f'    DAQ run time {res["duration_s"]} s, trigger-timestamp livetime '
-          f'{res["livetime_s"]} s ({res["livetime_frac"]} '
-          f'[{res["run_checks"]["livetime"]}])   '
-          f'rate {res["trigger_rate_hz"]} Hz '
-          f'({res["trigger_rate_live_hz"]} Hz live)')
+    print(f'    DAQ run time {res["duration_s"]} s, triggers span '
+          f'{res["livetime_s"]} s; {res["n_spills"]} spills of '
+          f'{res["spill_period_s"]} s, {res["unobserved_s"]} s unobserved = '
+          f'{res["unobserved_spills"]} spill periods '
+          f'[{res["run_checks"]["livetime"]}]')
+    print(f'    rate {res["trigger_rate_hz"]} Hz over the run, '
+          f'{res["trigger_rate_live_hz"]} Hz over the trigger span')
     hdr = (f'    {"detector":<18}{"FEU":>4}{"events":>9}{"share":>7}'
            f'{"hits/ev":>9}{"dead":>6}{"hot":>5}{"peak smp":>9}'
            f'{"amp med":>9}   verdict')
@@ -854,11 +880,23 @@ def analyse_subrun(cfg, sub_run, slices, colors, thr, args):
         'zero_suppress': daq.get('zero_suppress'),
         'detectors': metrics, 'verdicts': verdicts, 'hv': hv,
     }
-    lf, ef = res['livetime_frac'], empty_frac
+    ref_ev = max((a['events'] for a in acc.values()), key=len)
+    period, n_spills = spill_period(ref_ev)
+    res['spill_period_s'] = round(period, 1) if period else None
+    res['n_spills'] = n_spills
+    unobserved = (duration_s - livetime_s) if (duration_s and livetime_s) \
+        else None
+    res['unobserved_s'] = round(unobserved, 1) if unobserved is not None else None
+    res['unobserved_spills'] = (round(unobserved / period, 2)
+                                if period and unobserved is not None else None)
+
+    us, ef = res['unobserved_spills'], empty_frac
     res['run_checks'] = {
-        'livetime': (NA if lf is None else
-                     FAIL if lf < thr['livetime_fail'] else
-                     WARN if lf < thr['livetime_warn'] else PASS),
+        # The run is healthy when the time with no triggers is no more than the
+        # couple of spill periods you always lose at the head and tail of a run
+        # that starts and stops between spills.
+        'livetime': (NA if us is None else
+                     WARN if us > thr['livetime_spills'] else PASS),
         'empty_triggers': (NA if ef is None else
                            FAIL if ef > thr['empty_fail'] else
                            WARN if ef > thr['empty_warn'] else PASS),
