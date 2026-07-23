@@ -216,12 +216,49 @@ class RunConfig:
     def hv_monitor_csv(self, sub_run):
         return os.path.join(self.subrun_dir(sub_run), 'hv_monitor.csv')
 
+    def raw_daq_dir(self, sub_run):
+        return os.path.join(self.subrun_dir(sub_run), 'raw_daq_data')
+
+    def run_time(self, sub_run):
+        """(run_time_s, start_unix_ts) from the DAQ's raw_daq_data/run_time.txt,
+        (None, None) when the file is absent (run still in progress)."""
+        path = os.path.join(self.raw_daq_dir(sub_run), 'run_time.txt')
+        if not os.path.isfile(path):
+            return None, None
+        dur = start = None
+        with open(path) as fh:
+            for line in fh:
+                m = re.search(r'Run Time:\s*([0-9.eE+-]+)', line)
+                if m:
+                    dur = float(m.group(1))
+                m = re.search(r'Run Start Time:\s*([0-9.eE+-]+)', line)
+                if m:
+                    start = float(m.group(1))
+        return dur, start
+
     # -- run_config.json ---------------------------------------------------- #
     def _load_run_config(self):
         if self._cfg_cache is None:
             with open(self.run_config_path) as fh:
                 self._cfg_cache = json.load(fh)
         return self._cfg_cache
+
+    def run_config(self):
+        """The whole DAQ-written run_config.json as a dict."""
+        return self._load_run_config()
+
+    def daq_info(self):
+        """The `dream_daq_info` block (n_samples_per_waveform, sample_period,
+        latency, zero_suppress, included_feus ...)."""
+        return self._load_run_config().get('dream_daq_info', {})
+
+    def subrun_meta(self, sub_run):
+        """The `sub_runs` entry for one sub_run (run_time, hvs, and any scan
+        variable the DAQ recorded there, e.g. `latency`); {} if not listed."""
+        for s in self._load_run_config().get('sub_runs', []):
+            if s.get('sub_run_name') == sub_run:
+                return s
+        return {}
 
     def detectors(self):
         """List of DetInfo for every included station, in config order."""
