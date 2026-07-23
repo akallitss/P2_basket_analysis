@@ -279,9 +279,26 @@ class RunConfig:
                 return d
         raise KeyError(f'No station with det_tag={tag!r} in {self.RUN}')
 
-    def ref_det(self):
-        """The reference station (REF_PLANE by name, else the first station)."""
-        dets = self.detectors()
+    def mappable_detectors(self):
+        """Stations that have a usable (feu,channel)->pad map, i.e. the ones the
+        geometry stages (alignment, efficiency, pad hit maps) can run on. On the
+        beam telescope the EIC uRWELL references have no pad map, so they are
+        excluded here and the P2 stations carry the correlation stages. A
+        station qualifies when its channel table builds and is non-empty."""
+        out = []
+        for d in self.detectors():
+            try:
+                if len(self.channel_table(d)):
+                    out.append(d)
+            except Exception:
+                pass
+        return out
+
+    def ref_det(self, among=None):
+        """The reference station: REF_PLANE by name if set, else the first of
+        `among` (default: all stations). Pass the mappable list so the geometry
+        stages never pick a reference the map cannot place."""
+        dets = among if among is not None else self.detectors()
         if self.REF_PLANE:
             for d in dets:
                 if d.name == self.REF_PLANE:

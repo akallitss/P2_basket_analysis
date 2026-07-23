@@ -173,10 +173,13 @@ def plot_eff_map(df, ct, probe, lbl, sub, caveat, out_png, out_csv,
             out_csv, index=False)
         return
     px = pads['pad_cx'].to_numpy(); py = pads['pad_cy'].to_numpy()
-    # nearest pad for each tag prediction
+    # nearest pad for each tag prediction. A dense (n_tag x n_pad) distance
+    # matrix is O(n_tag*n_pad) memory -- ~19 GB at 4.7M tags x 512 pads -- so
+    # use a KDTree over the (few hundred) pads: O(n_tag log n_pad), MB not GB.
     tx = df['pred_x'].to_numpy(); ty = df['pred_y'].to_numpy()
-    idx = np.argmin((tx[:, None] - px[None, :]) ** 2 +
-                    (ty[:, None] - py[None, :]) ** 2, axis=1)
+    from scipy.spatial import cKDTree
+    _, idx = cKDTree(np.column_stack([px, py])).query(
+        np.column_stack([tx, ty]), k=1)
     pads['n_tag'] = np.bincount(idx, minlength=len(pads))
     pads['n_hit'] = np.bincount(idx, weights=df['hit'].to_numpy(float),
                                 minlength=len(pads)).astype(int)
@@ -233,9 +236,14 @@ def main():
 
     cfg = sc.get_config(args.run_key)
     print(cfg)
-    dets = cfg.detectors()
+    # Tag-and-probe runs on the planes that have a pad map (the uRWELL
+    # references have none); alignment (21) already ran on the same set.
+    dets = cfg.mappable_detectors()
+    skipped = [d.name for d in cfg.detectors() if d not in dets]
+    if skipped:
+        print(f'  (no pad map, skipped: {", ".join(skipped)})')
     if len(dets) < 2:
-        print('Need >=2 stations for tag-and-probe.')
+        print('Need >=2 mappable stations for tag-and-probe.')
         return
     min_tag = args.min_tag if args.min_tag is not None else cfg.MIN_TAG
     subruns = [args.sub_run] if args.sub_run else cfg.find_subruns()

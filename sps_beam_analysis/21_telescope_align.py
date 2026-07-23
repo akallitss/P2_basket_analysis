@@ -147,13 +147,15 @@ def main():
 
     cfg = sc.get_config(args.run_key)
     print(cfg)
-    dets = cfg.detectors()
+    # Only planes with a pad map can be aligned; the uRWELL references have none.
+    dets = cfg.mappable_detectors()
+    skipped = [d.name for d in cfg.detectors() if d not in dets]
+    if skipped:
+        print(f'  (no pad map, skipped: {", ".join(skipped)})')
     if len(dets) < 2:
-        print('Need >=2 stations to align. Only found:',
+        print('Need >=2 mappable stations to align. Only found:',
               [d.name for d in dets])
         return
-    ref = cfg.ref_det()
-    print(f'Stations: {[d.name for d in dets]}   reference = {ref.name}')
 
     sub_run = args.sub_run
     if sub_run is None:
@@ -176,6 +178,17 @@ def main():
             len(clusters[det.name]) else 0
         print(f'    {len(clusters[det.name])} events, {n_single} clean single '
               f'clusters')
+
+    # Reference: the configured REF_PLANE if set, otherwise the mappable plane
+    # with the MOST clean single clusters -- the best-illuminated plane, so the
+    # fit is never anchored on a starved or misbehaving plane (e.g. P2_IN here).
+    def _n_single(d):
+        c = clusters[d.name]
+        return int(c['single'].sum()) if len(c) else 0
+    ref = (cfg.ref_det(among=dets) if cfg.REF_PLANE
+           else max(dets, key=_n_single))
+    print(f'Stations: {[d.name for d in dets]}   reference = {ref.name} '
+          f'({_n_single(ref)} single clusters)')
 
     cref = clusters[ref.name]
     cref_s = cref[cref['single']].set_index('eventId')
