@@ -191,7 +191,7 @@ def reduce_subrun(cfg, sub_run, slices, n_samples, sample_period,
     for s in slices:
         acc[s.name] = dict(
             slice=s,
-            n_hits=0, n_sat=0,
+            n_hits=0, n_sat=0, n_amp_over=0, n_time_out=0,
             occ=np.zeros(s.n_ch, dtype=np.int64),
             occ_amp=np.zeros(s.n_ch, dtype=np.float64),
             amp_hist=np.zeros(len(AMP_BINS) - 1, dtype=np.int64),
@@ -222,11 +222,22 @@ def reduce_subrun(cfg, sub_run, slices, n_samples, sample_period,
             a['n_sat'] += int(sub['saturated'].to_numpy().sum())
             a['occ'] += np.bincount(rel, minlength=s.n_ch)
             a['occ_amp'] += np.bincount(rel, weights=amp, minlength=s.n_ch)
-            a['amp_hist'] += np.histogram(amp, bins=AMP_BINS)[0]
-            a['ms_hist'] += np.histogram(sub['max_sample'].to_numpy(),
-                                         bins=ms_edges)[0]
-            a['t_hist'] += np.histogram(sub['time'].to_numpy(),
-                                        bins=t_edges)[0]
+            # CLIP into the end bins rather than letting np.histogram drop
+            # out-of-range values: saturated hits run past the nominal 12-bit
+            # range and reconstructed times fall outside the sampling window,
+            # and silently dropping them biases the median / peak statistics
+            # that the latency and gain conclusions are read off.
+            a['n_amp_over'] += int((amp > AMP_BINS[-1]).sum())
+            a['amp_hist'] += np.histogram(
+                np.clip(amp, AMP_BINS[0], AMP_BINS[-1]), bins=AMP_BINS)[0]
+            ms = sub['max_sample'].to_numpy()
+            a['ms_hist'] += np.histogram(
+                np.clip(ms, ms_edges[0], ms_edges[-1]), bins=ms_edges)[0]
+            tt = sub['time'].to_numpy()
+            a['n_time_out'] += int(((tt < t_edges[0]) |
+                                    (tt > t_edges[-1])).sum())
+            a['t_hist'] += np.histogram(
+                np.clip(tt, t_edges[0], t_edges[-1]), bins=t_edges)[0]
             g = sub.groupby('eventId')
             a['ev_parts'].append(pd.DataFrame({
                 'n_hits': g.size(),
@@ -264,7 +275,18 @@ def detector_metrics(a, thr, n_triggers, ms_edges, t_edges, n_samples,
     m['event_rate_hz'] = float(len(ev) / duration_s) if duration_s else None
     m['mean_hits_per_event'] = float(ev['n_hits'].mean()) if len(ev) else 0.0
     m['median_hits_per_event'] = float(ev['n_hits'].median()) if len(ev) else 0.0
+    # Cluster size in disguise: with one hit per fired channel, the fraction of
+    # events with >=2 hits is the fraction that has ANY charge sharing, which is
+    # what a centroid-based position resolution needs.
+    m['frac_events_ge2_hits'] = (float((ev['n_hits'] >= 2).mean())
+                                 if len(ev) else None)
+    m['frac_events_ge3_hits'] = (float((ev['n_hits'] >= 3).mean())
+                                 if len(ev) else None)
     m['sat_frac'] = float(a['n_sat'] / a['n_hits']) if a['n_hits'] else None
+    m['amp_over_range_frac'] = (float(a['n_amp_over'] / a['n_hits'])
+                                if a['n_hits'] else None)
+    m['time_out_of_window_frac'] = (float(a['n_time_out'] / a['n_hits'])
+                                    if a['n_hits'] else None)
 
     # --- occupancy: dead / quiet / hot channels, per-connector liveness ----- #
     # A beam spot makes occupancy intrinsically non-uniform, so the three are
