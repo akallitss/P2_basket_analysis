@@ -139,6 +139,8 @@ class DetInfo:
         self.spark_channel = (f'{self.mesh_card}:{self.mesh_chan}'
                               if mesh else None)
         drift = det_dict.get('hv_channels', {}).get('drift')
+        self.drift_card, self.drift_chan = (
+            (int(drift[0]), int(drift[1])) if drift else (None, None))
         self.drift_channel = f'{int(drift[0])}:{int(drift[1])}' if drift else None
         c = det_dict.get('det_center_coords', {}) or {}
         self.x, self.y, self.z = (float(c.get('x', 0.0)),
@@ -354,18 +356,42 @@ class RunConfig:
                 out.append(name)
         return out
 
-    def subrun_mesh_hv(self, sub_run, det):
-        """Mesh HV [V] this station was set to in `sub_run`, from run_config
+    def _subrun_hv(self, sub_run, card, chan):
+        """Setpoint [V] of one HV channel in `sub_run` from run_config
         `sub_runs` (hvs[card][chan]); None if not tabulated."""
-        if det.mesh_card is None:
+        if card is None:
             return None
         cfg = self._load_run_config()
         for s in cfg.get('sub_runs', []):
             if s.get('sub_run_name') == sub_run:
-                hvs = s.get('hvs', {})
-                v = hvs.get(str(det.mesh_card), {}).get(str(det.mesh_chan))
+                v = s.get('hvs', {}).get(str(card), {}).get(str(chan))
                 return int(v) if v is not None else None
         return None
+
+    def subrun_mesh_hv(self, sub_run, det):
+        """Mesh HV [V] this station was set to in `sub_run`."""
+        return self._subrun_hv(sub_run, det.mesh_card, det.mesh_chan)
+
+    def subrun_drift_hv(self, sub_run, det):
+        """Drift HV [V] this station was set to in `sub_run`."""
+        return self._subrun_hv(sub_run, det.drift_card, det.drift_chan)
+
+    def scan_axis(self, sub_runs, det):
+        """Which electrode a scan run varies for `det`: ('mesh'|'drift'|None,
+        axis label). Mesh wins when both vary (a mesh scan usually tracks the
+        drift to keep the gap constant, so the physical knob is the mesh);
+        'drift' means mesh fixed + drift varied (a transparency/drift scan)."""
+        mesh = {self.subrun_mesh_hv(s, det) for s in sub_runs} - {None}
+        drift = {self.subrun_drift_hv(s, det) for s in sub_runs} - {None}
+        if len(mesh) > 1:
+            return 'mesh', 'mesh HV [V]'
+        if len(drift) > 1:
+            return 'drift', 'drift HV [V]'
+        return None, 'sub_run index'
+
+    def subrun_scan_hv(self, sub_run, det, axis):
+        return (self.subrun_mesh_hv(sub_run, det) if axis == 'mesh' else
+                self.subrun_drift_hv(sub_run, det) if axis == 'drift' else None)
 
     # -- channel tables ----------------------------------------------------- #
     def channel_table(self, det):

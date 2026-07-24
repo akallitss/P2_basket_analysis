@@ -96,7 +96,7 @@ def subrun_metrics(sv, mesh_v):
     )
 
 
-def plot_scan(rows, det, out_png):
+def plot_scan(rows, det, out_png, xlabel='mesh HV [V]'):
     r = [x for x in rows if x['mesh_v'] is not None]
     if len(r) < 2:
         return False
@@ -113,14 +113,14 @@ def plot_scan(rows, det, out_png):
         y = np.array([(x[key] if x[key] is not None else np.nan) for x in r],
                      float)
         a.plot(v, y, 'o-', lw=1.8, ms=7, color=c)
-        a.set_xlabel('mesh HV [V]'); a.set_ylabel(ylab)
+        a.set_xlabel(xlabel); a.set_ylabel(ylab)
         a.grid(True, alpha=0.3)
         if key == 'live_fraction':
             a.set_ylim(0, 1.02)
         else:
             a.set_ylim(bottom=0)
-    fig.suptitle(f'{det.name} — sparking vs mesh HV (higher gain -> more '
-                 f'sparking = the HV headroom)', fontsize=12)
+    fig.suptitle(f'{det.name} — sparking vs {xlabel} (the HV headroom)',
+                 fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     fig.savefig(out_png, dpi=150, bbox_inches='tight'); plt.close(fig)
     return True
@@ -150,7 +150,9 @@ def main():
         raise SystemExit('No sub_runs with combined hits on disk.')
 
     for det in dets:
-        print(f'\n== {det.name}  (mesh channel {det.spark_channel})')
+        scan_ax, scan_label = cfg.scan_axis(subs, det)
+        print(f'\n== {det.name}  (mesh channel {det.spark_channel}, '
+              f'scan axis: {scan_label})')
         rows = []
         for sub in subs:
             hv_csv = cfg.hv_monitor_csv(sub)
@@ -158,7 +160,8 @@ def main():
                 print(f'  {sub}: no hv_monitor.csv, skipping')
                 continue
             sv = ps.SparkVeto.from_csv(hv_csv, spark_shim(cfg, det, args.i_thr))
-            mesh_v = cfg.subrun_mesh_hv(sub, det)
+            mesh_v = (cfg.subrun_scan_hv(sub, det, scan_ax) if scan_ax
+                      else cfg.subrun_mesh_hv(sub, det))
             out = cfg.out_dir(det.det_tag, sub, '26_hv_spark_qa')
             plot_timeline(sv, det, sub, mesh_v,
                           os.path.join(out, f'hv_timeline_{sub}.png'))
@@ -171,8 +174,10 @@ def main():
 
         if len(subs) > 1 and rows:
             scan_out = cfg.out_dir(det.det_tag, 'scan', '26_hv_spark_qa')
-            if plot_scan(rows, det, os.path.join(scan_out,
-                                                 f'spark_vs_hv_{det.det_tag}.png')):
+            if plot_scan(rows, det,
+                         os.path.join(scan_out,
+                                      f'spark_vs_hv_{det.det_tag}.png'),
+                         xlabel=scan_label):
                 print(f'  -> spark-vs-HV scan: {scan_out}')
             keys = ['sub_run', 'mesh_v', 'duration_s', 'n_sparks',
                     'spark_rate_per_min', 'peak_imon_uA', 'mean_imon_uA',

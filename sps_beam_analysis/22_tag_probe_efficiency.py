@@ -311,6 +311,11 @@ def main():
         print('No sub_runs with combined hits.')
         return
     prod_sub = 'scan' if len(subruns) > 1 else subruns[0]
+    # Which electrode does this run scan? Mesh scans plot vs mesh HV; drift
+    # scans (mesh fixed, drift varied) plot vs drift HV.
+    scan_ax, scan_label = cfg.scan_axis(subruns, dets[0])
+    if scan_ax:
+        print(f'  scan axis: {scan_label}')
     suffix = cfg.product_suffix(args.veto_sparks)
     caveat = ('intrinsic within the probe fiducial area; tag planes gated by '
               f'alignment residual < {args.tag_max_rmse:.0f} mm'
@@ -364,7 +369,8 @@ def main():
             df, n_tag, n_hit, n_out = eval_probe(
                 cfg, probe.name, others, clusters, tf, probe_r, min_tag,
                 fiducial=fid, probe_rec=probe_rec)
-            hv = cfg.subrun_mesh_hv(sub, probe)
+            hv = (cfg.subrun_scan_hv(sub, probe, scan_ax) if scan_ax
+                  else cfg.subrun_mesh_hv(sub, probe))
             pt = hv if hv is not None else subruns.index(sub)
             lbl = f'{hv}V' if hv is not None else sub
             eff = n_hit / n_tag if n_tag else np.nan
@@ -421,7 +427,7 @@ def main():
     # efficiency vs HV / point, all probes
     has_hv = df['hv'].notna().any()
     xcol = 'hv' if has_hv else 'point'
-    xlab = 'mesh HV [V]' if has_hv else 'sub_run index'
+    xlab = scan_label if has_hv else 'sub_run index'
     has_corr = df['eff_corr'].notna().any()
     fig, ax = plt.subplots(figsize=(8, 5))
     for probe, s in df.groupby('probe'):
