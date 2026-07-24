@@ -1,12 +1,14 @@
-# 2026-07-24 — Mesh (gain) scan overnight + drift scan (TB_July2026_H4)
+# 2026-07-24 — Mesh (gain) scans + drift scan (TB_July2026_H4)
 
-Runs `beam_nominal_meshscan_1` (2026-07-23 18:17 → ~01:45, complete, QA done)
-and `drift_scan_1` + `drift_scan_2` (12:28 → 15:10 today; split in two because
-the HV max-voltage limit stopped scan 1 at the 800 V point — see below). **The
+Runs `beam_nominal_meshscan_1` (2026-07-23 18:17 → ~01:45, complete, QA done),
+`drift_scan_1` + `drift_scan_2` (12:28 → 15:10 today; split in two because the
+HV max-voltage limit stopped scan 1 at the 800 V point — see below), and
+`meshscan_fine_1` (18:38 → ~20:46 today, 5 V steps on MID/OUT). **The coarse
 mesh scan is clean: gain drops smoothly by ×3 over the 50 V scanned, saturation
 falls from 3.9 % to 0.4 %, and the telescope-OR inefficiency (empty-trigger
 fraction) rises 10 % → 52 % — exactly the efficiency-vs-gain curve this run was
-taken for. The full drift curve 450–900 V is on disk.**
+taken for. The full drift curve 450–900 V is on disk, and the fine mesh scan
+fills in the 5 V grid from 445 down to 390.**
 
 Beam much more intense than yesterday: **~4.6 kHz trigger rate averaged over a
 run** (vs ~1200 Hz on 07-23), ~5.5 M triggers per 20-min sub-run.
@@ -87,6 +89,27 @@ telescope QA to be run on both runs once it drains.
   the last 369 k events** (event range 2.23–2.60 M) — this point is effectively
   lost for P2_OUT. **Consider retaking drift_500** after the scan finishes.
 - `drift_550` onward is clean (0–22 missing events per FEU).
+
+## Run 5 — `meshscan_fine_1` (12 points × 10 min, evening)
+
+Fine mesh scan on **P2_MID and P2_OUT only** (P2_IN off and out of the readout,
+FEUs 1/4/5, uRWELLs unchanged): **mesh 445 → 390 V in 5 V steps**, drift in
+lockstep as usual (constant 250 V gap), i.e. the 5 V grid interleaving the
+coarse scan's 10 V points. Started 18:38, last point (`meshscan_12_midout390`)
+finished ~20:46; ~3 GB raw per sub-run — same statistics as the day's other
+runs (~2.6 M triggers / point at ~4.5 kHz).
+
+- **The `nominal_00` reference sub-run aborted after 3 s** (82 MB of raw
+  instead of ~3 GB) — the scan itself then ran through untouched. So this run
+  has **no nominal (450 V) anchor point of its own**: use `nominal_00/01` from
+  `beam_nominal_meshscan_1` as the anchor, and the shared 440/430/420/410/400/
+  390 points between the two scans as the coarse↔fine cross-normalization.
+  Worth a quick look at why it died before the next run that starts with a
+  nominal sub-run.
+- QA: nothing processed yet — the qa_watcher is still draining the drift-scan
+  backlog (~1 sub-run/h), so fine-scan waveform QA + telescope QA will follow
+  overnight. Combined with the coarse scan this gives the mesh curve at
+  5 V granularity over 390–450 V once QA is through.
 
 ## Analysis
 
