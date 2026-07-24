@@ -126,8 +126,19 @@ def predict_in_probe(tag_positions, probe_name, tf):
     return float(np.mean(xs)), float(np.mean(ys))
 
 
+def recorded_mask(event_ids, rec_entry):
+    """Boolean mask: which eventIds the FEU actually recorded. `rec_entry` is
+    the (lo, hi, missing_set) triple from RunConfig.recorded_events."""
+    lo, hi, missing = rec_entry
+    ev = np.asarray(event_ids, dtype=np.int64)
+    ok = (ev >= lo) & (ev <= hi)
+    if missing:
+        ok &= ~np.fromiter((int(e) in missing for e in ev), bool, len(ev))
+    return ok
+
+
 def eval_probe(cfg, probe, others, clusters, tf, probe_r, min_tag,
-               fiducial=None):
+               fiducial=None, probe_rec=None):
     """Tag-and-probe for one probe plane. Returns (df_tag, n_tag, n_hit) where
     df_tag has columns pred_x, pred_y, hit (bool) for each tagged event.
 
@@ -135,7 +146,10 @@ def eval_probe(cfg, probe, others, clusters, tf, probe_r, min_tag,
     ones). `fiducial`, if given as (xmin, xmax, ymin, ymax), keeps only events
     whose predicted impact point falls inside the probe's active area, so the
     efficiency is intrinsic (a track that misses the probe's pads is not counted
-    as an inefficiency).
+    as an inefficiency). `probe_rec`, if given as a (lo, hi, missing) recorded-
+    events triple for the probe's FEU, adds a `recorded` column: tags in
+    triggers the probe FEU never recorded are DAQ losses, not detector
+    inefficiency, and are excluded from the corrected denominator.
     """
     # Vectorised over events (the per-event .loc loop was O(1e6) Python-level
     # and dominated the runtime). Each tag plane's single clusters are mapped
@@ -182,6 +196,8 @@ def eval_probe(cfg, probe, others, clusters, tf, probe_r, min_tag,
     hit = (dmin.reindex(g.index) <= probe_r).fillna(False).to_numpy()
     df = pd.DataFrame({'pred_x': g['px'].to_numpy(),
                        'pred_y': g['py'].to_numpy(), 'hit': hit})
+    df['recorded'] = (recorded_mask(g.index.to_numpy(), probe_rec)
+                      if probe_rec is not None else True)
     return df, len(df), int(df['hit'].sum()), n_outside
 
 
@@ -319,12 +335,19 @@ def main():
                   f'{", ".join(f"{n} ({rmse[n]:.0f} mm)" for n in excluded)}')
         clusters = {d.name: load_clusters(cfg, d, sub, args.cluster_r,
                                           args.veto_sparks) for d in dets}
+        # per-FEU recorded-trigger sets (DAQ-overlap correction); None -> raw
+        rec = cfg.recorded_events(sub)
+        if rec is None:
+            print('    (no recorded_events.npz -- efficiencies are not '
+                  'DAQ-overlap corrected; run extract_recorded_events.py '
+                  'on the DAQ host)')
         for probe in dets:
             others = [d.name for d in dets
                       if d.name != probe.name and d.name in eligible]
             if probe.name not in tf or not others:
                 print(f'    {probe.name}: no eligible tag plane, skipping')
                 continue
+            probe_rec = rec.get(probe.feus[0]) if rec else None
             # probe radius: explicit, else N-sigma of the prediction residual.
             # The scale is the pairwise plane-to-plane residual, taken over the
             # WELL-ALIGNED planes in the pair (the probe's own residual is used
@@ -340,17 +363,26 @@ def main():
                    else fiducial_box(cfg.channel_table(probe), probe_r))
             df, n_tag, n_hit, n_out = eval_probe(
                 cfg, probe.name, others, clusters, tf, probe_r, min_tag,
-                fiducial=fid)
+                fiducial=fid, probe_rec=probe_rec)
             hv = cfg.subrun_mesh_hv(sub, probe)
             pt = hv if hv is not None else subruns.index(sub)
             lbl = f'{hv}V' if hv is not None else sub
             eff = n_hit / n_tag if n_tag else np.nan
             lo, hi = clopper_pearson(n_hit, n_tag)
+            # DAQ-overlap corrected: drop tags in triggers the probe FEU never
+            # recorded (a hit implies recorded, so the numerator is unchanged).
+            n_tag_rec = int(df['recorded'].sum()) if len(df) else 0
+            eff_c = n_hit / n_tag_rec if n_tag_rec else np.nan
+            lo_c, hi_c = clopper_pearson(n_hit, n_tag_rec)
             print(f'    probe {probe.name} (tags {"+".join(others)}, '
                   f'r={probe_r:.0f}mm): {n_tag} in-fiducial tagged '
                   f'({n_out} outside), {n_hit} found, eff = '
-                  + (f'{eff:.3f} [+{hi-eff:.3f}/-{eff-lo:.3f}]'
-                     if n_tag else 'n/a (no tags)'))
+                  + (f'{eff:.3f}' if n_tag else 'n/a (no tags)')
+                  + (f'  | recorded {n_tag_rec} '
+                     f'({100 * (1 - n_tag_rec / n_tag):.1f}% DAQ loss) '
+                     f'-> eff_corr = {eff_c:.3f} '
+                     f'[+{hi_c - eff_c:.3f}/-{eff_c - lo_c:.3f}]'
+                     if probe_rec is not None and n_tag else ''))
             out_dir = cfg.out_dir(probe.det_tag, prod_sub,
                                   '22_tag_probe_efficiency')
             plot_eff_map(df, cfg.channel_table(probe), probe.name, lbl, sub,
@@ -365,7 +397,15 @@ def main():
                              tags='+'.join(others), probe_r_mm=probe_r,
                              n_tag=n_tag, n_out_fiducial=n_out,
                              n_hit=n_hit, eff=eff,
-                             eff_lo=lo, eff_hi=hi))
+                             eff_lo=lo, eff_hi=hi,
+                             n_tag_recorded=(n_tag_rec if probe_rec is not None
+                                             else None),
+                             eff_corr=(eff_c if probe_rec is not None
+                                       else None),
+                             eff_corr_lo=(lo_c if probe_rec is not None
+                                          else None),
+                             eff_corr_hi=(hi_c if probe_rec is not None
+                                          else None)))
 
     if not rows:
         print('No efficiency points produced.')
@@ -382,13 +422,26 @@ def main():
     has_hv = df['hv'].notna().any()
     xcol = 'hv' if has_hv else 'point'
     xlab = 'mesh HV [V]' if has_hv else 'sub_run index'
+    has_corr = df['eff_corr'].notna().any()
     fig, ax = plt.subplots(figsize=(8, 5))
     for probe, s in df.groupby('probe'):
         s = s.sort_values('point')
-        yerr = np.vstack([s['eff'] - s['eff_lo'], s['eff_hi'] - s['eff']])
-        ax.errorbar(s[xcol], s['eff'], yerr=yerr, fmt='o-', capsize=4, lw=2,
-                    ms=7, label=f'probe {probe}')
-    ax.set_xlabel(xlab); ax.set_ylabel('tag-probe efficiency')
+        if has_corr and s['eff_corr'].notna().any():
+            yerr = np.vstack([s['eff_corr'] - s['eff_corr_lo'],
+                              s['eff_corr_hi'] - s['eff_corr']])
+            line = ax.errorbar(s[xcol], s['eff_corr'], yerr=yerr, fmt='o-',
+                               capsize=4, lw=2, ms=7,
+                               label=f'probe {probe} (DAQ-corr.)')
+            ax.plot(s[xcol], s['eff'], 'o--', ms=4, lw=1, alpha=0.4,
+                    color=line[0].get_color())
+        else:
+            yerr = np.vstack([s['eff'] - s['eff_lo'], s['eff_hi'] - s['eff']])
+            ax.errorbar(s[xcol], s['eff'], yerr=yerr, fmt='o-', capsize=4,
+                        lw=2, ms=7, label=f'probe {probe}')
+    ax.set_xlabel(xlab)
+    ax.set_ylabel('tag-probe efficiency'
+                  + (' (solid = DAQ-overlap corrected, faint = raw)'
+                     if has_corr else ''))
     ax.set_ylim(0, 1.02); ax.grid(True, alpha=0.3); ax.legend(fontsize=9)
     ax.set_title(f'Tag-probe efficiency vs {xlab} — {cfg.RUN}\n{caveat}',
                  fontsize=10)

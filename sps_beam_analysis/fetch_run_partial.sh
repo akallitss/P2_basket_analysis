@@ -45,6 +45,8 @@ for s in "${DONE[@]}"; do
   $RSYNC "$REMOTE:$RBASE/runs/$RUN/$s/combined_hits_root/" "$d/combined_hits_root/" 2>/dev/null
   $RSYNC "$REMOTE:$RBASE/runs/$RUN/$s/hv_monitor.csv"      "$d/" 2>/dev/null
   $RSYNC "$REMOTE:$RBASE/runs/$RUN/$s/raw_daq_data/run_time.txt" "$d/raw_daq_data/" 2>/dev/null
+  # per-FEU recorded-trigger sets (extract_recorded_events.py on the DAQ host)
+  $RSYNC "$REMOTE:$RBASE/runs/$RUN/$s/recorded_events.npz" "$d/" 2>/dev/null
   n=$(ls "$d/combined_hits_root/"*.root 2>/dev/null | wc -l)
   echo "  $s : $n combined-hits file(s)"
 done

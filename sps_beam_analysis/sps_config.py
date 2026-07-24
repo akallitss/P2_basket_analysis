@@ -236,6 +236,30 @@ class RunConfig:
                     start = float(m.group(1))
         return dur, start
 
+    def recorded_events(self, sub_run):
+        """Per-FEU recorded-trigger sets from <sub_run>/recorded_events.npz
+        (written on the DAQ host by extract_recorded_events.py from the decoded
+        per-FEU files, which log every trigger a FEU received -- including
+        ZS-empty ones the combined hits cannot show).
+
+        Returns {feu: (lo, hi, missing_set)} or None when the file is absent.
+        Membership test: lo <= id <= hi and id not in missing_set."""
+        path = os.path.join(self.subrun_dir(sub_run), 'recorded_events.npz')
+        if not os.path.isfile(path):
+            return None
+        import numpy as np
+        z = np.load(path)
+        out = {}
+        for k in z.files:
+            m = re.match(r'feu(\d+)_range$', k)
+            if not m:
+                continue
+            feu = int(m.group(1))
+            lo, hi = (int(v) for v in z[k])
+            missing = set(int(v) for v in z[f'feu{feu}_missing'])
+            out[feu] = (lo, hi, missing)
+        return out or None
+
     # -- run_config.json ---------------------------------------------------- #
     def _load_run_config(self):
         if self._cfg_cache is None:
