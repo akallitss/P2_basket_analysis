@@ -1,11 +1,12 @@
-# 2026-07-24 — Mesh (gain) scan overnight + drift scan in progress (TB_July2026_H4)
+# 2026-07-24 — Mesh (gain) scan overnight + drift scan (TB_July2026_H4)
 
 Runs `beam_nominal_meshscan_1` (2026-07-23 18:17 → ~01:45, complete, QA done)
-and `drift_scan_1` (started 12:28 today, **in progress** — points 450–750 of
-450–900 recorded as of 17:20). **The mesh scan is clean: gain drops smoothly by
-×3 over the 50 V scanned, saturation falls from 3.9 % to 0.4 %, and the
-telescope-OR inefficiency (empty-trigger fraction) rises 10 % → 52 % — exactly
-the efficiency-vs-gain curve this run was taken for.**
+and `drift_scan_1` + `drift_scan_2` (12:28 → 15:10 today; split in two because
+the HV max-voltage limit stopped scan 1 at the 800 V point — see below). **The
+mesh scan is clean: gain drops smoothly by ×3 over the 50 V scanned, saturation
+falls from 3.9 % to 0.4 %, and the telescope-OR inefficiency (empty-trigger
+fraction) rises 10 % → 52 % — exactly the efficiency-vs-gain curve this run was
+taken for. The full drift curve 450–900 V is on disk.**
 
 Beam much more intense than yesterday: **~4.6 kHz trigger rate averaged over a
 run** (vs ~1200 Hz on 07-23), ~5.5 M triggers per 20-min sub-run.
@@ -57,18 +58,29 @@ hit in **any** detector)
   `run_beam_qa.sh beam_nominal_meshscan_1` to pick it up, and regenerate the
   trend panel so the scan curve includes the last point.
 
-## Run 4 — `drift_scan_1` (10 points × 10 min, in progress)
+## Run 4 — `drift_scan_1` + `drift_scan_2` (10 points × 10 min, complete)
 
 Drift-field scan on P2_MID and P2_OUT: **drift 450 → 900 V in 50 V steps with
 mesh fixed at 450 V**, i.e. drift-gap ΔV from 0 (zero field) to 450 V
 (plateau). **P2_IN is off (HV 0) and out of the readout** — FEUs 1/4/5 only —
 following yesterday's open item. uRWELLs unchanged (drift 600, resist 420).
 
-Status as of 17:20: `drift_450` – `drift_750` recorded (~2.6 M triggers each,
-~4.3 kHz), `drift_750` QA in progress; 800 / 850 / 900 remain (~1 h). Telescope
-QA to be run once the scan completes.
+`drift_scan_1` (12:28) took `drift_450` – `drift_750` (~2.6 M triggers each,
+~4.3 kHz), then **stalled on the ramp to 800 V: the drift channels' max-voltage
+limit on the HV crate was 750 V**, so with V0 = 800 the channels plateaued at
+750.25 V measured and the run sat in ramp-wait from 13:43 until stopped
+manually (~14:20). The `drift_800` sub-run of scan 1 contains only an
+hv_monitor.csv and an empty raw dir — ignore it.
 
-**Two sub-runs have FEU dropouts — flag for the analysis:**
+**Fix: raised the max-HV limit, then continued the remaining points as
+`drift_scan_2`** (14:38, scan window overridden to 800–900). All three
+sub-runs — `drift_800` / `drift_850` / `drift_900` — completed cleanly (~3 GB
+raw each, same statistics as the other points); run finished normally at 15:10.
+
+Per-sub-run waveform QA is still working through the backlog (~1 sub-run/h);
+telescope QA to be run on both runs once it drains.
+
+**Two scan-1 sub-runs have FEU dropouts — flag for the analysis:**
 
 - `drift_450`: FEU 1 (both uRWELLs) missing 632 k of 2.61 M events (24 %).
 - `drift_500`: FEU 1 missing 729 k (28 %), and **FEU 5 (P2_OUT) only recorded
