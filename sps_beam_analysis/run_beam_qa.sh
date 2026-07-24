@@ -36,3 +36,6 @@ echo "=== HV spark QA"
 echo
 echo "=== pedestal QA"
 "$PY" 27_pedestal_qa.py live --with-rate
+echo
+echo "=== timing QA"
+"$PY" 28_timing_qa.py live
