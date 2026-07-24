@@ -30,3 +30,9 @@ echo "=== $RUN   data=$SPS_DATA_ROOT   analysis=$SPS_ANALYSIS_ROOT"
 echo
 echo "=== event sync"
 "$PY" 24_event_sync_qa.py live
+echo
+echo "=== HV spark QA"
+"$PY" 26_hv_spark_qa.py live
+echo
+echo "=== pedestal QA"
+"$PY" 27_pedestal_qa.py live --with-rate
