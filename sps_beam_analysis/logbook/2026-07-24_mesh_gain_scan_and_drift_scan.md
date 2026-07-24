@@ -3,12 +3,15 @@
 Runs `beam_nominal_meshscan_1` (2026-07-23 18:17 → ~01:45, complete, QA done),
 `drift_scan_1` + `drift_scan_2` (12:28 → 15:10 today; split in two because the
 HV max-voltage limit stopped scan 1 at the 800 V point — see below), and
-`meshscan_fine_1` (18:38 → ~20:46 today, 5 V steps on MID/OUT). **The coarse
-mesh scan is clean: gain drops smoothly by ×3 over the 50 V scanned, saturation
-falls from 3.9 % to 0.4 %, and the telescope-OR inefficiency (empty-trigger
-fraction) rises 10 % → 52 % — exactly the efficiency-vs-gain curve this run was
-taken for. The full drift curve 450–900 V is on disk, and the fine mesh scan
-fills in the 5 V grid from 445 down to 390.**
+`meshscan_fine_1` (18:38 → ~20:46 today, 5 V steps on MID/OUT), and
+`p2in_check_1` (20:49 → 21:03, P2_IN at reduced HV). **The coarse mesh scan is
+clean: gain drops smoothly by ×3 over the 50 V scanned, saturation falls from
+3.9 % to 0.4 %, and the telescope-OR inefficiency (empty-trigger fraction)
+rises 10 % → 52 % — exactly the efficiency-vs-gain curve this run was taken
+for. The full drift curve 450–900 V is on disk, the fine mesh scan fills in the
+5 V grid from 445 down to 390, and — best news of the day — P2_IN comes alive
+at mesh 400 V: ~5× more events with a hit than at its 490 V nominal, so the
+"dead" station was an HV working-point problem, not readout.**
 
 Beam much more intense than yesterday: **~4.6 kHz trigger rate averaged over a
 run** (vs ~1200 Hz on 07-23), ~5.5 M triggers per 20-min sub-run.
@@ -110,6 +113,37 @@ runs (~2.6 M triggers / point at ~4.5 kHz).
   backlog (~1 sub-run/h), so fine-scan waveform QA + telescope QA will follow
   overnight. Combined with the coarse scan this gives the mesh curve at
   5 V granularity over 390–450 V once QA is through.
+
+## Run 6 — `p2in_check_1` (1 × 12 min): P2_IN responds at lower HV
+
+Follow-up on the standing open item (P2_IN reading out but ~0.5 % trigger
+share at nominal HV). Configuration: **P2_IN + the two uRWELL references only**
+(FEUs 1/3; MID and OUT off), single sub-run `p2in_check_m400_d600` at **mesh
+400 / drift 600** — both 90–100 V below the 490/700 nominal, keeping the drift
+gap ≈ 200 V. 3.34 M triggers at ~4.6 kHz; HV rock stable (mesh imon 0.002 µA,
+drift 0.012 µA); run finished normally.
+
+**P2_IN is alive.** Quick look at the on-the-fly hit trees (raw ZS hits, no QA
+selection — standard QA will follow once the watcher drains):
+
+| raw-hits metric, FEU 3 (P2_IN) | nominal_00 (mesh 490) | p2in_check (mesh 400) |
+|---|---|---|
+| events with ≥1 hit / triggers | 0.79 M / 5.53 M = **14 %** | 2.47 M / 3.34 M = **74 %** |
+| median hit amplitude | 61 ADC | 55 ADC |
+| median hit significance | — | 11.7 σ |
+
+**~5× more events with a P2_IN hit at 90 V *lower* mesh**, even though the
+mesh-scan slope says 90 V should cost a factor ~8 in gain. That inverts the
+gain logic and points squarely at the HV working point: at 490 V the mesh
+channel showed imon spikes (07-23 entry) — the chamber was most likely
+discharging/unstable above its max operating voltage, killing the response; at
+400 V it is quiet and efficient. Consistent with P2_OUT's bench maximum being
+420 V — 490 V was probably simply too high for this chamber.
+
+**Next: scan P2_IN mesh upward from 400 V to find its real operating maximum
+(watch imon for the onset of spikes), then bring it back into the telescope at
+that point.** Note the 5 σ ZS threshold eats into efficiency at 55 ADC median
+amplitude, so the operating point may want to be somewhat above 400 anyway.
 
 ## Analysis
 
