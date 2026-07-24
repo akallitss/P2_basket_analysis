@@ -9,9 +9,11 @@ clean: gain drops smoothly by ×3 over the 50 V scanned, saturation falls from
 3.9 % to 0.4 %, and the telescope-OR inefficiency (empty-trigger fraction)
 rises 10 % → 52 % — exactly the efficiency-vs-gain curve this run was taken
 for. The full drift curve 450–900 V is on disk, the fine mesh scan fills in the
-5 V grid from 445 down to 390, and — best news of the day — P2_IN comes alive
-at mesh 400 V: ~5× more events with a hit than at its 490 V nominal, so the
-"dead" station was an HV working-point problem, not readout.**
+5 V grid from 445 down to 390, and — best news of the day — the P2_IN mystery
+is resolved in two parts: an offline analyze_waveforms bug was dropping ~97 %
+of its hits (fixed today), and the remaining hardware suppression is the HV
+working point — at mesh 400 V (vs 490 nominal) P2_IN records hits in 74 % of
+triggers.**
 
 Beam much more intense than yesterday: **~4.6 kHz trigger rate averaged over a
 run** (vs ~1200 Hz on 07-23), ~5.5 M triggers per 20-min sub-run.
@@ -123,27 +125,55 @@ share at nominal HV). Configuration: **P2_IN + the two uRWELL references only**
 gap ≈ 200 V. 3.34 M triggers at ~4.6 kHz; HV rock stable (mesh imon 0.002 µA,
 drift 0.012 µA); run finished normally.
 
-**P2_IN is alive.** Quick look at the on-the-fly hit trees (raw ZS hits, no QA
-selection — standard QA will follow once the watcher drains):
+**P2_IN is alive.** Quick look at the hit trees — both runs processed with the
+**fixed** analyze_waveforms (see the offline-fixes section below; nominal_00
+was reprocessed tonight), same metric on both, so this is apples-to-apples:
 
-| raw-hits metric, FEU 3 (P2_IN) | nominal_00 (mesh 490) | p2in_check (mesh 400) |
+| hits-tree metric, FEU 3 (P2_IN) | nominal_00 (mesh 490) | p2in_check (mesh 400) |
 |---|---|---|
 | events with ≥1 hit / triggers | 0.79 M / 5.53 M = **14 %** | 2.47 M / 3.34 M = **74 %** |
 | median hit amplitude | 61 ADC | 55 ADC |
 | median hit significance | — | 11.7 σ |
 
-**~5× more events with a P2_IN hit at 90 V *lower* mesh**, even though the
-mesh-scan slope says 90 V should cost a factor ~8 in gain. That inverts the
-gain logic and points squarely at the HV working point: at 490 V the mesh
-channel showed imon spikes (07-23 entry) — the chamber was most likely
-discharging/unstable above its max operating voltage, killing the response; at
-400 V it is quiet and efficient. Consistent with P2_OUT's bench maximum being
-420 V — 490 V was probably simply too high for this chamber.
+So after the software fix removed the artificial suppression, P2_IN at nominal
+HV was still hardware-limited to ~14–16 % — and **dropping the mesh 90 V
+quintuples the response to 74 %**, even though the mesh-scan slope says 90 V
+should cost a factor ~8 in gain. That inverts the gain logic and points
+squarely at the HV working point: at 490 V the mesh channel showed imon spikes
+(07-23 entry) — the chamber was most likely discharging/unstable above its max
+operating voltage, killing the response; at 400 V it is quiet (imon 0.002 µA)
+and efficient. Consistent with P2_OUT's bench maximum being 420 V — 490 V was
+probably simply too high for this chamber.
 
 **Next: scan P2_IN mesh upward from 400 V to find its real operating maximum
 (watch imon for the onset of spikes), then bring it back into the telescope at
 that point.** Note the 5 σ ZS threshold eats into efficiency at 55 ADC median
 amplitude, so the operating point may want to be somewhat above 400 anyway.
+
+## Offline — analyze_waveforms ZS fixes (affects the QA numbers above)
+
+Two bugs were found and fixed today in `mm_dream_reconstruction`'s
+`analyze_waveforms` (patch archived at
+`sps_beam_analysis/patches/mm_dream_reconstruction_zs_fixes_20260724.patch`;
+processor_watcher now passes `--zs-baseline 1` for ZS runs, commit bfe79e3):
+
+1. **Pulse-seed bug**: for ZS stubs peaking early in the window (peak sample
+   ≤ 6) the seed landed before threshold and the pulse was rejected by the
+   width cut — silently dropping ~24 % of P2_OUT, ~47 % of P2_MID and ~97 % of
+   P2_IN hits at latency 32. Most of P2_IN's apparent "deadness" in the QA
+   tables was THIS.
+2. **ZS baseline bug**: the FEU re-centres ZS waveforms at a uniform 256 but
+   the analyzer subtracted per-channel raw pedestal means (270–383), shifting
+   per-channel thresholds by up to ~130 ADC.
+
+Consequences for this entry: the mesh-scan QA table above was produced with the
+pre-fix processing, so its shares / empty-trigger fractions are **lower
+bounds** (trends and amplitude ratios are fine). Already-processed sub-runs are
+NOT reprocessed automatically — a full reprocess of the older runs is a
+deliberate decision still to be made (nominal_00 was reprocessed tonight). The
+corrected tag-probe efficiency turn-on from the mesh scan (alignment reused
+from nominal, DAQ-overlap corrected): **P2_OUT 0.195 → 0.74 and P2_MID
+0.081 → 0.52 over mesh 390 → 450 V — not yet at plateau at 450 V.**
 
 ## Analysis
 
