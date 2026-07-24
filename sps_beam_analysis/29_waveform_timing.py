@@ -91,9 +91,10 @@ def extract_zs_hits(path, n_samples, amp_min, max_events=None, step=4000):
             sel = present & (peak >= amp_min)
             ie, ic = np.nonzero(sel)
             if len(ie):
+                # ZS waveforms are re-centred at 256 by the FEU; absent samples
+                # (zeros) are below the ZS threshold -> map them to baseline 0.
                 w = wf[ie, ic, :]
-                base = np.minimum(w[:, 0], w[:, 1])[:, None]
-                w = w - base
+                w = np.where(w > 0, w - 256.0, 0.0).astype(np.float32)
                 dfs.append(pd.DataFrame({'eventId': ev[ie], 'ftst': ft[ie],
                                          'channel': ic,
                                          'amp': w.max(axis=1)}))

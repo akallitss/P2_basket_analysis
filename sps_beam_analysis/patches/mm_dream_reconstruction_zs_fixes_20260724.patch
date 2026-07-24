@@ -1,0 +1,140 @@
+--- WaveformAnalyzer.cpp.orig	2026-07-24 17:11:56.633813734 +0200
++++ WaveformAnalyzer.cpp	2026-07-24 17:05:10.796646270 +0200
+@@ -199,6 +199,11 @@
+ 
+ 
+ float WaveformAnalyzer::subtractPedestal(int ch, float ampl) const {
++    // ZS + on-FEU pedestal subtraction: the FEU already removed the
++    // per-channel pedestal and re-centred every waveform at 256, so the
++    // per-channel raw means from the pedestal file are the WRONG baseline
++    // here (off by -15..-127 ADC depending on the channel).
++    if (zsBaseline) return ampl - zeroSupressedBaseline;
+     auto it = pedestalMap.find(ch);
+     if (it == pedestalMap.end()) return ampl;
+     return ampl - it->second.mean;
+@@ -380,7 +385,8 @@
+             std::vector<float>& amps = kv.second;
+ 
+             float noiseRMS = pedestalMap.count(ch) ? pedestalMap[ch].rms : 3.0f;
+-            float max_adc_ped_sub = max_adc - (pedestalMap.count(ch) ? pedestalMap[ch].mean : 0.0f);
++            float max_adc_ped_sub = max_adc - (zsBaseline ? zeroSupressedBaseline :
++                (pedestalMap.count(ch) ? pedestalMap[ch].mean : 0.0f));
+             auto peaks = analyzeWaveform(amps, noiseRMS, max_adc_ped_sub);
+             // if (plot_event_ch == std::make_pair(eventID, ch)) {
+                 // plotWaveformWithPeaks(eventID, ch, amps, peaks);
+@@ -619,14 +625,36 @@
+     // Pass 1: find the natural right boundary for every seed independently.
+     // Stop at whichever comes first: waveform drops below ampThr, or we
+     // reach the next detected seed (the start of the next pulse's rise).
++    //
++    // FIX (2026-07-24): the derivative seed is the maximum of the SMOOTHED
++    // derivative, which for short zero-suppressed stubs / pulses early in the
++    // sampling window lands BEFORE the waveform crosses ampThr. The grower
++    // below only extends contiguous above-threshold samples starting AT the
++    // seed, so wf[seed+1] <= ampThr immediately terminated the region at
++    // width 1 and the pulse -- however large -- was rejected by the width
++    // cut. (At the SPS this silently dropped ~24%/47% of real in-time P2_OUT/
++    // P2_MID hits and ~97% of P2_IN's, whose pulses peak one sample earlier.)
++    // Advance each seed to the first above-threshold sample before growing.
+     std::vector<int> rightEnds(merged.size());
++    std::vector<int> begins(merged.size());
+     for (int k = 0; k < (int)merged.size(); ++k) {
+-        int end        = merged[k];
+         int nextSeedAt = (k + 1 < (int)merged.size()) ? merged[k + 1] : N;
+ 
++        int begin = merged[k];
++        while (begin < N && begin < nextSeedAt && wf[begin] <= ampThr)
++            ++begin;
++        if (begin >= N || begin >= nextSeedAt) {
++            // no above-threshold sample belongs to this seed: empty region
++            begins[k]    = merged[k];
++            rightEnds[k] = merged[k] - 1;
++            continue;
++        }
++
++        int end = begin;
+         while (end + 1 < N && wf[end + 1] > ampThr && end + 1 < nextSeedAt)
+             ++end;
+ 
++        begins[k]    = begin;
+         rightEnds[k] = end;
+     }
+ 
+@@ -640,6 +668,7 @@
+     for (int k = 0; k < (int)merged.size(); ++k) {
+         int seed   = merged[k];
+         int endIdx = rightEnds[k];
++        if (endIdx < begins[k]) continue;   // empty region (no above-thr sample)
+ 
+         // --- natural left boundary ---
+         // Stop when either:
+@@ -647,7 +676,9 @@
+         //   (b) derivative drops back below derivResetThr (same reset threshold
+         //       used in Step 3 — the waveform has stopped rising sharply enough
+         //       that we are on the tail of a previous pulse)
+-        int startIdx = seed;
++        // Walk starts from the first above-threshold sample of the region
++        // (begins[k]), not the raw derivative seed (see Pass 1 fix).
++        int startIdx = begins[k];
+         while (startIdx > 0
+                && wf[startIdx - 1]     > ampThr
+                && deriv[startIdx - 1]  > derivResetThr)
+--- WaveformAnalyzer.h.orig	2026-07-24 17:11:56.934810890 +0200
++++ WaveformAnalyzer.h	2026-07-24 17:04:52.338820504 +0200
+@@ -58,6 +58,12 @@
+     void setThresholdSigma(float v)    { thresholdSigma = v; }
+     void setTimePerSample(float v)     { timePerSample = v; }
+     void setCommonNoiseSubtraction(bool v) { commonNoiseSubtraction = v; }  // toggles CNS on DATA (pedestal RMS is always post-CNS)
++    // For zero-suppressed data whose pedestals were already subtracted ON THE
++    // FEU (waveforms re-centred at 256): subtract the uniform 256 baseline
++    // instead of the pedestal file's per-channel RAW means (which differ from
++    // 256 by -15..-127 ADC and would shift every threshold by that much).
++    // The pedestal file is still used for the per-channel noise RMS.
++    void setZsBaseline(bool v)         { zsBaseline = v; }
+ 
+ private:
+     std::string inputFileName;
+@@ -69,6 +75,7 @@
+ 
+     // configuration
+     bool commonNoiseSubtraction = true;  // if true, subtract common noise per event per channel (Cosmic Bench default ON)
++    bool zsBaseline = false;  // if true, data baseline = zeroSupressedBaseline (256), not the pedestal-file means
+     bool allowMultiplePeaks = true;  // if false, only the highest peak per channel per event is kept
+     bool local_baseline = true;  // if true, use local baseline per peak; if false, use global pedestal mean
+     float thresholdSigma = 5.0;  // Number of pedestal RMS above which a hit is registered
+--- analyze_waveforms.cpp.orig	2026-07-24 17:11:57.194808434 +0200
++++ analyze_waveforms.cpp	2026-07-24 17:05:21.310547020 +0200
+@@ -12,7 +12,7 @@
+     // WaveformAnalyzer wf("Mx17_run_datrun_251204_18H17_000_05.root", "hits.root", "/home/dylan/CLionProjects/mm_strip_reconstruction/test/ped_thresh_1_12_25_18_30/Mx17_ped_pedthr_251201_18H27_000_05.root");
+     if (argc < 2)
+     {
+-        std::cerr << "Usage: " << argv[0] << " <input.root> [output.root] [pedestal.root] [--tps <ns>] [--cns <0|1>]" << std::endl;
++        std::cerr << "Usage: " << argv[0] << " <input.root> [output.root] [pedestal.root] [--tps <ns>] [--cns <0|1>] [--zs-baseline <0|1>]" << std::endl;
+         return 1;
+     }
+     std::string inputFile = argv[1];
+@@ -20,6 +20,7 @@
+     std::string pedestalFile = "";
+     float timePerSample = -1.0f;  // negative means use default
+     int commonNoiseSub = -1;      // -1 means leave the compiled default (ON)
++    int zsBaseline = -1;          // -1 means leave the compiled default (OFF)
+     if (argc >= 3) outputFile = argv[2];
+     if (argc >= 4) pedestalFile = argv[3];
+     for (int i = 4; i < argc - 1; ++i) {
+@@ -29,12 +30,16 @@
+         } else if (std::string(argv[i]) == "--cns") {
+             commonNoiseSub = std::stoi(argv[i + 1]);
+             ++i;
++        } else if (std::string(argv[i]) == "--zs-baseline") {
++            zsBaseline = std::stoi(argv[i + 1]);
++            ++i;
+         }
+     }
+ 
+     WaveformAnalyzer wf(inputFile, outputFile, pedestalFile);
+     if (timePerSample > 0.0f) wf.setTimePerSample(timePerSample);
+     if (commonNoiseSub >= 0) wf.setCommonNoiseSubtraction(commonNoiseSub != 0);
++    if (zsBaseline >= 0) wf.setZsBaseline(zsBaseline != 0);
+     wf.run();
+     return 0;
+ }
