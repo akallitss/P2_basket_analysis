@@ -182,3 +182,43 @@ Same chain as 07-23: `run_beam_qa.sh <run_name>` on banco →
 signal / HV plots + JSON/CSV, run-level trend panel
 `trend_beam_nominal_meshscan_1.png`). Raw + decoded data under
 `TB_July2026_H4/runs/<run>/`.
+
+---
+
+## Drift scans analysed (laptop, fixed processing) — and a P2_MID gain transient
+
+**Efficiency vs drift (tag-probe, DAQ-overlap corrected), mesh 450 V fixed:**
+
+| drift [V] | 450 | 500 | 550 | 600 | 650 | 700 | 750 | 800 | 850 | 900 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| P2_OUT | 0.11 | 0.77* | 0.81 | 0.89 | 0.92 | 0.91 | 0.93 | 0.95* | 0.954 | 0.958 |
+
+(*) DAQ-overlap corrected: FEU5 recorded only 14 % of `drift_500` and 79 % of
+`drift_800` — the correction (recorded_events.npz) puts both points back on
+the curve (0.105 → 0.774, 0.753 → 0.950). Raw values would fake a dip.
+
+- **Transparency turn-on**: drift 450 (= zero field across the gap) is
+  effectively dead; steep recovery to ~0.89 by 600; plateau above ~650–700.
+- Within the tag-stable `drift_scan_2`, 800 → 900 V gains only +0.8 points —
+  **no benefit pushing drift beyond ~700–750. Drift = mesh + 250 (700 V at
+  mesh 450) confirmed as the working point.** The apparent extra rise
+  700 → 850 across the two scans is largely tag-quality (P2_MID state)
+  varying between runs, not OUT physics.
+- Sparking vs drift (P2_OUT): occasional single sparks at ≥550 V, imon
+  ≤ 2.4 µA, live fraction ≥ 0.96 — no drift-side HV headroom problem to 900 V.
+
+**P2_MID gain transient (NEW, hardware):** at identical settings
+(mesh 450 / drift 700) P2_MID's median amplitude was **527 ADC on 07-23
+evening → 41 ADC on 07-24 midday (drift_700) → 86 ADC on 07-24 evening
+(fine scan, 445/695)** — a ×6–10 collapse overnight, partially recovering
+through the day. P2_OUT stable (350–370) throughout ⇒ not the common gas
+supply; suspect MID's own gas line (iso fraction transient, e.g. after a
+bottle/flow change) or mesh HV contact. Consequences:
+- MID's fine-scan efficiency curve (0.875 @ 445 V) and its drift-scan curve
+  describe the DEGRADED detector — remeasure once amplitude is back at ~510.
+- **Do not raise MID's mesh above ~450 until the gas is verified** (low
+  quencher ⇒ spark risk rises faster than the quiet imon suggests).
+- Check at start of next run: MID median amplitude at 450/700; healthy ≈ 510.
+
+Alignment quality tracks MID's state cleanly: MID↔OUT residual 23.9 mm
+(midday, collapsed) → 14.6 mm (drift_scan_2) → 8.9 mm (evening fine scan).
