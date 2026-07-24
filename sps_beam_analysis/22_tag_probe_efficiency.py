@@ -108,7 +108,10 @@ def load_transforms(cfg, sub_run):
         al = json.load(f)
     tf = {name: scl.RigidTransform.from_dict(p)
           for name, p in al['planes'].items()}
-    return tf, path
+    # per-plane post-fit residual [mm]; the reference has 0 by construction.
+    rmse = {name: (float(p.get('rmse_post') or 0.0))
+            for name, p in al['planes'].items()}
+    return tf, path, rmse
 
 
 def predict_in_probe(tag_positions, probe_name, tf):
@@ -123,42 +126,72 @@ def predict_in_probe(tag_positions, probe_name, tf):
     return float(np.mean(xs)), float(np.mean(ys))
 
 
-def eval_probe(cfg, probe, others, clusters, tf, probe_r, min_tag):
+def eval_probe(cfg, probe, others, clusters, tf, probe_r, min_tag,
+               fiducial=None):
     """Tag-and-probe for one probe plane. Returns (df_tag, n_tag, n_hit) where
-    df_tag has columns pred_x, pred_y, hit (bool) for each tagged event."""
-    # single clean clusters per plane, indexed by eventId
-    single = {name: c[c['single']].set_index('eventId')
-              for name, c in clusters.items()}
-    probe_all = clusters[probe].set_index('eventId')  # any cluster on probe
+    df_tag has columns pred_x, pred_y, hit (bool) for each tagged event.
 
-    n_other = len(others)
-    need = max(min_tag, (n_other // 2 + 1) if n_other >= 3 else min_tag)
-
-    # union of eventIds seen by any tagging plane's single clusters
-    ev_union = set()
+    `others` is already restricted to the tag-ELIGIBLE planes (well-aligned
+    ones). `fiducial`, if given as (xmin, xmax, ymin, ymax), keeps only events
+    whose predicted impact point falls inside the probe's active area, so the
+    efficiency is intrinsic (a track that misses the probe's pads is not counted
+    as an inefficiency).
+    """
+    # Vectorised over events (the per-event .loc loop was O(1e6) Python-level
+    # and dominated the runtime). Each tag plane's single clusters are mapped
+    # into the probe frame in one shot; predictions are averaged per event.
+    inv_probe = tf[probe].inverse()
+    parts = []
     for name in others:
-        ev_union |= set(single[name].index.tolist())
-
-    rows = []
-    for ev in ev_union:
-        tags = []
-        for name in others:
-            if ev in single[name].index:
-                r = single[name].loc[ev]
-                tags.append((name, float(r['x']), float(r['y'])))
-        if len(tags) < need:
+        c = clusters[name]
+        s = c[c['single']]
+        if not len(s):
             continue
-        px, py = predict_in_probe(tags, probe, tf)
-        hit = False
-        if ev in probe_all.index:
-            pr = probe_all.loc[ev]
-            # a probe event can appear once (Series); guard for duplicates
-            pxv = np.atleast_1d(pr['x']); pyv = np.atleast_1d(pr['y'])
-            d = np.hypot(pxv - px, pyv - py)
-            hit = bool(np.nanmin(d) <= probe_r)
-        rows.append((px, py, hit))
-    df = pd.DataFrame(rows, columns=['pred_x', 'pred_y', 'hit'])
-    return df, len(df), int(df['hit'].sum()) if len(df) else 0
+        rx, ry = tf[name].apply(s['x'].to_numpy(), s['y'].to_numpy())  # ->ref
+        px, py = inv_probe.apply(rx, ry)                               # ->probe
+        parts.append(pd.DataFrame({'eventId': s['eventId'].to_numpy(),
+                                   'px': px, 'py': py}))
+    empty = (pd.DataFrame(columns=['pred_x', 'pred_y', 'hit']), 0, 0, 0)
+    if not parts:
+        return empty
+    allpred = pd.concat(parts, ignore_index=True)
+    g = allpred.groupby('eventId').agg(px=('px', 'mean'), py=('py', 'mean'),
+                                       n=('px', 'size'))
+    need = max(min_tag, (len(others) // 2 + 1) if len(others) >= 3 else min_tag)
+    g = g[g['n'] >= need]
+    if not len(g):
+        return empty
+
+    n_outside = 0
+    if fiducial is not None:
+        x0, x1, y0, y1 = fiducial
+        inside = ((g['px'] >= x0) & (g['px'] <= x1) &
+                  (g['py'] >= y0) & (g['py'] <= y1))
+        n_outside = int((~inside).sum())
+        g = g[inside]
+        if not len(g):
+            return (pd.DataFrame(columns=['pred_x', 'pred_y', 'hit']),
+                    0, 0, n_outside)
+
+    # probe-hit test: nearest probe cluster (any) to the prediction, per event
+    pc = clusters[probe][['eventId', 'x', 'y']]
+    m = g.reset_index()[['eventId', 'px', 'py']].merge(pc, on='eventId',
+                                                       how='left')
+    m['d'] = np.hypot(m['x'] - m['px'], m['y'] - m['py'])
+    dmin = m.groupby('eventId')['d'].min()
+    hit = (dmin.reindex(g.index) <= probe_r).fillna(False).to_numpy()
+    df = pd.DataFrame({'pred_x': g['px'].to_numpy(),
+                       'pred_y': g['py'].to_numpy(), 'hit': hit})
+    return df, len(df), int(df['hit'].sum()), n_outside
+
+
+def fiducial_box(ct, margin):
+    """(xmin, xmax, ymin, ymax) of the probe's pad centres, shrunk by `margin`
+    mm on every side so a prediction near the edge still has room for its true
+    pad to be inside the array."""
+    px = ct['pad_cx'].to_numpy(); py = ct['pad_cy'].to_numpy()
+    return (float(px.min()) + margin, float(px.max()) - margin,
+            float(py.min()) + margin, float(py.max()) - margin)
 
 
 def plot_eff_map(df, ct, probe, lbl, sub, caveat, out_png, out_csv,
@@ -222,12 +255,23 @@ def main():
     ap.add_argument('run_key', nargs='?', default=sc.DEFAULT_RUN)
     ap.add_argument('--sub-run', default=None,
                     help='sub_run (default: all discovered sub_runs).')
-    ap.add_argument('--probe-r', type=float, default=8.0,
-                    help='probe-hit search radius around the tag position [mm].')
+    ap.add_argument('--probe-r', type=float, default=None,
+                    help='probe-hit search radius [mm]. Default: '
+                         '--probe-nsigma x the tag planes\' alignment residual.')
+    ap.add_argument('--probe-nsigma', type=float, default=3.0,
+                    help='probe radius in units of the alignment residual when '
+                         '--probe-r is not given.')
     ap.add_argument('--cluster-r', type=float, default=15.0)
     ap.add_argument('--min-tag', type=int, default=None,
                     help='min OTHER planes with a clean cluster to tag '
                          '(default: run-config MIN_TAG).')
+    ap.add_argument('--tag-max-rmse', type=float, default=40.0,
+                    help='a plane may TAG only if its alignment post-fit '
+                         'residual is below this [mm]; excludes planes that '
+                         'do not align (e.g. a detector not tracking the beam).')
+    ap.add_argument('--no-fiducial', action='store_true',
+                    help='do not require the predicted impact inside the probe '
+                         'active area (then efficiency is acceptance-relative).')
     ap.add_argument('--min-pad-tags', type=int, default=5,
                     help='min tags in a pad for it to get a map entry.')
     ap.add_argument('--veto-sparks', action=argparse.BooleanOptionalAction,
@@ -252,34 +296,59 @@ def main():
         return
     prod_sub = 'scan' if len(subruns) > 1 else subruns[0]
     suffix = cfg.product_suffix(args.veto_sparks)
-    caveat = ('efficiency relative to the tag selection / overlap acceptance '
-              'only (not absolute)')
+    caveat = ('intrinsic within the probe fiducial area; tag planes gated by '
+              f'alignment residual < {args.tag_max_rmse:.0f} mm'
+              if not args.no_fiducial else
+              'acceptance-relative (no fiducial cut)')
 
     rows = []
     for sub in subruns:
         print(f'  sub_run {sub}:')
-        tf, al_path = load_transforms(cfg, sub)
+        tf, al_path, rmse = load_transforms(cfg, sub)
         if tf is None:
             print('    no alignment.json (run 21_telescope_align first) — '
                   'skipping')
             continue
         print(f'    alignment: {os.path.relpath(al_path, cfg.ANALYSIS_ROOT)}')
+        # A plane may TAG only if it is itself well aligned; a plane that does
+        # not track the beam gives garbage predictions and must not tag.
+        eligible = {n for n, r in rmse.items() if r <= args.tag_max_rmse}
+        excluded = [n for n in tf if n not in eligible]
+        if excluded:
+            print(f'    tag-ineligible (residual > {args.tag_max_rmse:.0f} mm): '
+                  f'{", ".join(f"{n} ({rmse[n]:.0f} mm)" for n in excluded)}')
         clusters = {d.name: load_clusters(cfg, d, sub, args.cluster_r,
                                           args.veto_sparks) for d in dets}
         for probe in dets:
-            others = [d.name for d in dets if d.name != probe.name]
-            if probe.name not in tf or any(o not in tf for o in others):
-                print(f'    {probe.name}: missing transform, skipping')
+            others = [d.name for d in dets
+                      if d.name != probe.name and d.name in eligible]
+            if probe.name not in tf or not others:
+                print(f'    {probe.name}: no eligible tag plane, skipping')
                 continue
-            df, n_tag, n_hit = eval_probe(cfg, probe.name, others, clusters, tf,
-                                          args.probe_r, min_tag)
+            # probe radius: explicit, else N-sigma of the prediction residual.
+            # The scale is the pairwise plane-to-plane residual, taken over the
+            # WELL-ALIGNED planes in the pair (the probe's own residual is used
+            # only if the probe itself aligned -- otherwise a broken probe like
+            # P2_IN would blow the radius up with its garbage 132 mm fit).
+            scales = [rmse[o] for o in others]
+            if rmse.get(probe.name, 1e9) <= args.tag_max_rmse:
+                scales.append(rmse[probe.name])
+            res = max(scales) if scales else 0.0
+            probe_r = (args.probe_r if args.probe_r is not None
+                       else max(20.0, args.probe_nsigma * res))
+            fid = (None if args.no_fiducial
+                   else fiducial_box(cfg.channel_table(probe), probe_r))
+            df, n_tag, n_hit, n_out = eval_probe(
+                cfg, probe.name, others, clusters, tf, probe_r, min_tag,
+                fiducial=fid)
             hv = cfg.subrun_mesh_hv(sub, probe)
             pt = hv if hv is not None else subruns.index(sub)
             lbl = f'{hv}V' if hv is not None else sub
             eff = n_hit / n_tag if n_tag else np.nan
             lo, hi = clopper_pearson(n_hit, n_tag)
-            print(f'    probe {probe.name}: {n_tag} tagged, {n_hit} found, '
-                  f'eff = '
+            print(f'    probe {probe.name} (tags {"+".join(others)}, '
+                  f'r={probe_r:.0f}mm): {n_tag} in-fiducial tagged '
+                  f'({n_out} outside), {n_hit} found, eff = '
                   + (f'{eff:.3f} [+{hi-eff:.3f}/-{eff-lo:.3f}]'
                      if n_tag else 'n/a (no tags)'))
             out_dir = cfg.out_dir(probe.det_tag, prod_sub,
@@ -293,7 +362,9 @@ def main():
                          min_pad_tags=args.min_pad_tags)
             rows.append(dict(sub_run=sub, point=pt, hv=hv,
                              probe=probe.name, probe_tag=probe.det_tag,
-                             n_tag=n_tag, n_hit=n_hit, eff=eff,
+                             tags='+'.join(others), probe_r_mm=probe_r,
+                             n_tag=n_tag, n_out_fiducial=n_out,
+                             n_hit=n_hit, eff=eff,
                              eff_lo=lo, eff_hi=hi))
 
     if not rows:
