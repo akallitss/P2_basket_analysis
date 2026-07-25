@@ -102,6 +102,16 @@ MASK_GBR_PATH = os.path.join(
 
 DEFAULT_RUN = 'fe55_telescope'
 
+# Per-station cabling quirks, measured from beam data (2026-07-25, highstat_
+# eff_1): P2_IN's c_5_top ribbon is mounted flipped relative to P2_MID/P2_OUT,
+# so that connector half reads out 'linear' while everything else on all three
+# stations is 'reverse'. Established channel-by-channel against P2_MID
+# single-cluster positions: in-beam channels give a 0 mm median residual under
+# 'linear' vs 138 mm under 'reverse'; every other connector half of P2_IN and
+# ALL of P2_OUT confirm 'reverse' at 0 mm. Keyed by det name; applied by
+# RunConfig.channel_table unless a registry entry overrides it.
+STRATEGY_OVERRIDES = {'P2_IN': {(5, 'top'): 'linear'}}
+
 # The special det_tag under which telescope-wide products (event sync,
 # alignment) are written.
 TELESCOPE_TAG = 'telescope'
@@ -161,6 +171,7 @@ class RunConfig:
     def __init__(self, key, run, data_root=None, analysis_root=ANALYSIS_ROOT,
                  map_csv=MAP_CSV_PATH, mask_gbr=MASK_GBR_PATH,
                  ref_plane=None, min_tag=1, strategy='reverse',
+                 strategy_overrides=None,
                  det_tags=None, drop_connectors=None,
                  spark_imon_thr=2.0, spark_guard_before=2.0,
                  spark_guard_after=10.0, burst_npads=0,
@@ -172,6 +183,11 @@ class RunConfig:
         self.MAP_CSV_PATH = map_csv
         self.MASK_GBR_PATH = mask_gbr
         self.STRATEGY = strategy
+        # {det_name: {(connector_N, half): strategy}} per-half cabling quirks;
+        # None -> module default STRATEGY_OVERRIDES (measured hardware facts).
+        self._strategy_overrides = (STRATEGY_OVERRIDES
+                                    if strategy_overrides is None
+                                    else strategy_overrides)
         # Reference plane name for alignment; None -> first station (highest z
         # or first in config). Others align to it.
         self.REF_PLANE = ref_plane
@@ -340,6 +356,9 @@ class RunConfig:
     def drop_connectors_for(self, det):
         return tuple(self._drop_connectors.get(det.name, ()))
 
+    def strategy_overrides_for(self, det):
+        return dict(self._strategy_overrides.get(det.name, {}))
+
     # -- sub_runs ----------------------------------------------------------- #
     def find_subruns(self):
         """On-disk sub_run directories that carry combined-hits ROOT files,
@@ -403,6 +422,7 @@ class RunConfig:
                 self.run_config_path, self.MAP_CSV_PATH,
                 det_type=det.det_type, det_name=det.name,
                 strategy=self.STRATEGY,
+                strategy_overrides=self.strategy_overrides_for(det),
                 drop_connectors=self.drop_connectors_for(det))
         return det._ct
 

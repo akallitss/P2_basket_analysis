@@ -185,6 +185,17 @@ def main():
     def _n_single(d):
         c = clusters[d.name]
         return int(c['single'].sum()) if len(c) else 0
+    # A plane with no clusters at all (zero-field control point, dead HV...)
+    # cannot participate in the fit; drop it instead of crashing downstream.
+    alive = [d for d in dets if _n_single(d) > 0]
+    dead = [d.name for d in dets if d not in alive]
+    if dead:
+        print(f'  (no clean single clusters, skipped: {", ".join(dead)})')
+    if len(alive) < 2:
+        print('Need >=2 planes with clusters to align — nothing to fit here '
+              '(pick another sub_run with --sub-run).')
+        return
+    dets = alive
     ref = (cfg.ref_det(among=dets) if cfg.REF_PLANE
            else max(dets, key=_n_single))
     print(f'Stations: {[d.name for d in dets]}   reference = {ref.name} '

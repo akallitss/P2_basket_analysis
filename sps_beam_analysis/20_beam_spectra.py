@@ -162,9 +162,13 @@ def _windowed_median(q, fit_min, n_iter=3):
     return m
 
 
-def plot_map(values, ct, title, cbar, out_png, log=False, grey_below=None):
+def plot_map(values, ct, title, cbar, out_png, log=False, grey_below=None,
+             robust=False):
     """Generic per-pad map on the real pad tiles (values indexed by
-    channel_id). grey_below draws pads with value < it as grey."""
+    channel_id). grey_below draws pads with value < it as grey.
+    robust clips the colour scale to the 2-98 percentile of the plotted
+    values, so a single saturating/sparking pad cannot flatten the map --
+    outlier pads stay visible, pinned at the scale ends."""
     from matplotlib.collections import PolyCollection
     fig, ax = plt.subplots(figsize=(7.5, 6))
     if pmap.has_tile_geometry(ct):
@@ -179,8 +183,13 @@ def plot_map(values, ct, title, cbar, out_png, log=False, grey_below=None):
                 if log else None
             pc = PolyCollection(verts[good], array=v[good], cmap='viridis',
                                 norm=norm, edgecolors='face', linewidths=0.2)
+            if robust and not log and good.sum() >= 10:
+                lo, hi = np.nanpercentile(v[good], [2, 98])
+                if hi > lo:
+                    pc.set_clim(lo, hi)
             ax.add_collection(pc)
-            fig.colorbar(pc, ax=ax, label=cbar)
+            fig.colorbar(pc, ax=ax, label=cbar,
+                         extend='both' if robust and not log else 'neither')
         ax.autoscale_view(); ax.set_aspect('equal')
     else:
         ax.scatter(ct['pad_cx'], ct['pad_cy'], c='0.7', s=6)
@@ -193,12 +202,25 @@ def plot_map(values, ct, title, cbar, out_png, log=False, grey_below=None):
 
 def process_det(cfg, det, args):
     subruns = cfg.find_subruns()
-    if not subruns:
-        print('  no sub_runs with hits')
-        return
     # products dir tag: the run may be a scan (many points) -> use 'scan',
     # else the single sub_run name
-    prod_sub = 'scan' if len(subruns) > 1 else subruns[0]
+    prod_sub = 'scan' if len(subruns) > 1 else (subruns[0] if subruns else '')
+    if args.subruns_glob:
+        import fnmatch
+        pats = [p.strip() for p in args.subruns_glob.split(',') if p.strip()]
+        subruns = [s for s in subruns
+                   if any(fnmatch.fnmatch(s, p) for p in pats)]
+        # separate product dir per arm so drift and mesh curves don't overwrite
+        prod_sub = 'scan_' + re.sub(r'[^A-Za-z0-9]+', '_',
+                                    args.subruns_glob).strip('_')
+    if not subruns:
+        print('  no sub_runs with hits'
+              + (' (after --subruns-glob filter)' if args.subruns_glob else ''))
+        return
+    # Which electrode does this run vary for THIS det? Mesh scans plot vs mesh
+    # HV, drift scans vs drift HV; a det whose HV is fixed throughout (control
+    # plane, stability run) falls back to sub_run-indexed points and labels.
+    scan_ax, scan_label = cfg.scan_axis(subruns, det)
     suffix = cfg.product_suffix(args.veto_sparks)
     base = cfg.out_dir(det.det_tag, prod_sub, '20_beam_spectra')
     spec_dir = cfg.out_dir(det.det_tag, prod_sub, '20_beam_spectra', 'spectra')
@@ -209,7 +231,7 @@ def process_det(cfg, det, args):
 
     rows, spectra = [], []
     for i, sub in enumerate(subruns):
-        hv = cfg.subrun_mesh_hv(sub, det)
+        hv = cfg.subrun_scan_hv(sub, det, scan_ax) if scan_ax else None
         pt = hv if hv is not None else i
         lbl = f'{hv}V' if hv is not None else sub
         hits_dir = cfg.combined_hits_dir(sub)
@@ -244,7 +266,8 @@ def process_det(cfg, det, args):
         plot_map(per_pad, ct,
                  f'{det.name} per-pad MPV proxy — {lbl} ({sub})',
                  'median cluster charge [ADC]',
-                 os.path.join(map_dir, f'gain_map_{lbl}{suffix}.png'))
+                 os.path.join(map_dir, f'gain_map_{lbl}{suffix}.png'),
+                 robust=True)
         pad_hits = pad_hit_counts(hits_dir, ct, args.min_amp, t_min, veto)
         pd.DataFrame({'n_hits': pad_hits}).to_csv(
             os.path.join(hit_dir, f'hit_map_{lbl}{suffix}.csv'))
@@ -299,7 +322,7 @@ def process_det(cfg, det, args):
     df.to_csv(os.path.join(base, f'beam_mpv_vs_hv{suffix}.csv'), index=False)
     has_hv = df['hv'].notna().any()
     xcol = 'hv' if has_hv else 'point'
-    xlab = 'mesh HV [V]' if has_hv else 'sub_run index'
+    xlab = scan_label if has_hv else 'sub_run index'
     tag = f'{det.name}  {cfg.RUN}'
     cmap = plt.get_cmap('viridis')
 
@@ -325,7 +348,9 @@ def process_det(cfg, det, args):
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.errorbar(ok[xcol], ok['mpv_adc'], yerr=ok['mpv_err'], fmt='o-',
                 color='steelblue', capsize=4, lw=2, ms=7, label='Landau MPV')
-    if has_hv and len(ok) >= 3:
+    # exponential gain-vs-V fit only makes sense along the mesh axis (a drift
+    # scan traces transparency, not avalanche gain)
+    if has_hv and scan_ax == 'mesh' and len(ok) >= 3:
         k, b = np.polyfit(ok['hv'], np.log(ok['mpv_adc']), 1)
         xs = np.linspace(ok['hv'].min(), ok['hv'].max(), 100)
         ax.plot(xs, np.exp(b + k * xs), '--', color='crimson', lw=1.5,
@@ -462,6 +487,10 @@ def main():
     ap = argparse.ArgumentParser(description='Beam cluster spectra + Landau MPV '
                                              'vs HV / sub_run.')
     ap.add_argument('run_key', nargs='?', default=sc.DEFAULT_RUN)
+    ap.add_argument('--subruns-glob', default=None,
+                    help='comma-separated fnmatch patterns selecting sub_runs, '
+                         "e.g. 'drift_*' or 'meshscan_*,nominal_*' -- for runs "
+                         'that mix a drift arm and a mesh arm.')
     ap.add_argument('--det', default=None,
                     help='station name or det_tag (default: all stations).')
     ap.add_argument('--strategy', default='reverse',

@@ -326,11 +326,17 @@ def main():
         return
     if len(subruns) == 1 and not args.subruns_glob:
         prod_sub = subruns[0]
-    # Which electrode does this run scan? Mesh scans plot vs mesh HV; drift
-    # scans (mesh fixed, drift varied) plot vs drift HV.
-    scan_ax, scan_label = cfg.scan_axis(subruns, dets[0])
+    # Which electrode does this run scan? Decided PER PROBE: a probe held at
+    # fixed HV while another plane is scanned (P2_IN during the MID/OUT drift
+    # leg) is a control curve — its x is the program's scanned value, and its
+    # products are labelled by sub_run so points don't overwrite each other.
+    # A run where nothing varies (stability run) plots vs sub_run index.
+    own_axis = {d.name: cfg.scan_axis(subruns, d)[0] for d in dets}
+    axis_det = next((d for d in dets if own_axis[d.name]), None)
+    scan_ax, scan_label = (cfg.scan_axis(subruns, axis_det) if axis_det
+                           else (None, 'sub_run index'))
     if scan_ax:
-        print(f'  scan axis: {scan_label}')
+        print(f'  scan axis: {scan_label} (from {axis_det.name})')
     suffix = cfg.product_suffix(args.veto_sparks)
     caveat = ('intrinsic within the probe fiducial area; tag planes gated by '
               f'alignment residual < {args.tag_max_rmse:.0f} mm'
@@ -384,10 +390,16 @@ def main():
             df, n_tag, n_hit, n_out = eval_probe(
                 cfg, probe.name, others, clusters, tf, probe_r, min_tag,
                 fiducial=fid, probe_rec=probe_rec)
-            hv = (cfg.subrun_scan_hv(sub, probe, scan_ax) if scan_ax
-                  else cfg.subrun_mesh_hv(sub, probe))
-            pt = hv if hv is not None else subruns.index(sub)
-            lbl = f'{hv}V' if hv is not None else sub
+            ax_p = own_axis[probe.name]
+            hv = cfg.subrun_scan_hv(sub, probe, ax_p) if ax_p else None
+            if hv is not None:
+                pt, lbl = hv, f'{hv}V'
+            elif scan_ax:
+                pt = cfg.subrun_scan_hv(sub, axis_det, scan_ax)
+                pt = pt if pt is not None else subruns.index(sub)
+                lbl = sub
+            else:
+                pt, lbl = subruns.index(sub), sub
             eff = n_hit / n_tag if n_tag else np.nan
             lo, hi = clopper_pearson(n_hit, n_tag)
             # DAQ-overlap corrected: drop tags in triggers the probe FEU never
@@ -439,10 +451,9 @@ def main():
             os.path.join(out_dir, f'tag_probe_efficiency{suffix}.csv'),
             index=False)
 
-    # efficiency vs HV / point, all probes
-    has_hv = df['hv'].notna().any()
-    xcol = 'hv' if has_hv else 'point'
-    xlab = scan_label if has_hv else 'sub_run index'
+    # efficiency vs scan point (per-probe own HV, or the program's scanned
+    # value for fixed-HV control probes; sub_run index for stability runs)
+    xcol, xlab = 'point', scan_label
     has_corr = df['eff_corr'].notna().any()
     fig, ax = plt.subplots(figsize=(8, 5))
     for probe, s in df.groupby('probe'):
