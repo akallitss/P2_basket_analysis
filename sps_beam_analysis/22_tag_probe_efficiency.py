@@ -41,6 +41,7 @@ Usage:
 """
 
 import os
+import re
 import json
 import argparse
 
@@ -271,6 +272,10 @@ def main():
     ap.add_argument('run_key', nargs='?', default=sc.DEFAULT_RUN)
     ap.add_argument('--sub-run', default=None,
                     help='sub_run (default: all discovered sub_runs).')
+    ap.add_argument('--subruns-glob', default=None,
+                    help='comma-separated fnmatch patterns selecting sub_runs, '
+                         "e.g. 'drift_*' or 'meshscan_*,nominal_*' -- for runs "
+                         'that mix a drift arm and a mesh arm.')
     ap.add_argument('--probe-r', type=float, default=None,
                     help='probe-hit search radius [mm]. Default: '
                          '--probe-nsigma x the tag planes\' alignment residual.')
@@ -307,10 +312,20 @@ def main():
         return
     min_tag = args.min_tag if args.min_tag is not None else cfg.MIN_TAG
     subruns = [args.sub_run] if args.sub_run else cfg.find_subruns()
+    prod_sub = 'scan'
+    if args.subruns_glob:
+        import fnmatch
+        pats = [p.strip() for p in args.subruns_glob.split(',') if p.strip()]
+        subruns = [s for s in subruns
+                   if any(fnmatch.fnmatch(s, p) for p in pats)]
+        # separate product dir per arm so drift and mesh curves don't overwrite
+        prod_sub = 'scan_' + re.sub(r'[^A-Za-z0-9]+', '_',
+                                    args.subruns_glob).strip('_')
     if not subruns:
-        print('No sub_runs with combined hits.')
+        print('No sub_runs with combined hits (after --subruns-glob filter).')
         return
-    prod_sub = 'scan' if len(subruns) > 1 else subruns[0]
+    if len(subruns) == 1 and not args.subruns_glob:
+        prod_sub = subruns[0]
     # Which electrode does this run scan? Mesh scans plot vs mesh HV; drift
     # scans (mesh fixed, drift varied) plot vs drift HV.
     scan_ax, scan_label = cfg.scan_axis(subruns, dets[0])

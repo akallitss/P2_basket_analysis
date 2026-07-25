@@ -222,3 +222,30 @@ bottle/flow change) or mesh HV contact. Consequences:
 
 Alignment quality tracks MID's state cleanly: MID↔OUT residual 23.9 mm
 (midday, collapsed) → 14.6 mm (drift_scan_2) → 8.9 mm (evening fine scan).
+
+---
+
+## drift_mesh_scan_1 analysed (Jul 25) — working points for the long run
+
+23 points, healthy P2_MID, zero DAQ loss (one FEU5 dropout at drift_700,
+recovered by the recorded-events correction: 0.141 → 0.954, on trend).
+
+**MID/OUT mesh knee at ~430–435 V, plateau 0.94–0.97; drift flattens above
+~750, OUT dips at drift 900 (avoid). ⇒ LONG-RUN SETTINGS: P2_MID & P2_OUT
+mesh 450 / drift 750 (700 equally defensible, −1 pt).** Plateau-region
+run-to-run scatter ±2 pts from the overnight common gain drift (~15–20 % —
+P/T; argues for sitting 15–20 V above the knee).
+
+**P2_IN raw hit-share vs mesh (drift = mesh+200):** 370 V: 0.35 → 400: 0.48 →
+415: 0.67 → 425: 0.89 → **430: 0.90** — still rising at the top of the scan,
+and known to collapse by 490 (raw 0.16). Window edge between 430 and 490
+unmapped: **run IN at 430/630 (share ≈ 0.90, amp ≈ 97 ADC); if beam time
+allows, probe 440/640 and 450/650 with short sub-runs before committing
+higher. Do not return to 490.**
+
+**P2_IN position reconstruction is broken after the reinstallation**: it fires
+on 90 % of triggers but tag-probe matches only 1.7 % — alignment converges
+(dx ≈ 31 mm, θ ≈ −1°) with a 93 mm residual ⇒ channel→pad mapping/orientation
+wrong (connector order?). Offline fix: validate IN's mapping (02-style map
+validation against beam-spot correlations) before any IN position/efficiency
+analysis.
