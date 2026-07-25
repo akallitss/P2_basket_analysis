@@ -239,3 +239,32 @@ alignment residual), spark-vetoed, ~5.5-7.8 M tags per point:
   gate remains the right tool; whole-sub-run MPVs are usable as-is.
 - MID/OUT mesh efficiency curves regenerated with 3-plane tagging (P2_IN now
   tag-eligible): shapes unchanged, values shift <~1 pt.
+
+## Waveform timing resolution at the working point (29, highstat_eff_1)
+
+Stage 29 on beam_commissioning_00 and _05 (3 M events each, amp 200-3500,
+ftst + time-walk corrected). Pair method, and with three pairs the
+equal-resolution assumption can be dropped (triangulated per-station sigma):
+
+| | sub-run 00 | sub-run 05 |
+|---|---|---|
+| sigma_dt MID-OUT | 24.2 ns | 24.7 ns |
+| sigma_dt IN-MID | 27.4 ns | 27.6 ns |
+| sigma_dt IN-OUT | 29.0 ns | 29.9 ns |
+| **per-station (triangulated)** | MID 15.8 / OUT 18.4 / IN 22.4 | MID 15.5 / OUT 19.3 / IN 22.9 |
+
+- **~16-22 ns single-station at 700/450**, vs ~22 ns (MID-OUT equal-split) in
+  the 07-24 study — healthier detectors + full stats. P2_IN now enters with
+  1.4 M benchmark hits (was 137 k at its starved 07-23 point).
+- **Stable to < 0.5 ns between 11:37 and 16:11** despite the P/T amplitude
+  drift — the walk correction absorbs the gain slide, as intended.
+- IN is the worst of the three (22-23 ns), consistent with its lower
+  amplitude at mesh 450 (180 vs 300+ ADC median); its curve says plateau
+  ~440-450, so this is roughly its ceiling without a HV bump toward the
+  spike onset.
+- Best algorithm: frac30 for MID (16 ns), dCFD for IN/OUT. Fitted ftst
+  slopes differ per FEU (-9.6 / -6.6 / -5.5 ns/unit) — per-station fit is
+  doing real work; do not assume a common clock phase.
+- Products: analysis/<det>/highstat_eff_1/beam_commissioning_{00,05}/
+  29_waveform_timing/ and telescope/.../29_waveform_timing/ (pair plots +
+  waveform_timing_summary.json).
