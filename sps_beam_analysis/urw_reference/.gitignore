@@ -1,0 +1,12 @@
+# Products belong under $SPS_ANALYSIS_ROOT, not in the repo.  These patterns
+# only catch the case where someone runs a script with a relative --out.
+out/
+out_*/
+*.png
+*.log
+*.json
+*.csv
+*.parquet
+*.npz
+__pycache__/
+*.pyc
