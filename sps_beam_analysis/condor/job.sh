@@ -231,6 +231,7 @@ case "$GROUP" in
     probe) STAGES=(21_telescope_align.py 28_timing_qa.py) ;;
     hits)  STAGES=(21_telescope_align.py 22_tag_probe_efficiency.py
                    20_beam_spectra.py 23_beam_profile.py
+                   24_event_sync_qa.py
                    26_hv_spark_qa.py 28_timing_qa.py) ;;
     wave)  STAGES=(29_waveform_timing.py) ;;
     *)     fail "unknown stage group '$GROUP'" ;;

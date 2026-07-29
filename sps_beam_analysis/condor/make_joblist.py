@@ -44,15 +44,49 @@ NEED = {'hits': 'combined_hits_root',
         'wave': 'decoded_root',
         'rec': 'decoded_root'}
 
+# A sub_run taken with no beam still produces .root files -- just empty ones,
+# a ROOT header and nothing else. They are indistinguishable from real input by
+# existence alone, so queue on total input SIZE instead. The two populations are
+# cleanly separated on this campaign: the largest empty sub_run is 9.5 kB, the
+# smallest real one 888 kB (drift_mesh_2d_1/dm_01_01_m430_d490, a genuine point
+# from the run the P2_MID trip cut short). 100 kB sits ~10x above the former and
+# ~9x below the latter. Do NOT raise this to 1 MB: that swallows the small but
+# real drift_mesh_2d_1 points, which have already been analysed successfully.
+#
+# The DAQ also drops a NEEDS_RETAKE marker beside no-beam points, but that flag
+# is not a usable skip signal on its own -- eff_nominal_1/eff_nominal_12 carries
+# it and still holds 227 MB of perfectly good data.
+MIN_INPUT_BYTES = 100 * 1024
+
 
 def xrdfs_ls_recursive(url, base):
-    """Every path under `base`, one recursive xrdfs call."""
-    cmd = ['xrdfs', url, 'ls', '-R', base]
+    """Every path under `base` with its size, as (path, size), one xrdfs call.
+
+    `-l` as well as `-R`, because "the file exists" is not the same question as
+    "the file has data in it". A sub_run whose only .root file is a zero-byte
+    husk passes an existence check and then fails the job. Seen on
+    p2_mesh_drift_2d_1/g450_m440, where the beam died part way through and left
+    an empty file behind while its neighbours are ~500 MB.
+    """
+    # -l and -R must be SEPARATE flags: 'ls -lR' silently ignores the -l and
+    # returns bare paths, which parses as zero usable entries.
+    cmd = ['xrdfs', url, 'ls', '-l', '-R', base]
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
     if p.returncode != 0:
-        sys.exit(f'xrdfs ls -R failed ({p.returncode}) on {url}{base}:\n'
+        sys.exit(f'xrdfs ls -l -R failed ({p.returncode}) on {url}{base}:\n'
                  f'{p.stderr.strip()}')
-    return [ln.strip() for ln in p.stdout.splitlines() if ln.strip()]
+    out = []
+    for ln in p.stdout.splitlines():
+        f = ln.split()
+        # perms owner group size date time path
+        if len(f) < 5:
+            continue
+        try:
+            size = int(f[3])
+        except ValueError:
+            continue
+        out.append((f[-1], size))
+    return out
 
 
 def main():
@@ -83,6 +117,7 @@ def main():
     runs = defaultdict(dict)
     all_subs = defaultdict(set)
     claimed = {}                      # run -> source that won it
+    empty = []                        # (run, sub_run, bytes) below MIN_INPUT_BYTES
 
     for src in srcs:
         url, base = SOURCES[src]
@@ -92,7 +127,8 @@ def main():
         print(f'  {len(paths)} paths')
         prefix = runs_base.rstrip('/') + '/'
         found = defaultdict(set)
-        for p in paths:
+        nbytes = defaultdict(int)         # (run, sub_run) -> input bytes
+        for p, size in paths:
             if not p.startswith(prefix):
                 continue
             parts = p[len(prefix):].split('/')
@@ -103,11 +139,18 @@ def main():
             # inflate the totals reported here.
             if (p.endswith('.root') and len(parts) == 4 and parts[2] == want
                     and not os.path.basename(p).startswith('.')):
-                found[parts[0]].add(parts[1])
+                nbytes[(parts[0], parts[1])] += size
             # every sub_run dir that exists, so gaps can be reported rather
             # than silently dropped
             if len(parts) >= 2 and '.' not in parts[1]:
                 all_subs[parts[0]].add(parts[1])
+        # Size is judged on the sub_run TOTAL, not per file: a no-beam point can
+        # hold several .root files that are each a bare header.
+        for (run, sub), n in nbytes.items():
+            if n >= MIN_INPUT_BYTES:
+                found[run].add(sub)
+            else:
+                empty.append((run, sub, n))
         for run, subs in found.items():
             # First source listed that actually holds a run's data wins it.
             # This is what makes `--source ntof,salsachip` do the right thing:
@@ -153,6 +196,12 @@ def main():
     if n_skip:
         print(f'NOTE: {n_skip} sub_run(s) on EOS have no {want} and were '
               f'skipped — check whether their backup is incomplete.')
+    if empty:
+        print(f'NOTE: {len(empty)} sub_run(s) have a {want} holding less than '
+              f'{MIN_INPUT_BYTES // 1024} kB — taken with no beam, not queued:')
+        # dedupe: a run present on two EOS sources is listed once per source
+        for run, sub, n in sorted(set(empty)):
+            print(f'        {run}/{sub}  ({n} B)')
 
 
 if __name__ == '__main__':
