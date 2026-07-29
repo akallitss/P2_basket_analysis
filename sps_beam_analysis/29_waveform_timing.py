@@ -42,6 +42,7 @@ Usage:
 """
 
 import os
+import csv
 import json
 import glob
 import argparse
@@ -297,11 +298,150 @@ def pair_dt(tblA, tblB, nameA, nameB, sub_run, out_dir):
                 sigma_single_ns=round(float(single), 2))
 
 
+def _best_sigma(station):
+    """(algorithm, walk-corrected sigma, N) for a station's chosen algorithm."""
+    algo = station.get('best_algorithm')
+    a = (station.get('algorithms') or {}).get(algo) or {}
+    return algo, a.get('sigma_walk_ns'), station.get('n_benchmark')
+
+
+def scan_rows(cfg, dets):
+    """One row per sub_run, rebuilt from the per-sub_run summary JSONs.
+
+    This stage already writes waveform_timing_summary.json for every sub_run it
+    processes, and that file holds everything a scan-level curve needs -- the
+    per-station sigma and the pair resolutions. Reading those back, rather than
+    the waveforms, is what makes the scan step independent of where the raw data
+    lives: by now it is on EOS only. It also means a batch sweep that ran before
+    this function existed still merges, with nothing to re-run.
+    """
+    pat = os.path.join(cfg.ANALYSIS_ROOT, sc.TELESCOPE_TAG, cfg.RUN, '*',
+                       '29_waveform_timing', 'waveform_timing_summary.json')
+    rows = []
+    for path in sorted(glob.glob(pat)):
+        sub = os.path.basename(os.path.dirname(os.path.dirname(path)))
+        if sub.startswith('scan'):          # a product dir, not a sub_run
+            continue
+        try:
+            with open(path) as fh:
+                d = json.load(fh)
+        except (OSError, ValueError) as e:
+            print(f'  skipping unreadable {sub}: {e}')
+            continue
+        row = {'sub_run': sub}
+        for det in dets:
+            row[f'mesh_v_{det.det_tag}'] = cfg.subrun_mesh_hv(sub, det)
+            row[f'drift_v_{det.det_tag}'] = cfg.subrun_drift_hv(sub, det)
+        for st in d.get('stations', []):
+            name, (algo, sigma, n) = st.get('detector'), _best_sigma(st)
+            row[f'{name}_algo'] = algo
+            row[f'{name}_n'] = n
+            row[f'{name}_sigma'] = sigma
+        for p in d.get('pairs', []):
+            key = str(p.get('pair', '')).replace('-', '_')
+            row[f'pair_{key}_n'] = p.get('n_events')
+            row[f'pair_{key}_single'] = p.get('sigma_single_ns')
+        rows.append(row)
+    return rows
+
+
+def scan_segments(rows, dets):
+    """[(column, label, subset, basename), ...] -- one entry per axis scanned.
+
+    A single run often holds TWO scans back to back: drift_mesh_scan_1 sweeps
+    the mesh (with the drift following, so the gap stays constant) and then the
+    drift at fixed mesh. Plotting that against one axis piles all ten drift
+    points on a single x value and hides the drift curve entirely, so each
+    sub-scan is isolated first.
+
+    The isolation is "hold one quantity, move the other", tried against both
+    candidates for what is being held:
+      mesh scan   mesh moves while the GAP is held (drift follows) or while the
+                  DRIFT is held (drift fixed) -- both conventions are in use
+      drift scan  drift moves while the mesh is held
+    A run that only ever scanned one axis yields exactly one segment covering
+    every point.
+
+    The reference station is CHOSEN, not taken first. In drift_mesh_scan_1 the
+    drift half parks P2_IN at a fixed 430/630 -- gap 200, which is also its gap
+    throughout the mesh half -- so grouping on P2_IN puts all 23 points in one
+    group and the drift scan disappears. Every station is therefore tried, and
+    per axis the winner is the grouping with the most distinct setpoints, then
+    the fewest rows: same coverage, less contamination.
+    """
+    def group_by(keyfn):
+        g = {}
+        for r in rows:
+            g.setdefault(keyfn(r), []).append(r)
+        return list(g.values())
+
+    def distinct(rs, c):
+        return len({r[c] for r in rs if r.get(c) is not None})
+
+    cands = {}
+    for det in dets:
+        mcol, dcol = f'mesh_v_{det.det_tag}', f'drift_v_{det.det_tag}'
+        if not any(r.get(mcol) is not None or r.get(dcol) is not None
+                   for r in rows):
+            continue
+        gap = lambda r: (None if r.get(mcol) is None or r.get(dcol) is None
+                         else round(r[dcol] - r[mcol], 1))
+        for axis, col, label, name, groups in (
+                ('mesh', mcol, 'mesh HV [V]', 'timing_vs_mesh',
+                 group_by(gap) + group_by(lambda r: r.get(dcol))),
+                ('drift', dcol, 'drift HV [V]', 'timing_vs_drift',
+                 group_by(lambda r: r.get(mcol)))):
+            for g in groups:
+                n = distinct(g, col)
+                if n < 2:
+                    continue
+                score = (n, -len(g))
+                if axis not in cands or score > cands[axis][0]:
+                    cands[axis] = (score, col, label, g, name)
+    return [(c[1], c[2], c[3], c[4]) for _, c in sorted(cands.items())]
+
+
+def plot_timing_scan(rows, col, label, path):
+    """Walk-corrected sigma vs the scan axis: one line per station, plus the
+    pair-derived single-station resolution, which needs no equal-resolution
+    assumption between different stations."""
+    # sort on the axis value ALONE: two sub_runs at the same setpoint would
+    # otherwise fall through to comparing the row dicts, which raises.
+    pts = sorted(((r[col], r) for r in rows if r.get(col) is not None),
+                 key=lambda t: t[0])
+    if len(pts) < 2:
+        return False
+    x = [p[0] for p in pts]
+    stations = sorted({k[:-6] for r in rows for k in r if k.endswith('_sigma')})
+    pairs = sorted({k[:-7] for r in rows for k in r if k.endswith('_single')})
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for s in stations:
+        y = [p[1].get(f'{s}_sigma') for p in pts]
+        if any(v is not None for v in y):
+            ax.plot(x, y, 'o-', label=s)
+    for p_ in pairs:
+        y = [p[1].get(f'{p_}_single') for p in pts]
+        if any(v is not None for v in y):
+            ax.plot(x, y, 's--', alpha=.55, label=p_.replace('pair_', 'pair '))
+    ax.set_xlabel(label)
+    ax.set_ylabel(r'walk-corrected $\sigma$ [ns]')
+    ax.set_title(f'Waveform timing vs {label}')
+    ax.grid(alpha=.3)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(path, dpi=130)
+    plt.close(fig)
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('run_key', nargs='?', default=None)
-    ap.add_argument('--sub-run', required=True)
+    ap.add_argument('--sub-run', default=None)
+    ap.add_argument('--scan-only', action='store_true',
+                    help='skip the waveforms: rebuild the scan-level curve '
+                         'from the per-sub_run summary JSONs already on disk.')
     ap.add_argument('--amp-min', type=float, default=200.0)
     ap.add_argument('--amp-max', type=float, default=3500.0)
     ap.add_argument('--max-events', type=int, default=None)
@@ -314,6 +454,37 @@ def main():
     tps = float(daq.get('sample_period') or 60)
     print(f'  {n_samples} samples x {tps:g} ns')
     dets = cfg.mappable_detectors()
+
+    if args.scan_only:
+        rows = scan_rows(cfg, dets)
+        if not rows:
+            raise SystemExit('No waveform_timing_summary.json on disk — run '
+                             'the per-sub_run pass first.')
+        print(f'  merged {len(rows)} sub_run summary file(s)')
+        out = cfg.out_dir(sc.TELESCOPE_TAG, 'scan', '29_waveform_timing')
+        keys = list(dict.fromkeys(k for r in rows for k in r))
+        segs = scan_segments(rows, dets)
+        if not segs:
+            # still worth writing: a single-point run has no curve, but the
+            # per-sub_run numbers are the deliverable and belong in one table.
+            segs = [(None, None, rows, 'timing_scan')]
+        for col, label, subset, name in segs:
+            with open(os.path.join(out, f'{name}.csv'), 'w', newline='') as fh:
+                w = csv.DictWriter(fh, fieldnames=keys, extrasaction='ignore')
+                w.writeheader()
+                w.writerows(sorted(subset, key=lambda r: (
+                    r.get(col) if col and r.get(col) is not None else 0,
+                    r['sub_run'])))
+            if col and plot_timing_scan(subset, col, label,
+                                        os.path.join(out, f'{name}.png')):
+                print(f'  -> {name}: {len(subset)} pts vs {label}')
+            else:
+                print(f'  -> {name}.csv ({len(subset)} rows, no curve)')
+        print(f'  {out}')
+        return
+
+    if not args.sub_run:
+        ap.error('--sub-run is required unless --scan-only is given')
 
     tables, summaries = {}, []
     for det in dets:
