@@ -119,9 +119,12 @@ if [ "$DO_MERGE" = "1" ] && [ ${#RUN_LIST[@]} -gt 0 ]; then
     for run in "${RUN_LIST[@]}"; do
         echo "-- $run"
         export SPS_RUN=$run
-        # 21/23/24/25/29 have no scan-level aggregation; 20/22/26/28 do.
+        # 21/23/24/25 have no scan-level aggregation; the rest do. 29 is last
+        # because it merges from its own summary JSONs rather than scan_row.json,
+        # and it exits non-zero for a run the wave group has not covered yet --
+        # a WARNING there means "no stage 29 products", not a failure.
         for stage in 22_tag_probe_efficiency 28_timing_qa 26_hv_spark_qa \
-                     20_beam_spectra; do
+                     20_beam_spectra 29_waveform_timing; do
             echo "   $stage --scan-only"
             "$PY" "$stage.py" live --scan-only \
                 || echo "   WARNING: $stage --scan-only failed for $run" >&2
