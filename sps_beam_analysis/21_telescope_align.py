@@ -228,7 +228,21 @@ def main():
         yp = cs_s.loc[common, 'y'].to_numpy()
         dx, dy = xp - xr, yp - yr
         rmse_pre = float(np.sqrt(np.mean(dx ** 2 + dy ** 2)))
-        tf, rmse_post = scl.fit_rigid(xp, yp, xr, yr)
+        try:
+            tf, rmse_post = scl.fit_rigid(xp, yp, xr, yr)
+        except np.linalg.LinAlgError as e:
+            # The Kabsch fit SVDs a 2x2 covariance built from the pair
+            # residuals; it fails to converge on degenerate input (a plane
+            # with essentially no beam, or all pairs on one line). That is a
+            # DATA condition, not a program error -- treat it like the
+            # too-few-pairs case above and carry on with the other planes,
+            # rather than killing the whole sub_run. Seen 2026-07-28 on
+            # low_mesh_scan_1/nominal_00 and 11 other sub_runs.
+            print(f'    fit did not converge ({e}); skipping plane')
+            planes_json[det.name] = {'det_tag': det.det_tag, 'dx': 0.0,
+                                     'dy': 0.0, 'theta_deg': 0.0,
+                                     'n': int(n), 'fit_ok': False}
+            continue
         fx, fy = tf.apply(xp, yp)
         dx2, dy2 = fx - xr, fy - yr
         print(f'    dx={tf.dx:.2f} dy={tf.dy:.2f} theta={tf.theta_deg:.3f} deg '
