@@ -268,3 +268,47 @@ equal-resolution assumption can be dropped (triangulated per-station sigma):
 - Products: analysis/<det>/highstat_eff_1/beam_commissioning_{00,05}/
   29_waveform_timing/ and telescope/.../29_waveform_timing/ (pair plots +
   waveform_timing_summary.json).
+
+## Waveform timing vs drift voltage (29, all 10 drift points — completed 2026-07-26)
+
+The 07-25 evening session got through drift_500/550 only; the remaining 8 points
+were run 2026-07-26 (~15-19 min each, decoded_root still local — the prune only
+took hits_root/raw_fdf). Walk-corrected best-algorithm sigma per point, P2_IN
+held at 700/450 throughout = flat 26.8 ns cross-check at every point:
+
+| drift V | P2_MID | P2_OUT | MID-OUT pair /sqrt2 |
+|---|---|---|---|
+| 450 | (18.5) | (10.8) | (21.4) — zero field, 58k/88k hits, prompt conversions only; NOT comparable |
+| 500 | 143.0 | 158.5 | 146.9 — drift-time spread across the gap dominates at 50 V |
+| 550 | 29.8 | 33.6 | 31.8 |
+| 600 | 23.1 | 25.1 | 23.9 |
+| 650 | 18.6 | 21.3 | 19.4 |
+| 700 | 16.3 | 19.0 | (pair absent — partial P2_OUT data, 403k vs ~2.3M hits) |
+| 750 | 15.9 | 17.9 | 16.1 |
+| 800 | 16.1 | 17.3 | 16.0 |
+| 850 | 16.7 | 17.6 | 16.4 |
+| 900 | 17.2 | 18.2 | 16.8 |
+
+- **Plateau at 750-800 V** (~16 ns MID, ~17.5 ns OUT); a small but consistent
+  worsening above 850 in all three columns.
+- The working point (700) sits within ~0.5 ns of the optimum — no timing
+  argument for moving it.
+- Products: analysis/telescope/drift_mesh_scan_1/scan/29_waveform_timing/
+  (timing_vs_drift.png + .csv), per-point plots under each drift_XXX as usual.
+
+## Waveform timing vs mesh voltage (29, mesh half — completed 2026-07-26 evening)
+
+All 13 mesh-half points (nominal_00 + meshscan_01..12; drift follows mesh, gap
+constant). Monotonic improvement with mesh HV for all three stations, no
+plateau reached by the ceiling:
+
+- P2_MID 21.8 -> 16.2 ns (390 -> 450 V); P2_OUT 24.3 -> 19.2 ns; MID-OUT pair
+  single 22.4 -> 16.9 ns — consistent with the per-station numbers throughout.
+- P2_IN (own axis 370 -> 430 V): flat ~32-33 ns below 385 V (amplitude-limited,
+  as its efficiency curve suggested), then improving to 27.2 ns at 430 V. Its
+  curve is still falling at its 430 V point — supports trying 445-450 V now
+  that the ceiling is 450 and channel 8:1 is repaired.
+- At the shared working point this reproduces the highstat_eff_1 benchmark
+  (16.2/19.2 vs 15.5-15.8/18.4-19.3) on an independent run.
+- Products: analysis/telescope/drift_mesh_scan_1/scan/29_waveform_timing/
+  (timing_vs_mesh.png + .csv).
