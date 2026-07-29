@@ -38,10 +38,17 @@ import uproot
 _FEU_RE = re.compile(r'_(\d{3})_(\d{2})\.root$')
 
 
-def subrun_recorded(decoded_dir):
-    """{feu: sorted unique eventId array} over all chunks of one sub_run."""
+def subrun_recorded(decoded_dir, files=None):
+    """{feu: sorted unique eventId array} over all chunks of one sub_run.
+
+    `files` overrides the local glob with an explicit list of paths OR xrootd
+    URLs. Only the `eventId` branch is ever read, so pointing this straight at
+    EOS transfers that one column's baskets (~tens of MB per sub_run) instead
+    of the whole ~370 MB decoded_root -- worth it when the ONLY thing wanted is
+    the recorded-trigger set."""
     per_feu = {}
-    for fp in sorted(glob.glob(os.path.join(decoded_dir, '*.root'))):
+    for fp in (sorted(files) if files is not None
+               else sorted(glob.glob(os.path.join(decoded_dir, '*.root')))):
         m = _FEU_RE.search(os.path.basename(fp))
         if not m:
             continue
@@ -56,15 +63,24 @@ def subrun_recorded(decoded_dir):
     return {f: np.unique(np.concatenate(a)) for f, a in per_feu.items()}
 
 
-def process_subrun(sub_dir, force=False):
-    out = os.path.join(sub_dir, 'recorded_events.npz')
-    dec = os.path.join(sub_dir, 'decoded_root')
-    if not os.path.isdir(dec):
-        return None
+def process_subrun(sub_dir, force=False, files=None, out=None):
+    """Reduce one sub_run to recorded_events.npz.
+
+    Default: read <sub_dir>/decoded_root/. With `files` (paths or xrootd URLs)
+    the decoded chunks are read from wherever they are and `out` says where the
+    result goes -- this is how an HTCondor job produces the npz for a sub_run
+    whose data lives only on EOS."""
+    label = os.path.basename(sub_dir.rstrip('/')) if sub_dir else 'sub_run'
+    out = out or os.path.join(sub_dir, 'recorded_events.npz')
+    dec = None
+    if files is None:
+        dec = os.path.join(sub_dir, 'decoded_root')
+        if not os.path.isdir(dec):
+            return None
     if os.path.isfile(out) and not force:
-        print(f'  {os.path.basename(sub_dir)}: exists, skipping (--force to redo)')
+        print(f'  {label}: exists, skipping (--force to redo)')
         return out
-    rec = subrun_recorded(dec)
+    rec = subrun_recorded(dec, files=files)
     if not rec:
         return None
     payload = {}
@@ -77,16 +93,34 @@ def process_subrun(sub_dir, force=False):
         payload[f'feu{feu}_missing'] = missing
         payload[f'feu{feu}_n'] = np.uint64(len(ev))
         line.append(f'FEU{feu} {len(ev)} [{lo}..{hi}] miss {len(missing)}')
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     np.savez_compressed(out, **payload)
-    print(f'  {os.path.basename(sub_dir)}: ' + '; '.join(line))
+    print(f'  {label}: ' + '; '.join(line))
     return out
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('run_dirs', nargs='+')
+    ap.add_argument('run_dirs', nargs='*',
+                    help='.../runs/<run_name> dirs (local mode)')
     ap.add_argument('--force', action='store_true')
+    ap.add_argument('--files', nargs='+', default=None,
+                    help='explicit decoded chunk paths OR xrootd URLs for ONE '
+                         'sub_run, instead of a local decoded_root/. Only the '
+                         'eventId branch is read, so this is cheap straight '
+                         'off EOS. Requires --out.')
+    ap.add_argument('--out', default=None,
+                    help='output .npz path (required with --files)')
     args = ap.parse_args()
+
+    if args.files:
+        if not args.out:
+            ap.error('--files requires --out')
+        process_subrun(None, force=args.force, files=args.files, out=args.out)
+        return
+    if not args.run_dirs:
+        ap.error('give run_dirs, or --files with --out')
+
     for rd in args.run_dirs:
         print(f'== {rd}')
         subs = sorted(d for d in glob.glob(os.path.join(rd, '*'))

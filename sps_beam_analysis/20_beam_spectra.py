@@ -203,8 +203,16 @@ def plot_map(values, ct, title, cbar, out_png, log=False, grey_below=None,
 def process_det(cfg, det, args):
     subruns = cfg.find_subruns()
     # products dir tag: the run may be a scan (many points) -> use 'scan',
-    # else the single sub_run name
+    # else the single sub_run name. Decided from the FULL sub_run list, before
+    # --sub-run narrows it, so one job of a scan still files under 'scan'.
     prod_sub = 'scan' if len(subruns) > 1 else (subruns[0] if subruns else '')
+    if args.sub_run:
+        subruns = [s for s in subruns if s == args.sub_run]
+    if args.scan_only:
+        # The merge runs where the DATA is not: sub_runs come from the
+        # analysis tree, and the products belong under 'scan'.
+        subruns = cfg.scan_row_subruns('20_beam_spectra') or subruns
+        prod_sub = 'scan' if len(subruns) > 1 else prod_sub
     if args.subruns_glob:
         import fnmatch
         pats = [p.strip() for p in args.subruns_glob.split(',') if p.strip()]
@@ -213,6 +221,8 @@ def process_det(cfg, det, args):
         # separate product dir per arm so drift and mesh curves don't overwrite
         prod_sub = 'scan_' + re.sub(r'[^A-Za-z0-9]+', '_',
                                     args.subruns_glob).strip('_')
+    if args.prod_sub:
+        prod_sub = args.prod_sub
     if not subruns:
         print('  no sub_runs with hits'
               + (' (after --subruns-glob filter)' if args.subruns_glob else ''))
@@ -230,7 +240,7 @@ def process_det(cfg, det, args):
     print(f'  {det.name}: FEUs {det.feus}, {ct["channel_id"].nunique()} pads')
 
     rows, spectra = [], []
-    for i, sub in enumerate(subruns):
+    for i, sub in enumerate(() if args.scan_only else subruns):
         hv = cfg.subrun_scan_hv(sub, det, scan_ax) if scan_ax else None
         pt = hv if hv is not None else i
         lbl = f'{hv}V' if hv is not None else sub
@@ -287,6 +297,15 @@ def process_det(cfg, det, args):
                          median_nclus=float(ev['n_clus'].median()),
                          sat_frac=np.nan))
         spectra.append(dict(pt=pt, lbl=lbl, fit=fit, hv=hv))
+        # Persist for a later --scan-only merge (HTCondor sweeps). The binned
+        # spectrum rides along -- it is a few kB, and without it the multi-point
+        # overlay plot could not be rebuilt without re-reading every hits file,
+        # which is the entire cost this is here to avoid.
+        cfg.save_scan_row(det.det_tag, sub, '20_beam_spectra',
+                          dict(row=rows[-1],
+                               spectrum=dict(pt=pt, lbl=lbl, hv=hv,
+                                             edges=fit['edges'],
+                                             counts=fit['counts'])))
         print(f'    {lbl}: {len(ev):,} ev, {rate:.0f} Hz, MPV = '
               + (f'{fit["mpv"]:.0f}+-{fit["mpv_err"]:.0f} ADC, '
                  f'FWHM/MPV = {fit["fwhm"]/fit["mpv"]:.2f}'
@@ -314,6 +333,18 @@ def process_det(cfg, det, args):
         fig.savefig(os.path.join(spec_dir, f'spectrum_{lbl}{suffix}.png'),
                     dpi=160, bbox_inches='tight')
         plt.close(fig)
+
+    if args.scan_only:
+        # Rebuild rows + spectra from what the per-sub_run jobs left behind.
+        # edges/counts come back as lists, so restore them to arrays: the
+        # overlay does arithmetic on them and lists would concatenate.
+        merged = cfg.load_scan_rows(det.det_tag, '20_beam_spectra')
+        rows = [m['row'] for m in merged if m.get('row')]
+        spectra = [dict(pt=s['pt'], lbl=s['lbl'], hv=s['hv'],
+                        fit=dict(edges=np.asarray(s['edges'], float),
+                                 counts=np.asarray(s['counts'], float)))
+                   for s in (m.get('spectrum') for m in merged) if s]
+        print(f'  merged {len(rows)} persisted sub_run row(s)')
 
     if not rows:
         print('  no usable points')
@@ -398,6 +429,8 @@ def process_det_chanspace(cfg, det, args):
     channel) space (no x/y). Products go under <det_tag>/<run>/<sub>/
     20_beam_spectra_chanspace/."""
     subruns = cfg.find_subruns()
+    if args.sub_run:
+        subruns = [s for s in subruns if s == args.sub_run]
     if not subruns:
         print('  no sub_runs with hits')
         return
@@ -491,6 +524,20 @@ def main():
                     help='comma-separated fnmatch patterns selecting sub_runs, '
                          "e.g. 'drift_*' or 'meshscan_*,nominal_*' -- for runs "
                          'that mix a drift arm and a mesh arm.')
+    ap.add_argument('--sub-run', default=None,
+                    help='process only this sub_run (default: all on disk). '
+                         'This is what lets one HTCondor job own one point of '
+                         'a scan; combine with --prod-sub scan so the points '
+                         'still file together.')
+    ap.add_argument('--prod-sub', default=None,
+                    help="force the product sub-directory (e.g. 'scan') "
+                         'instead of deriving it from the sub_run count.')
+    ap.add_argument('--scan-only', action='store_true',
+                    help='build ONLY the scan-level products (overlay, '
+                         'MPV/width/rate vs HV) from the scan_row.json files '
+                         'earlier per-sub_run runs left behind — the merge '
+                         'step after an HTCondor sweep. Channel-space mode is '
+                         'per-sub_run only and is skipped here.')
     ap.add_argument('--det', default=None,
                     help='station name or det_tag (default: all stations).')
     ap.add_argument('--strategy', default='reverse',
@@ -522,7 +569,9 @@ def main():
     for det in dets:
         if cfg.HAS_GEOMETRY:
             process_det(cfg, det, args)
-        else:
+        elif not args.scan_only:
+            # Channel-space products are per-sub_run only; there is nothing to
+            # merge, and it would need the hits files the merge does not have.
             process_det_chanspace(cfg, det, args)
 
 

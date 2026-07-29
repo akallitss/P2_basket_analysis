@@ -134,6 +134,10 @@ def main():
                     help='only this sub_run (default: all on disk).')
     ap.add_argument('--i-thr', type=float, default=None,
                     help='override spark imon threshold [µA].')
+    ap.add_argument('--scan-only', action='store_true',
+                    help='build ONLY the scan-level curve, from the '
+                         'scan_row.json files earlier per-sub_run runs left '
+                         'behind (the merge step after an HTCondor sweep).')
     args = ap.parse_args()
 
     cfg = sc.get_config(args.run_key)
@@ -146,7 +150,14 @@ def main():
         raise SystemExit('No station with a mesh HV channel.')
 
     subs = [args.sub_run] if args.sub_run else cfg.find_subruns()
-    if not subs:
+    if args.scan_only:
+        # The merge runs where the DATA is not: take the sub_run list from the
+        # analysis tree instead of from hits files on disk.
+        subs = cfg.scan_row_subruns('26_hv_spark_qa') or subs
+        if not subs:
+            raise SystemExit('No persisted scan rows found — run the '
+                             'per-sub_run pass first.')
+    elif not subs:
         raise SystemExit('No sub_runs with combined hits on disk.')
 
     for det in dets:
@@ -154,7 +165,7 @@ def main():
         print(f'\n== {det.name}  (mesh channel {det.spark_channel}, '
               f'scan axis: {scan_label})')
         rows = []
-        for sub in subs:
+        for sub in (() if args.scan_only else subs):
             hv_csv = cfg.hv_monitor_csv(sub)
             if not os.path.isfile(hv_csv):
                 print(f'  {sub}: no hv_monitor.csv, skipping')
@@ -168,11 +179,17 @@ def main():
             m = subrun_metrics(sv, mesh_v)
             m['sub_run'] = sub
             rows.append(m)
+            # persist for a later --scan-only merge (HTCondor sweeps)
+            cfg.save_scan_row(det.det_tag, sub, '26_hv_spark_qa', m)
             print(f'  {sub}: mesh {mesh_v} V  {m["n_sparks"]} sparks  '
                   f'peak imon {m["peak_imon_uA"]:.2f} µA  '
                   f'live {m["live_fraction"]:.3f}')
 
-        if len(subs) > 1 and rows:
+        if args.scan_only:
+            rows = cfg.load_scan_rows(det.det_tag, '26_hv_spark_qa')
+            print(f'  merged {len(rows)} persisted sub_run row(s)')
+
+        if rows and (args.scan_only or len(subs) > 1):
             scan_out = cfg.out_dir(det.det_tag, 'scan', '26_hv_spark_qa')
             if plot_scan(rows, det,
                          os.path.join(scan_out,

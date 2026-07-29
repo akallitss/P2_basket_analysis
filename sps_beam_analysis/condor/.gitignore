@@ -1,0 +1,4 @@
+# Built fresh by submit.sh on every run; never a source artefact.
+p2code.tgz
+joblist.txt
+__pycache__/

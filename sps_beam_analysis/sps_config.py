@@ -117,6 +117,24 @@ STRATEGY_OVERRIDES = {'P2_IN': {(5, 'top'): 'linear'}}
 TELESCOPE_TAG = 'telescope'
 
 
+def _json_safe(obj):
+    """Recursively convert numpy scalars/arrays to plain Python so a stage's
+    `rows` dict round-trips through JSON. NaN is left as-is: Python's json
+    writes and reads it back faithfully, and it means "no measurement here",
+    which the downstream plotting already handles."""
+    if isinstance(obj, dict):
+        return {str(k): _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    item = getattr(obj, 'item', None)          # numpy scalar -> python scalar
+    if callable(item) and getattr(obj, 'ndim', None) == 0:
+        return obj.item()
+    tolist = getattr(obj, 'tolist', None)      # numpy array -> list
+    if callable(tolist):
+        return tolist()
+    return obj
+
+
 def _slug(name: str) -> str:
     """Filesystem-safe station tag from a detector name ('P2_OUT' -> 'P2_OUT')."""
     return re.sub(r'[^A-Za-z0-9_.-]', '_', str(name))
@@ -395,11 +413,30 @@ class RunConfig:
         """Drift HV [V] this station was set to in `sub_run`."""
         return self._subrun_hv(sub_run, det.drift_card, det.drift_chan)
 
+    def config_subruns(self):
+        """Every sub_run the DAQ planned for this run, from run_config.json —
+        independent of what is on disk. Used to decide run-wide properties
+        (the scan axis) that must not change with which sub_runs happen to be
+        present."""
+        return [s.get('sub_run_name') for s in
+                self._load_run_config().get('sub_runs', [])
+                if s.get('sub_run_name')]
+
     def scan_axis(self, sub_runs, det):
         """Which electrode a scan run varies for `det`: ('mesh'|'drift'|None,
         axis label). Mesh wins when both vary (a mesh scan usually tracks the
         drift to keep the gap constant, so the physical knob is the mesh);
-        'drift' means mesh fixed + drift varied (a transparency/drift scan)."""
+        'drift' means mesh fixed + drift varied (a transparency/drift scan).
+
+        The axis is a property of the RUN, so when fewer than two sub_runs are
+        offered it is decided from run_config.json instead. Without this, a
+        per-sub_run HTCondor job — which by construction sees exactly one point
+        — would find nothing varying and silently label a drift scan's points
+        with the (constant) mesh voltage. Caught 2026-07-28 on eff_drift_ab_1:
+        parallel jobs tagged every point 450 V where the serial pass correctly
+        read 750/800 V."""
+        if len(list(sub_runs)) < 2:
+            sub_runs = self.config_subruns() or sub_runs
         mesh = {self.subrun_mesh_hv(s, det) for s in sub_runs} - {None}
         drift = {self.subrun_drift_hv(s, det) for s in sub_runs} - {None}
         if len(mesh) > 1:
@@ -432,6 +469,69 @@ class RunConfig:
                          *stage_parts)
         os.makedirs(d, exist_ok=True)
         return d
+
+    # -- scan rows: the bridge between per-sub_run jobs and scan-level plots -- #
+    # Stages 20/22/26/28 all share one shape: loop the sub_runs building a
+    # `rows` list, then aggregate it into a scan-level curve + CSV. That works
+    # in one process, but on HTCondor each sub_run is a separate job on a
+    # separate machine, so `rows` never exists anywhere as a whole.
+    #
+    # These two calls persist each row next to its own sub_run's products and
+    # read them all back afterwards, so the scan-level step becomes a cheap
+    # merge over a few kB of JSON instead of a re-read of every hits file.
+    # Serial runs on banco keep working unchanged -- they just also drop the
+    # row files on the way past.
+    SCAN_ROW_NAME = 'scan_row.json'
+
+    def save_scan_row(self, det_tag, sub_run, stage, row):
+        """Persist one sub_run's aggregation row under its own stage dir."""
+        path = os.path.join(self.out_dir(det_tag, sub_run, stage),
+                            self.SCAN_ROW_NAME)
+        with open(path, 'w') as fh:
+            json.dump(_json_safe(row), fh, indent=1, sort_keys=True)
+        return path
+
+    def load_scan_rows(self, det_tag, stage, sub_runs=None):
+        """Every persisted row for (det_tag, stage), in sub_run order.
+
+        `det_tag=None` reads across ALL stations — stage 22 aggregates every
+        probe into one DataFrame, so it needs the whole set, not one tag.
+        `sub_runs` restricts and orders the result; default is every sub_run
+        that has a row, sorted by name (which is HV/time order for scan runs,
+        the same order the serial loop would have produced). A row file may
+        hold a single dict or a list of them (22 emits one per probe)."""
+        import glob
+        rows = []
+        for tag_dir in sorted(glob.glob(os.path.join(
+                self.ANALYSIS_ROOT, '*' if det_tag is None else det_tag))):
+            base = os.path.join(tag_dir, self.RUN)
+            names = (sub_runs if sub_runs is not None
+                     else sorted(os.path.basename(
+                         os.path.dirname(os.path.dirname(p)))
+                         for p in glob.glob(os.path.join(
+                             base, '*', stage, self.SCAN_ROW_NAME))))
+            for name in names:
+                path = os.path.join(base, name, stage, self.SCAN_ROW_NAME)
+                if not os.path.isfile(path):
+                    continue
+                with open(path) as fh:
+                    loaded = json.load(fh)
+                rows.extend(loaded if isinstance(loaded, list) else [loaded])
+        return rows
+
+    def scan_row_subruns(self, stage):
+        """Sub_run names that have a persisted row for `stage`, under ANY
+        det_tag, in name order.
+
+        find_subruns() cannot be used for the merge step: it looks for hits
+        files under DATA_ROOT, and the whole point of running on HTCondor is
+        that the data lives on EOS and has been pruned from local disk. The
+        analysis tree is the only thing guaranteed to be present."""
+        import glob
+        pat = os.path.join(self.ANALYSIS_ROOT, '*', self.RUN, '*', stage,
+                           self.SCAN_ROW_NAME)
+        return sorted({os.path.basename(os.path.dirname(os.path.dirname(p)))
+                       for p in glob.glob(pat)})
 
     SPARK_SUFFIX = '_spark_vetoed'
 

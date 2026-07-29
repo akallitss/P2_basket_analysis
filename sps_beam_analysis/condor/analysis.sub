@@ -1,0 +1,64 @@
+# analysis.sub -- the bulk submission: one job per (run, sub_run, stage_group),
+# read from joblist.txt (built by make_joblist.py).
+#
+#   condor_submit analysis.sub
+#
+# Sub_runs are independent, and the one ordering constraint that exists
+# (21_telescope_align gates 22_tag_probe_efficiency) is inside a single job, so
+# no DAGMan is needed here. Scan-level products are NOT made by these jobs --
+# they aggregate across sub_runs; see merge_scan.py.
+
+universe                = vanilla
+executable              = job.sh
+arguments               = "$(run) $(sub_run) $(group) $(prod_sub) $(src)"
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = p2code.tgz
+
+# Products go to EOS directly from the worker. products.tgz is the insurance
+# policy: it comes back EMPTY when the EOS upload succeeded, and carries the
+# real products when it did not. It must be named here regardless -- a job
+# whose declared output file is missing goes on hold instead of returning its
+# logs, which is the worst possible failure mode for a 170-job sweep.
+transfer_output_files   = products.tgz
+transfer_output_remaps  = "products.tgz = products/$(run).$(sub_run).$(group).tgz"
+
+output                  = logs/$(run).$(sub_run).$(group).out
+error                   = logs/$(run).$(sub_run).$(group).err
+log                     = logs/condor.$(ClusterId).log
+
+request_cpus            = 1
+# MEASURED, do not lower casually. highstat_eff_1/beam_commissioning_00
+# (3 stations x 8 M events, 2.1 GB staged) peaked at 4720 MB -- i.e. it
+# EXCEEDED the 4000 MB originally requested here, and only survived because
+# this pool happens to allocate 6000 MB whatever you ask. Peak RSS tracks the
+# staged input at roughly 2.2x, so the headroom has to scale with the biggest
+# sub_runs, not the typical ones.
+request_memory          = 8000
+# Sub_runs vary ~5x in size: a low_mesh_scan_1 point stages 385 MB, while
+# highstat_eff_1/beam_commissioning_00 (3 stations, 8 M events each) stages
+# 2.1 GB. 8 GB is comfortably above the largest seen and costs nothing --
+# the worker pools have ~2.8 TB free on /pool.
+request_disk            = 8000000
+
+# Kerberos on the worker -- verified 2026-07-28 to deliver a ccache good for
+# both reading the nTOF space and writing back to it.
+MY.SendCredential       = true
+
+# longlunch = 2 h. Measured: 21+28 alone take 205 s; the full 6-stage hits
+# group is dominated by 22_tag_probe_efficiency.
+MY.JobFlavour           = "longlunch"
+
+# Retry a job that fails on a transient (a bad worker, an EOS hiccup), but do
+# not loop forever on a genuinely broken sub_run.
+#
+# retry_until stops the retries when it is TRUE, so this retries ONLY on exit
+# code 1 -- job.sh's "infrastructure failure". Exit code 2 means the job ran
+# fine but a stage failed, which is deterministic: retrying costs another ~10
+# minutes of a worker's time to arrive at exactly the same failure. Observed
+# 2026-07-28, when one stage rejecting an argument requeued a completed job.
+max_retries             = 2
+retry_until             = (ExitCode =!= 1)
+
+queue run,sub_run,group,prod_sub,src from joblist.txt

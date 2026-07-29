@@ -103,7 +103,14 @@ def load_transforms(cfg, sub_run):
                                        cfg.RUN, '*', '21_telescope_align',
                                        'alignment.json'))
         if not cands:
-            return None, None
+            # THREE values: the caller unpacks (tf, path, rmse). Returning two
+            # here made 22 die with an opaque
+            #   ValueError: not enough values to unpack (expected 3, got 2)
+            # instead of the intended "no alignment.json -- skipping" message,
+            # which was therefore unreachable. Every sub_run whose alignment
+            # failed took 22 down with it. Found 2026-07-28 across 22 sub_runs
+            # of the first full HTCondor sweep.
+            return None, None, None
         path = sorted(cands)[0]
     with open(path) as f:
         al = json.load(f)
@@ -293,6 +300,16 @@ def main():
     ap.add_argument('--no-fiducial', action='store_true',
                     help='do not require the predicted impact inside the probe '
                          'active area (then efficiency is acceptance-relative).')
+    ap.add_argument('--scan-only', action='store_true',
+                    help='build ONLY the scan-level CSV + efficiency-vs-HV '
+                         'curve, from the scan_row.json files earlier '
+                         'per-sub_run runs left behind (the merge step after '
+                         'an HTCondor sweep).')
+    ap.add_argument('--prod-sub', default=None,
+                    help="force the product sub-directory (e.g. 'scan'), so "
+                         'per-sub_run HTCondor jobs of one scan file their '
+                         'eff maps together where a serial pass would have '
+                         'put them.')
     ap.add_argument('--min-pad-tags', type=int, default=5,
                     help='min tags in a pad for it to get a map entry.')
     ap.add_argument('--veto-sparks', action=argparse.BooleanOptionalAction,
@@ -312,6 +329,13 @@ def main():
         return
     min_tag = args.min_tag if args.min_tag is not None else cfg.MIN_TAG
     subruns = [args.sub_run] if args.sub_run else cfg.find_subruns()
+    if args.scan_only:
+        # The merge runs where the DATA is not (HTCondor sweep + pruned local
+        # disk): take the sub_run list from the analysis tree.
+        subruns = cfg.scan_row_subruns('22_tag_probe_efficiency') or subruns
+        if not subruns:
+            raise SystemExit('No persisted scan rows found — run the '
+                             'per-sub_run pass first.')
     prod_sub = 'scan'
     if args.subruns_glob:
         import fnmatch
@@ -326,6 +350,15 @@ def main():
         return
     if len(subruns) == 1 and not args.subruns_glob:
         prod_sub = subruns[0]
+    if args.prod_sub:
+        # Explicit override for HTCondor: each job handles ONE sub_run, but the
+        # per-point eff maps of a SCAN belong together under 'scan/' — which is
+        # where a serial whole-run pass would have put them, and where the GIF
+        # builder and the GUI expect to find them. Without this every point of
+        # a 49-point scan would be filed under its own sub_run directory.
+        prod_sub = args.prod_sub
+    if args.scan_only and len(subruns) > 1 and not args.subruns_glob:
+        prod_sub = 'scan'
     # Which electrode does this run scan? Decided PER PROBE: a probe held at
     # fixed HV while another plane is scanned (P2_IN during the MID/OUT drift
     # leg) is a control curve — its x is the program's scanned value, and its
@@ -344,8 +377,9 @@ def main():
               'acceptance-relative (no fiducial cut)')
 
     rows = []
-    for sub in subruns:
+    for sub in (() if args.scan_only else subruns):
         print(f'  sub_run {sub}:')
+        sub_rows = []
         tf, al_path, rmse = load_transforms(cfg, sub)
         if tf is None:
             print('    no alignment.json (run 21_telescope_align first) — '
@@ -425,20 +459,34 @@ def main():
                          os.path.join(out_dir,
                                       f'eff_map_{probe.det_tag}_{lbl}{suffix}.csv'),
                          min_pad_tags=args.min_pad_tags)
-            rows.append(dict(sub_run=sub, point=pt, hv=hv,
-                             probe=probe.name, probe_tag=probe.det_tag,
-                             tags='+'.join(others), probe_r_mm=probe_r,
-                             n_tag=n_tag, n_out_fiducial=n_out,
-                             n_hit=n_hit, eff=eff,
-                             eff_lo=lo, eff_hi=hi,
-                             n_tag_recorded=(n_tag_rec if probe_rec is not None
-                                             else None),
-                             eff_corr=(eff_c if probe_rec is not None
+            row = dict(sub_run=sub, point=pt, hv=hv,
+                       probe=probe.name, probe_tag=probe.det_tag,
+                       tags='+'.join(others), probe_r_mm=probe_r,
+                       n_tag=n_tag, n_out_fiducial=n_out,
+                       n_hit=n_hit, eff=eff,
+                       eff_lo=lo, eff_hi=hi,
+                       n_tag_recorded=(n_tag_rec if probe_rec is not None
                                        else None),
-                             eff_corr_lo=(lo_c if probe_rec is not None
-                                          else None),
-                             eff_corr_hi=(hi_c if probe_rec is not None
-                                          else None)))
+                       eff_corr=(eff_c if probe_rec is not None
+                                 else None),
+                       eff_corr_lo=(lo_c if probe_rec is not None
+                                    else None),
+                       eff_corr_hi=(hi_c if probe_rec is not None
+                                    else None))
+            rows.append(row)
+            sub_rows.append(row)
+
+        # One row file per sub_run holding every probe's row, so a later
+        # --scan-only merge can rebuild the full DataFrame. Filed under the
+        # sub_run (not prod_sub) so the merge can find them one per point.
+        if sub_rows:
+            cfg.save_scan_row(sc.TELESCOPE_TAG, sub, '22_tag_probe_efficiency',
+                              sub_rows)
+
+    if args.scan_only:
+        rows = cfg.load_scan_rows(sc.TELESCOPE_TAG, '22_tag_probe_efficiency')
+        print(f'  merged {len(rows)} persisted row(s) from '
+              f'{len(subruns)} sub_run(s)')
 
     if not rows:
         print('No efficiency points produced.')

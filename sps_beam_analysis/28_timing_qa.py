@@ -182,6 +182,12 @@ def main():
     ap.add_argument('run_key', nargs='?', default=None)
     ap.add_argument('--sub-run', default=None)
     ap.add_argument('--min-amp', type=float, default=0.0)
+    ap.add_argument('--scan-only', action='store_true',
+                    help='skip the per-sub_run pass and build ONLY the '
+                         'scan-level curve, from the scan_row.json files that '
+                         'earlier per-sub_run runs left behind. This is the '
+                         'merge step after an HTCondor sweep, where each '
+                         'sub_run was processed on a different machine.')
     args = ap.parse_args()
 
     cfg = sc.get_config(args.run_key)
@@ -194,13 +200,20 @@ def main():
     if skipped:
         print(f'  (no pad map, skipped: {", ".join(skipped)})')
     subs = [args.sub_run] if args.sub_run else cfg.find_subruns()
-    if not subs:
+    if args.scan_only:
+        # The merge runs where the DATA is not: take the sub_run list from the
+        # analysis tree instead of from hits files on disk.
+        subs = cfg.scan_row_subruns('28_timing_qa') or subs
+        if not subs:
+            raise SystemExit('No persisted scan rows found — run the '
+                             'per-sub_run pass first.')
+    elif not subs:
         raise SystemExit('No sub_runs with combined hits on disk.')
 
     for det in dets:
         print(f'\n== {det.name}  FEUs {det.feus}')
         rows = []
-        for sub in subs:
+        for sub in (() if args.scan_only else subs):
             res = reduce_timing(cfg, det, sub, n_samples, sample_period,
                                 args.min_amp)
             if res is None:
@@ -210,15 +223,22 @@ def main():
             plot_subrun(res, det, sub, mesh_v, n_samples, sample_period,
                         os.path.join(out, f'timing_{sub}.png'))
             wp = walk_profile(res['samp']['a'], res['samp']['t'])
-            rows.append(dict(sub_run=sub, mesh_v=mesh_v, n_hits=res['n_hits'],
-                             mean_ns=round(res['mean'], 2),
-                             sigma_ns=round(res['sigma'], 2),
-                             walk_slope=(round(wp[2], 2) if wp else None)))
+            row = dict(sub_run=sub, mesh_v=mesh_v, n_hits=res['n_hits'],
+                       mean_ns=round(res['mean'], 2),
+                       sigma_ns=round(res['sigma'], 2),
+                       walk_slope=(round(wp[2], 2) if wp else None))
+            rows.append(row)
+            # persist for a later --scan-only merge (HTCondor sweeps)
+            cfg.save_scan_row(det.det_tag, sub, '28_timing_qa', row)
             print(f'  {sub}: mesh {mesh_v} V  {res["n_hits"]} hits  '
                   f'time {res["mean"]:.0f}+-{res["sigma"]:.0f} ns'
                   + (f'  walk {wp[2]:+.1f} ns/dec' if wp else ''))
 
-        if len(subs) > 1 and rows:
+        if args.scan_only:
+            rows = cfg.load_scan_rows(det.det_tag, '28_timing_qa')
+            print(f'  merged {len(rows)} persisted sub_run row(s)')
+
+        if rows and (args.scan_only or len(subs) > 1):
             scan_out = cfg.out_dir(det.det_tag, 'scan', '28_timing_qa')
             if plot_scan(rows, det,
                          os.path.join(scan_out, f'timing_vs_hv_{det.det_tag}.png')):

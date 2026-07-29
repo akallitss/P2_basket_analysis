@@ -1,0 +1,38 @@
+# probe.sub -- Step 0 shakedown: ONE job, one sub_run, before anything is
+# built on top of it. It answers the three questions we cannot answer from
+# banco: does a worker node get a Kerberos credential good enough to WRITE
+# back to the nTOF EOS space, does LCG_110 carry a uproot our files are happy
+# with, and how much memory/scratch/wall a real sub_run actually needs.
+#
+#   condor_submit probe.sub
+#
+# meshscan_01_midout385 is deliberately a sub_run that has ALREADY been
+# analysed on banco, so the products can be diffed against the known-good ones.
+
+universe                = vanilla
+executable              = job.sh
+arguments               = "low_mesh_scan_1 meshscan_01_midout385 probe"
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = p2code.tgz
+transfer_output_files   = products.tgz
+transfer_output_remaps  = "products.tgz = products/probe.$(ClusterId).tgz"
+
+output                  = logs/probe.$(ClusterId).out
+error                   = logs/probe.$(ClusterId).err
+log                     = logs/probe.$(ClusterId).log
+
+request_cpus            = 1
+request_memory          = 4000
+request_disk            = 6000000
+
+# Kerberos forwarding: this is the thing under test. Without it the job can
+# still READ the nTOF space (files are world-readable) but cannot write.
+MY.SendCredential       = true
+
+# workday = 8 h. Deliberately generous for the probe -- the point is to measure
+# the real runtime, not to have it killed while we find out.
+MY.JobFlavour           = "workday"
+
+queue
