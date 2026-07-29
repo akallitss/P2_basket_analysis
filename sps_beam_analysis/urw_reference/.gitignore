@@ -10,3 +10,5 @@ out_*/
 *.npz
 __pycache__/
 *.pyc
+loop_out/
+*.tsv

@@ -36,7 +36,10 @@ give 96.5 / 97.1 / 96.0 % (here) versus 92.5 / 96.3 / 92.5 % (stage 22), with a
 |---|---|
 | `urw_lib.py` | geometry + clustering. `VIEW_MODE_DEFAULT` is the authoritative channel → strip wiring |
 | `align_and_track.py` | front↔back alignment and two-point tracks (handoff §8, §9) |
-| `loop_subruns.sh` | drives `align_and_track.py` over every sub-run of a run |
+| `loop_subruns.sh` | drives `align_and_track.py` over every sub-run of a run → `$SPS_ANALYSIS_ROOT/urw_alignment/<run>/` |
+| `build_merged_root.sh` | wrapper for `merge_subruns.py` with the environment it needs |
+| `merge_subruns.py` | merges every sub-run's `combined_hits_root` into **one** ROOT file, adding `subrun_id` and `geventId` |
+| `verify_merged.py` | checks a merged file entry-for-entry against its source sub-runs |
 | `urw_p2_efficiency.py` | **the measurement** — P2 residuals and efficiency vs uRWELL tracks (§13) |
 | `plot_hv_curves.py` | efficiency vs mesh / drift voltage from that stage's CSV |
 | `record_mapping_alignment.py` | freezes the mapping + alignment to the analysis dir |
@@ -66,7 +69,26 @@ absolute path.
 
 **Results live under `$SPS_ANALYSIS_ROOT`, not here** — see
 `analysis/urw_referenced_efficiency/`, which carries its own READMEs plus the
-frozen `MAPPING_AND_ALIGNMENT.md`.
+frozen `MAPPING_AND_ALIGNMENT.md`, and `analysis/urw_alignment/` for the
+per-sub-run front↔back alignment constants and tracks.
+
+## The merged file
+
+For work that needs many sub-runs at once, `build_merged_root.sh` concatenates
+them into a single tree at
+`/local/home/banco/P2_data/TB_July2026_H4/merged/all_subruns_hits.root`
+(29 sub-runs of `drift_mesh_scan_1` + `highstat_eff_1`, 740 M hits, 11 GB),
+with a `subruns` lookup tree and a `meta` JSON alongside.
+
+**Join on `geventId`, not `eventId`** — `eventId` restarts at 1 in every
+sub-run, so concatenating without the `subrun_id * 10^10 + eventId` key
+silently mixes sub-runs. `geventId` is not unique per entry and is not meant to
+be: one entry is one strip, so every strip of an event shares it.
+
+Two constraints on this machine that shaped the tooling: `hadd` and `root` are
+snap packages and refuse to touch `/local/home` at all, and `fout['hits'] = {...}`
+in uproot 5.7.5 writes an **RNTuple**, which ROOT/C++ TTree code cannot read —
+`merge_subruns.py` uses `mktree` to get a genuine TTree.
 
 ## Two things to know before you change anything
 
