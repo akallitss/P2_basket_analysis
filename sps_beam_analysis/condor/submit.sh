@@ -68,7 +68,13 @@ $SCP "$HERE/job.sh" "$HERE/analysis.sub" "$HERE/p2code.tgz" \
      "$HERE/joblist.txt" "$LX:~/$LXDIR/"
 
 echo "== submitting $N job(s)"
-$SSH "$LX" "cd ~/$LXDIR && chmod +x job.sh && condor_submit analysis.sub"
+# A per-sub_run job is one scan point; a `raweff` job is a whole run walked
+# serially, so it needs a flavour an order of magnitude longer. workday = 8 h
+# against a measured worst case of ~2.4 h for the 49-sub_run drift_mesh_2d_2.
+FLAVOUR=longlunch
+[ "$GROUP" = "raweff" ] && FLAVOUR=workday
+$SSH "$LX" "cd ~/$LXDIR && chmod +x job.sh && \
+            condor_submit -append 'flavour = $FLAVOUR' analysis.sub"
 
 # merge_and_pull.sh has no --group: the merge it runs is per-stage, not per-
 # group, and it works out for itself which stages have scan rows to rebuild.

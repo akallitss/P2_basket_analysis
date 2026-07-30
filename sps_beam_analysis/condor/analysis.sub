@@ -48,7 +48,15 @@ MY.SendCredential       = true
 
 # longlunch = 2 h. Measured: 21+28 alone take 205 s; the full 6-stage hits
 # group is dominated by 22_tag_probe_efficiency.
-MY.JobFlavour           = "longlunch"
+#
+# submit.sh overrides this with -append for the run-level `raweff` group,
+# where one job walks EVERY sub_run of a run serially rather than one point.
+# On 2026-07-30 that killed the four biggest runs outright: drift_mesh_2d_2
+# (49 sub_runs), p2_mesh_drift_2d_1 (44), mesh_drift_scan_up_1 (37) and
+# p2_mesh_drift_eff_1 (27) all hit SYSTEM_PERIODIC_REMOVE at 2 h, while the
+# longest survivor finished in 7210 s -- i.e. right against the ceiling.
+flavour                 = longlunch
+MY.JobFlavour           = "$(flavour)"
 
 # Retry a job that fails on a transient (a bad worker, an EOS hiccup), but do
 # not loop forever on a genuinely broken sub_run.
