@@ -70,10 +70,19 @@ $SCP "$HERE/job.sh" "$HERE/analysis.sub" "$HERE/p2code.tgz" \
 echo "== submitting $N job(s)"
 $SSH "$LX" "cd ~/$LXDIR && chmod +x job.sh && condor_submit analysis.sub"
 
+# merge_and_pull.sh has no --group: the merge it runs is per-stage, not per-
+# group, and it works out for itself which stages have scan rows to rebuild.
+# `raweff` is the one group needing no merge at all -- stage 30 is run-level,
+# so it writes its own scan-level curve on the worker and only needs pulling.
+if [ "$GROUP" = "raweff" ]; then
+    NEXT="$HERE/merge_and_pull.sh --no-merge   # stage 30 writes its own curve"
+else
+    NEXT="$HERE/merge_and_pull.sh"
+fi
 cat <<EOF
 
 Submitted. To watch:
   ssh -o GSSAPIDelegateCredentials=yes $LX 'condor_q'
-When it is done, merge the scan-level products and pull them to the GUI:
-  $HERE/merge_and_pull.sh --group $GROUP
+When it is done, bring the products home (and rebuild the scan curves):
+  $NEXT
 EOF
