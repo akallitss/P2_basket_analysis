@@ -41,6 +41,7 @@ SOURCES = {
 # What each stage group needs to exist on EOS before a job is worth queueing.
 # 'rec' reads decoded_root's eventId branch remotely rather than staging it.
 NEED = {'hits': 'combined_hits_root',
+        'raweff': 'decoded_root',
         'wave': 'decoded_root',
         'rec': 'decoded_root'}
 
@@ -183,6 +184,14 @@ def main():
         # where the GIF builder and the GUI look) or under the sub_run's own
         # directory. Decided here, where the whole run is in view.
         prod_sub = 'scan' if len(subs) > 1 else (subs[0] if subs else '-')
+        if args.group == 'raweff':
+            # RUN-level: stage 30 sweeps every sub_run itself and writes one
+            # curve per run, so one job covers the lot. The sub_run column is
+            # still filled (job.sh logs and names by it) but goes unused.
+            if subs:
+                lines.append(f'{run} {subs[0]} {args.group} {prod_sub} '
+                             f'{runs[run][subs[0]]}')
+            continue
         for s in subs:
             lines.append(f'{run} {s} {args.group} {prod_sub} {runs[run][s]}')
     print('-' * 72)

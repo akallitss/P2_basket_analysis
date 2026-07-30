@@ -205,6 +205,12 @@ case "$GROUP" in
     wave) NEED=decoded_root ;;
     *)    NEED=combined_hits_root ;;
 esac
+# `raweff` is the one RUN-level group: stage 30 walks every sub_run of the run
+# and reads a capped slice of ONE decoded chunk per station, so staging is both
+# unnecessary and impossible -- a whole run's decoded_root is tens of GB against
+# an 8 GB sandbox. It reads over xrootd instead and needs only run_config.json,
+# which is already down. Skip straight to the stage.
+if [ "$GROUP" != "raweff" ]; then
 mkdir -p "$DST/$NEED"
 say "staging $NEED ..."
 # `grep -v '/\.'` drops EOS's atomic-version placeholders, which are named
@@ -220,6 +226,7 @@ for f in "${FILES[@]}"; do
         || fail "xrdcp failed for $f"
 done
 say "staged: $(du -sh "$DST/$NEED" | cut -f1) in ${#FILES[@]} file(s), $(( $(date +%s) - T0 ))s"
+fi
 
 # --- 5. Run the stages ------------------------------------------------------
 export SPS_DATA_ROOT="$DATA"
@@ -234,6 +241,7 @@ case "$GROUP" in
                    24_event_sync_qa.py
                    26_hv_spark_qa.py 28_timing_qa.py) ;;
     wave)  STAGES=(29_waveform_timing.py) ;;
+    raweff) STAGES=(30_raw_stream_efficiency.py) ;;
     *)     fail "unknown stage group '$GROUP'" ;;
 esac
 
@@ -251,10 +259,17 @@ for s in "${STAGES[@]}"; do
     case "$s" in
         20_beam_spectra.py|22_tag_probe_efficiency.py)
             [ -n "$PROD_SUB" ] && extra=(--prod-sub "$PROD_SUB") ;;
+        30_raw_stream_efficiency.py)
+            # run-level: every sub_run at once, read straight off EOS
+            extra=(--eos-url "$EOS_URL" --eos-base "$EOS_BASE/runs") ;;
     esac
     say "--- $s ${extra[*]:-}"
     t=$(date +%s)
-    python3 "$s" live --sub-run "$SUB" ${extra[@]+"${extra[@]}"}
+    if [ "$GROUP" = "raweff" ]; then
+        python3 "$s" live ${extra[@]+"${extra[@]}"}
+    else
+        python3 "$s" live --sub-run "$SUB" ${extra[@]+"${extra[@]}"}
+    fi
     r=$?
     say "--- $s exit=$r  $(( $(date +%s) - t ))s"
     if [ $r -ne 0 ]; then

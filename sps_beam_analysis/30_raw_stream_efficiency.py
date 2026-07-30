@@ -51,6 +51,32 @@ N_CH = 512
 ZS_BASELINE = 256.0     # the FEU re-centres ZS pedestal-subtracted waveforms here
 
 
+def remote_decoded(url, base, run):
+    """{sub_run: [decoded .root URL, ...]} from ONE recursive xrdfs listing.
+
+    raw_share already opens with uproot, which reads root:// URLs natively and
+    only pulls the baskets it iterates -- and this stage stops at --max-events
+    anyway. So the raw data never has to be staged, which is what makes the
+    stage runnable at all now that decoded_root lives on EOS: a whole run's
+    worth would be tens of GB against an 8 GB job sandbox.
+    """
+    import subprocess
+    root = f'{base.rstrip("/")}/{run}'
+    p = subprocess.run(['xrdfs', url, 'ls', '-R', root],
+                       capture_output=True, text=True, timeout=900)
+    if p.returncode != 0:
+        raise SystemExit(f'xrdfs ls -R failed on {url}{root}:\n{p.stderr.strip()}')
+    out = {}
+    for line in p.stdout.splitlines():
+        line = line.strip()
+        rel = line[len(root) + 1:].split('/') if line.startswith(root) else []
+        # <sub_run>/decoded_root/<file>.root, skipping EOS version placeholders
+        if (len(rel) == 3 and rel[1] == 'decoded_root'
+                and rel[2].endswith('.root') and not rel[2].startswith('.')):
+            out.setdefault(rel[0], []).append(f'{url}/{line}')
+    return {k: sorted(v) for k, v in out.items()}
+
+
 def raw_share(path, n_samples, thresholds, t_lo, t_hi, max_events):
     """Fraction of triggers with an in-time waveform above each threshold."""
     import uproot
@@ -98,18 +124,32 @@ def main():
                     metavar=('LO', 'HI'),
                     help='in-time peak-sample window (default 4 11).')
     ap.add_argument('--max-events', type=int, default=600000)
+    ap.add_argument('--eos-url', default=None,
+                    help='read decoded_root over xrootd (e.g. '
+                         'root://eospublic.cern.ch) instead of local disk')
+    ap.add_argument('--eos-base', default=None,
+                    help='runs/ directory on that server, e.g. '
+                         '/eos/experiment/ntof/data/x17/p2_sps_july/runs')
     args = ap.parse_args()
+    if bool(args.eos_url) != bool(args.eos_base):
+        ap.error('--eos-url and --eos-base must be given together')
 
     cfg = sc.get_config(args.run_key)
     print(cfg)
     n_samples = int(cfg.daq_info().get('n_samples_per_waveform') or 16)
     dets = cfg.mappable_detectors()
-    subs = [args.sub_run] if args.sub_run else sorted(
-        os.path.basename(d.rstrip('/')) for d in
-        glob.glob(os.path.join(cfg.run_dir, '*/'))
-        if glob.glob(os.path.join(d, 'decoded_root', '*.root')))
+    remote = (remote_decoded(args.eos_url, args.eos_base, cfg.RUN)
+              if args.eos_url else None)
+    if remote is not None:
+        subs = [args.sub_run] if args.sub_run else sorted(remote)
+    else:
+        subs = [args.sub_run] if args.sub_run else sorted(
+            os.path.basename(d.rstrip('/')) for d in
+            glob.glob(os.path.join(cfg.run_dir, '*/'))
+            if glob.glob(os.path.join(d, 'decoded_root', '*.root')))
     if not subs:
-        raise SystemExit('No sub_run with local decoded_root chunks.')
+        raise SystemExit('No sub_run with decoded_root chunks '
+                         f'({"EOS" if remote is not None else "local disk"}).')
     print(f'  sub_runs with decoded chunks: {subs}')
     t_lo, t_hi = args.t_window
 
@@ -117,9 +157,12 @@ def main():
         rows = []
         print(f'\n== {det.name} (FEU {det.feus[0]})')
         for sub in subs:
-            files = sorted(glob.glob(os.path.join(
-                cfg.subrun_dir(sub), 'decoded_root',
-                f'*_{det.feus[0]:02d}.root')))
+            suffix = f'_{det.feus[0]:02d}.root'
+            files = ([f for f in remote.get(sub, []) if f.endswith(suffix)]
+                     if remote is not None else
+                     sorted(glob.glob(os.path.join(
+                         cfg.subrun_dir(sub), 'decoded_root',
+                         f'*{suffix}'))))
             if not files:
                 continue
             n, fired = raw_share(files[0], n_samples, args.thr, t_lo, t_hi,
