@@ -25,11 +25,24 @@ import glob
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, '/local/home/banco/dylan/saclay_micromegas')
+# The saclay_micromegas package location is site-dependent: banco keeps
+# dylan's checkout, the laptop has the EIC variant, condor ships its own copy.
+# SACLAY_MM_DIR overrides; the banco path stays the default so nothing changes
+# there.
+_SMM_CANDIDATES = (
+    os.environ.get('SACLAY_MM_DIR', ''),
+    '/local/home/banco/dylan/saclay_micromegas',
+    os.path.expanduser('~/Documents/PostDocSaclay/saclay_micromegas_EIC'),
+)
+for _p in _SMM_CANDIDATES:
+    if _p and os.path.isdir(_p):
+        sys.path.insert(0, _p)
+        break
 from Detector_Classes.DetectorConfigLoader import DetectorConfigLoader  # noqa: E402
 from Detector_Classes.DreamDetector import DreamDetector  # noqa: E402
 
-DET_DIR_DEFAULT = '/local/home/banco/P2_data/TB_July2026_H4/config/detectors/'
+DET_DIR_DEFAULT = os.environ.get(
+    'URW_DET_DIR', '/local/home/banco/P2_data/TB_July2026_H4/config/detectors/')
 URW_DETS = ('EIC_uRWELL_front', 'EIC_uRWELL_back')
 N_CHAN = 512
 
