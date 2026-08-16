@@ -45,18 +45,19 @@ def load_vmm_triggers(run, sub, npz=None, source="auto"):
     if npz:
         d = np.load(npz)
         meta = json.loads(str(d["meta"]))
-        return d["t_ns"], meta["n_trigger_hits"], meta["source"]
-    sub_dir = f"{BASE}/vmm/runs/{run}/{sub}"
-    t, used, src = None, [], None
-    if source in ("auto", "store"):
-        t, used = evt.from_store(sub_dir)
-        src = "hits_store" if t is not None else None
-    if t is None and source in ("auto", "pcapng"):
-        t, used = evt.from_pcapng(sub_dir)
-        src = "pcapng" if t is not None else None
-    if t is None:
-        sys.exit(f"no VMM trigger hits for {run}/{sub} under {sub_dir}")
-    return evt.dedup(t), len(t), src
+        return (d["t_ns"], meta["n_trigger_hits"], meta["source"],
+                (meta.get("trigger_vmm", evt.TRIG_VMM),
+                 meta.get("trigger_ch", evt.TRIG_CH)))
+    sub_dir = evt.sub_dir_of(run, sub)
+    src = evt.source_of(sub_dir)
+    if src == "none":
+        sys.exit(f"no VMM data for {run}/{sub} under {sub_dir}")
+    times, _ = evt.collect(sub_dir, [(evt.TRIG_VMM, evt.TRIG_CH)],
+                           source=source)
+    t = times[(evt.TRIG_VMM, evt.TRIG_CH)]
+    if not len(t):
+        sys.exit(f"no hits on the trigger channel for {run}/{sub}")
+    return evt.dedup(t), len(t), src, (evt.TRIG_VMM, evt.TRIG_CH)
 
 
 def load_dream_triggers(run, sub):
@@ -119,7 +120,7 @@ def residual_peak(tv, td_sample, lag, half, bin_ns):
     return lag + (j + 0.5) * bin_ns - half, int(hist[j]), float(hist.mean())
 
 
-def first_lock(tv, td, verbose=True):
+def first_lock(tv, td, verbose=True, max_lag_ns=60e9, min_sigma=25.0):
     """Find the absolute VMM-DREAM offset with no prior, by testing every
     plausible spill pairing.
 
@@ -139,12 +140,27 @@ def first_lock(tv, td, verbose=True):
     tds = td[s[i]:e[i]]
     step = max(1, len(tds) // 2000)
     sample = tds[::step]
-    best = None
-    for lag in sv - tds[0]:
-        pk_lag, pk, mu = residual_peak(tv, sample, lag, 0.6e9, 1e3)
-        sig = (pk - mu) / max(np.sqrt(max(mu, 1.0)), 1.0)
-        if best is None or sig > best[0]:
-            best = (sig, pk_lag, pk, mu)
+
+    def scan(lags):
+        best = None
+        for lag in lags:
+            pk_lag, pk, mu = residual_peak(tv, sample, lag, 0.6e9, 1e3)
+            s = (pk - mu) / max(np.sqrt(max(mu, 1.0)), 1.0)
+            if best is None or s > best[0]:
+                best = (s, pk_lag, pk, mu)
+        return best
+
+    # the two DAQs are started together, so the offset is seconds, not
+    # minutes: try the nearby spills first and only fall back to all of them
+    # (which on a 200-spill run costs 20x more) if nothing convincing turns up
+    all_lags = sv - tds[0]
+    near = all_lags[np.abs(all_lags) < max_lag_ns]
+    best = scan(near) if len(near) else None
+    if (best is None or best[0] < min_sigma) and len(all_lags) > len(near):
+        cand = [b for b in (best, scan(all_lags)) if b is not None]
+        best = max(cand, key=lambda b: b[0]) if cand else None
+    if best is None:
+        raise SystemExit("no VMM spill to lock on")
     sig, lag, pk, mu = best
     if verbose:
         print(f"[first lock] {len(sv)} vmm / {len(sd)} dream spills; densest "
@@ -222,10 +238,11 @@ def main():
     args = ap.parse_args()
 
     print(f"[vmm] loading triggers {args.run}/{args.sub}")
-    tv, n_raw, vmm_source = load_vmm_triggers(args.run, args.sub,
-                                              args.vmm_npz, args.vmm_source)
-    print(f"  {n_raw} trigger hits -> {len(tv)} dedup'd triggers "
-          f"[{vmm_source}], span {(tv[-1]-tv[0])/1e9:.1f} s")
+    tv, n_raw, vmm_source, chan = load_vmm_triggers(
+        args.run, args.sub, args.vmm_npz, args.vmm_source)
+    print(f"  {n_raw} trigger hits on vmm {chan[0]} ch {chan[1]} -> "
+          f"{len(tv)} dedup'd triggers [{vmm_source}], "
+          f"span {(tv[-1]-tv[0])/1e9:.1f} s")
 
     print("[dream] loading events")
     eid, td = load_dream_triggers(args.run, args.sub)
@@ -298,6 +315,7 @@ def main():
              else float("nan"))
     summary = dict(
         run=args.run, sub=args.sub, vmm_source=vmm_source,
+        trigger_vmm=int(chan[0]), trigger_ch=int(chan[1]),
         n_vmm_trig_hits=int(n_raw), n_vmm_triggers=int(len(tv)),
         n_dream_events=int(len(td)),
         n_matched=int(ok.sum()),
