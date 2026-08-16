@@ -376,32 +376,80 @@ def main():
             rr = tv[js] - (a_s * tds + b_s)
             j[s:e] = js; ok[s:e] = oks; r[s:e] = rr
 
+    # Per-spill record for EVERY spill, locked or not, with why it is not:
+    # "where and when did this run lose events" is a data-quality question, and
+    # a spill missing from the list is indistinguishable from one that matched.
+    if locked:
+        a_ref = float(np.median([x[1] for x in locked]))
+        b_ref = float(np.median([x[2] - (x[1] - a_ref) * x[0] for x in locked]))
+    else:
+        a_ref, b_ref = a, b
     for k, (s, e) in enumerate(zip(starts, ends)):
-        if not done[k]:
-            continue
         tds = td[s:e]
         oks = ok[s:e]
         rr = r[s:e]
         m = oks
-        a_s = np.nan
+        a_s = b_s = float("nan")
         if m.sum() >= 2:                # per-spill clock ratio, for the record
             a_s = float(np.polyfit(tds[m], tv[j[s:e][m]], 1)[0])
-        b_s = float(np.median(tv[j[s:e][m]] - a_s * tds[m])) if m.any() else 0.0
+            b_s = float(np.median(tv[j[s:e][m]] - a_s * tds[m]))
+        # was the VMM even recording while this spill happened?
+        pred0, pred1 = a_ref * tds[0] + b_ref, a_ref * tds[-1] + b_ref
+        if pred1 < tv[0]:
+            where = "before_vmm_start"
+        elif pred0 > tv[-1]:
+            where = "after_vmm_stop"
+        elif pred0 < tv[0] or pred1 > tv[-1]:
+            where = "partly_outside_vmm"
+        else:
+            where = "inside_vmm"
+        # how many VMM triggers sit where this spill should be? A spill inside
+        # the recording window with no triggers under it is a hole in the VMM
+        # capture set, not a matching failure -- worth telling apart.
+        n_vmm_here = int(np.searchsorted(tv, pred1 + 5e6)
+                         - np.searchsorted(tv, pred0 - 5e6))
+        if m.mean() >= 0.9:
+            status, reason = "matched", None
+        elif not done[k]:
+            status = "unmatched"
+            if where != "inside_vmm":
+                reason = "outside the VMM recording window"
+            elif n_vmm_here < 0.05 * (e - s):
+                reason = ("no VMM triggers under this spill (%d for %d DREAM "
+                          "events) — gap in the VMM captures"
+                          % (n_vmm_here, e - s))
+            elif (e - s) < 100:
+                reason = "too few events to lock (%d)" % (e - s)
+            else:
+                reason = "no coincidence lock for this spill"
+        else:
+            status = "partial"
+            reason = ("partly outside the VMM recording window"
+                      if where != "inside_vmm" else
+                      "locked but %.0f%% of events found no VMM trigger"
+                      % (100 * (1 - m.mean())))
         spills.append(dict(
+            index=int(k), status=status, reason=reason, where=where,
             n_dream=int(e - s), n_matched=int(m.sum()),
-            frac=float(m.mean()),
+            n_vmm_in_window=n_vmm_here, frac=float(m.mean()),
             t0_s=float((td[s] - td[0]) / 1e9),
             dur_s=float((tds[-1] - tds[0]) / 1e9),
-            a_spill=float(a_s),
-            b_minus_global_us=float((b_s - b) / 1e3),
+            a_spill=a_s,
+            b_minus_global_us=float((b_s - b) / 1e3) if m.sum() >= 2 else None,
             res_med_ns=float(np.median(rr[m])) if m.any() else None,
             res_rms_ns=float(np.std(rr[m])) if m.any() else None))
-    if spills:
+    n_ok = sum(1 for sp in spills if sp["status"] == "matched")
+    rms_all = [sp["res_rms_ns"] for sp in spills if sp["res_rms_ns"] is not None]
+    if n_ok:
         fr = [sp["frac"] for sp in spills]
-        print(f"[per-spill] {len(spills)} spills refit: match frac "
+        print(f"[per-spill] {n_ok}/{len(spills)} spills matched: frac "
               f"min {min(fr):.3f} med {np.median(fr):.3f} max {max(fr):.3f}; "
-              f"residual rms med "
-              f"{np.median([sp['res_rms_ns'] for sp in spills]):.1f} ns")
+              f"residual rms med {np.median(rms_all):.1f} ns")
+        for sp in spills:
+            if sp["status"] != "matched":
+                print(f"  spill {sp['index']:3d} at {sp['t0_s']:8.1f} s "
+                      f"({sp['n_dream']:7d} ev): {sp['status']} — "
+                      f"{sp['reason']}")
     else:
         print("[per-spill] NO spill locked — streams look mutually incoherent")
 
@@ -437,7 +485,12 @@ def main():
         offset_seed_ns=float(b), lock_sigma=float(lock_sigma),
         residual_rms_ns=float(np.std(r[ok])) if ok.any() else None,
         residual_med_ns=float(np.median(r[ok])) if ok.any() else None,
-        n_spills=len(spills), spills=spills)
+        n_spills=len(spills), n_spills_matched=n_ok,
+        n_spills_unmatched=sum(1 for sp in spills
+                               if sp["status"] == "unmatched"),
+        n_dream_in_unmatched_spills=sum(sp["n_dream"] for sp in spills
+                                        if sp["status"] != "matched"),
+        spills=spills)
 
     os.makedirs(args.out, exist_ok=True)
     tag = f"{args.run}_{args.sub}"
