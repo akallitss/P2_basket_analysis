@@ -2,7 +2,8 @@
 # ---------------------------------------------------------------------------
 # sweep_matching.sh -- match every VMM sub_run of the campaign to DREAM, once.
 #
-#   ./sweep_matching.sh [--jobs N] [--dry-run] [--only run_57,run_58] [--force]
+#   ./sweep_matching.sh [--jobs N] [--dry-run] [--only run_57,run_58]
+#                       [--force] [--reextract]
 #
 # Run it on lxplus. For each (run, sub_run) that has BOTH a DREAM
 # combined_hits_root and a VMM capture directory it produces, on EOS under
@@ -27,6 +28,7 @@ LCG=/cvmfs/sft.cern.ch/lcg/views/LCG_110/x86_64-el9-gcc13-opt/setup.sh
 JOBS=4
 DRY=0
 FORCE=0
+REEXTRACT=0
 ONLY=""
 # vmm_decode.py lives in the online-analysis repo, not this one; the pcapng
 # path needs it on PYTHONPATH.
@@ -37,6 +39,7 @@ while [ $# -gt 0 ]; do
         --jobs) JOBS=$2; shift 2 ;;
         --dry-run) DRY=1; shift ;;
         --force) FORCE=1; shift ;;
+        --reextract) REEXTRACT=1; shift ;;
         --only) ONLY=$2; shift 2 ;;
         --decode-dir) DECODE_DIR=$2; shift 2 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -85,8 +88,18 @@ frac_of() { python3 -c "import json;print(json.load(open('\$1'))['match_frac_dre
 # still report which sub_run died and why
 (
   echo "=== \$tag  \$(date -u +%H:%M:%S)"
-  # the usual path: the trigger fan-out on VMM 0 ch 44
-  if python3 $CODE/extract_vmm_triggers.py "\$run" "\$sub" --out "\$trg"; then
+  # the trigger times are a permanent product in their own right: if this
+  # sub_run has already been through a sweep, reuse them rather than decoding
+  # its captures again (which is nearly all of the cost)
+  if [ "$REEXTRACT" = 0 ] && xrdcp -f -s "$EOS_URL/$OUT/\$(basename \$trg)" \
+          "\$trg" 2>/dev/null; then
+      echo "reusing the stored trigger times"
+  else
+      # the usual path: the trigger fan-out on VMM 0 ch 44
+      python3 $CODE/extract_vmm_triggers.py "\$run" "\$sub" --out "\$trg" \
+          || rm -f "\$trg"
+  fi
+  if [ -f "\$trg" ]; then
       python3 $CODE/match_streams.py "\$run" "\$sub" --out "\$d" --tol-us 2 \
               --vmm-npz "\$trg" || exit 2
   fi
