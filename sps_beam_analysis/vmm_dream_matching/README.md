@@ -48,6 +48,13 @@ what makes the other half reachable — and it is cheap (~1 s per 60 MB
 capture, since every chunk is filtered to channel 44 and dropped). The two
 paths were verified bit-identical on run_32/meshscan_m00V.
 
+**`find_trigger_channel.py <run> <sub>`** — the cabling is not the same all
+campaign long, and nothing documents it, so read it off the data: take the
+busiest channels and ask each whether its hit times coincide with DREAM
+triggers. The real trigger channel answers at >100 σ; everything else sits at
+the random-coincidence floor. `sweep_matching.sh` calls this automatically
+whenever the default channel gives no usable lock.
+
 **`match_streams.py <run> <sub>`** — the matcher:
 
 1. *First lock.* Pair the densest DREAM spill against **every** VMM spill in
@@ -84,11 +91,23 @@ single match npz is tens of MB, so nothing of size may land there.
 `matching_table.csv` (+ a markdown table) — see `MATCHING_TABLE.md` for the
 committed result.
 
-## Validation
+## Result
 
-Typical good sub_run: **98–99.5% of DREAM events matched, residual rms
-~10 ns** — DREAM's 5 ns hardware quantisation plus the VMM 22.5 ns BCID
-clock — with ~30% of VMM triggers left over as the DREAM busy veto. A
-sub_run that fails to lock is unmistakable: the match fraction collapses to
-the accidental rate (a few %) and the residual rms sits at the ~1 µs
-random-coincidence floor.
+**110 sub_runs: 77 OK, 1 partial, 32 without a lock** — see
+`MATCHING_TABLE.md` for the per-sub_run table and the reasons. 213.2 M DREAM
+events matched, median residual rms **10.4 ns** (DREAM's 5 ns hardware
+quantisation plus the VMM 22.5 ns BCID clock), median clock drift
+**+0.67 ppm**, and 21–63% of VMM triggers left spare as the DREAM busy veto.
+Every run from **run_31 onward** is matched; every sub_run without a lock is
+**run_29 or earlier**, where the trigger line does not carry the DREAM
+trigger at all.
+
+A sub_run that fails to lock is unmistakable in the numbers: the match
+fraction collapses to the accidental rate (a few %) and the residual rms
+sits at the ~1 µs random-coincidence floor. Where it locks, it locks hard —
+113 to 606 σ.
+
+Two things that look like matching failures and are not: the two DAQs are
+not stopped together (so judge on `match_frac_covered`, over the DREAM
+events the VMM was recording, not on the raw fraction), and the start-of-run
+offset between them ranges from −25 s to +88 s.
