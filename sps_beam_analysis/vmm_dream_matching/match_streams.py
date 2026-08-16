@@ -137,8 +137,6 @@ def first_lock(tv, td, verbose=True, max_lag_ns=120e9, min_sigma=25.0,
     s = np.concatenate([[0], g + 1])
     e = np.concatenate([g + 1, [len(td)]])
     n = e - s
-    i = int(np.argmax(n))                     # the densest DREAM spill
-    tds = td[s[i]:e[i]]
     # Cost per candidate is n_sample x (VMM triggers inside the +-0.6 s
     # window), and a junk trigger line can run at 200 kHz -- 100x a real one.
     # Scale the sample to keep that product bounded; 200 points still put a
@@ -147,38 +145,45 @@ def first_lock(tv, td, verbose=True, max_lag_ns=120e9, min_sigma=25.0,
     rate = len(tv) / max(tv[-1] - tv[0], 1.0)         # triggers per ns
     n_sample = int(np.clip(pair_budget / max(2 * half * rate, 1.0),
                            200, 2000))
-    step = max(1, len(tds) // n_sample)
-    sample = tds[::step]
 
-    def scan(lags):
+    def scan(sample, lags):
         best = None
         for lag in lags:
             pk_lag, pk, mu = residual_peak(tv, sample, lag, half, 1e3)
-            s = (pk - mu) / max(np.sqrt(max(mu, 1.0)), 1.0)
-            if best is None or s > best[0]:
-                best = (s, pk_lag, pk, mu)
+            sg = (pk - mu) / max(np.sqrt(max(mu, 1.0)), 1.0)
+            if best is None or sg > best[0]:
+                best = (sg, pk_lag, pk, mu)
         return best
 
-    # the two DAQs are started together, so the offset is seconds, not
-    # minutes: try the nearby spills first and only fall back to all of them
-    # (which on a 200-spill run costs 20x more) if nothing convincing turns up
-    all_lags = sv - tds[0]
-    near = all_lags[np.abs(all_lags) < max_lag_ns]
-    best = scan(near) if len(near) else None
-    # the full fallback is for the case where the DAQs were started minutes
-    # apart, which has not been seen (offsets measured so far: 0.8-6.4 s).
-    # On a long run it is 200+ candidates, so only pay for it when the run is
-    # short enough that it is cheap.
-    if ((best is None or best[0] < min_sigma) and len(all_lags) > len(near)
-            and len(all_lags) <= 40):
-        cand = [b for b in (best, scan(all_lags)) if b is not None]
-        best = max(cand, key=lambda b: b[0]) if cand else None
+    # Try the densest DREAM spills in turn. One spill is usually enough, but
+    # the candidate offsets come from the VMM spill EDGES, and edge detection
+    # misses a spill here and there (a DAQ pause inside a spill, an off-spill
+    # burst bridging two): run_39 has 143 VMM edges against 146 DREAM ones,
+    # and the one DREAM spill that happened to be densest had no VMM edge to
+    # pair with -- 9 sigma on a run that locks at 126 sigma from any other
+    # spill. Cost is paid only until something locks.
+    best, used_i = None, None
+    for i in np.argsort(n)[::-1][:5]:
+        i = int(i)
+        tds = td[s[i]:e[i]]
+        if len(tds) < 200:
+            break
+        sample = tds[::max(1, len(tds) // n_sample)]
+        # the two DAQs are started together, so the offset is seconds, not
+        # minutes: only the nearby spill pairings are worth testing
+        lags = sv - tds[0]
+        lags = lags[np.abs(lags) < max_lag_ns]
+        got = scan(sample, lags) if len(lags) else None
+        if got is not None and (best is None or got[0] > best[0]):
+            best, used_i = got, i
+        if best is not None and best[0] >= min_sigma:
+            break
     if best is None:
         raise SystemExit("no VMM spill to lock on")
     sig, lag, pk, mu = best
     if verbose:
-        print(f"[first lock] {len(sv)} vmm / {len(sd)} dream spills; densest "
-              f"dream spill {i} ({len(tds)} ev, {len(sample)} sampled): "
+        print(f"[first lock] {len(sv)} vmm / {len(sd)} dream spills; locked on "
+              f"dream spill {used_i} ({n[used_i]} ev): "
               f"offset {lag/1e9:+.6f} s, peak {pk} vs background {mu:.1f} "
               f"({sig:.0f} sigma)")
     return 1.0, lag, sig
@@ -273,7 +278,15 @@ def main():
                     help="when the VMM side has no triggers at all, record "
                          "that as the result instead of failing (some "
                          "sub_runs have 272-byte empty captures)")
+    ap.add_argument("--record-only", metavar="REASON", default=None,
+                    help="write a no-match summary with this reason and stop "
+                         "(for a sub_run whose VMM side cannot be used at "
+                         "all, so the campaign table still has a row)")
     args = ap.parse_args()
+
+    if args.record_only:
+        write_no_vmm_record(args, args.record_only)
+        return
 
     print(f"[vmm] loading triggers {args.run}/{args.sub}")
     try:
@@ -311,29 +324,69 @@ def main():
     ok = np.zeros(len(td), bool)
     r = np.full(len(td), np.nan)
     spills = []
+    locked = []                        # (t_mid, a, b) of every locked spill
+
+    def try_chunk(tds, a0, b0, half):
+        """Lock one chunk of DREAM events around the (a0, b0) prediction."""
+        a_s = a0
+        b_s = b0 + lag_scan(tv, tds, a0, b0, half=half, bin_ns=500.0,
+                            sample=5, quiet=True)
+        js = oks = None
+        for tol in (20e3, 5e3, args.tol_us * 1e3):
+            js, _, oks = greedy_match(tv, a_s * tds + b_s, tol)
+            if oks.sum() < 50:
+                return None
+            a_s, b_s, _ = robust_linear(tds, tv[js], oks)
+        return js, oks, a_s, b_s
+
     a_cur, b_cur, first = a, b, True
-    for s, e in zip(starts, ends):
+    done = np.zeros(len(starts), bool)
+    for k, (s, e) in enumerate(zip(starts, ends)):
         if (e - s) < 100:
             continue
-        tds = td[s:e]
-        half = 50e6 if first else 5e6
-        a_s = a_cur
-        b_s = b_cur + lag_scan(tv, tds, a_cur, b_cur, half=half,
-                               bin_ns=500.0, sample=5, quiet=True)
-        js = None
-        for tol in (20e3, 5e3, args.tol_us * 1e3):
-            tm = a_s * tds + b_s
-            js, _, oks = greedy_match(tv, tm, tol)
-            if oks.sum() < 50:
-                break
-            a_s, b_s, _ = robust_linear(tds, tv[js], oks)
-        if js is None or oks.sum() < 50:
+        got = try_chunk(td[s:e], a_cur, b_cur, 50e6 if first else 5e6)
+        if got is None:
             continue
+        js, oks, a_s, b_s = got
         if oks.mean() > 0.5:            # good lock: track from here
             a_cur, b_cur, first = a_s, b_s, False
+            locked.append(((td[s] + td[e - 1]) / 2, a_s, b_s))
+        done[k] = True
+        tds = td[s:e]
         rr = tv[js] - (a_s * tds + b_s)
         j[s:e] = js; ok[s:e] = oks; r[s:e] = rr
+
+    # Second pass over what the forward walk left behind. A chunk fails when
+    # the previous spill's fit is not close enough for the 20 us tolerance --
+    # after a DAQ pause, say -- and the forward pass has no way back. Retry
+    # each one from the fit of the NEAREST locked spill (either side) and with
+    # a wider lag scan; on run_43 this is a third of the run.
+    if locked:
+        lt = np.array([x[0] for x in locked])
+        for k, (s, e) in enumerate(zip(starts, ends)):
+            if done[k] or (e - s) < 20:
+                continue
+            _, a0, b0 = locked[int(np.argmin(np.abs(lt - td[s])))]
+            got = try_chunk(td[s:e], a0, b0, 50e6)
+            if got is None:
+                continue
+            js, oks, a_s, b_s = got
+            done[k] = True
+            tds = td[s:e]
+            rr = tv[js] - (a_s * tds + b_s)
+            j[s:e] = js; ok[s:e] = oks; r[s:e] = rr
+
+    for k, (s, e) in enumerate(zip(starts, ends)):
+        if not done[k]:
+            continue
+        tds = td[s:e]
+        oks = ok[s:e]
+        rr = r[s:e]
         m = oks
+        a_s = np.nan
+        if m.sum() >= 2:                # per-spill clock ratio, for the record
+            a_s = float(np.polyfit(tds[m], tv[j[s:e][m]], 1)[0])
+        b_s = float(np.median(tv[j[s:e][m]] - a_s * tds[m])) if m.any() else 0.0
         spills.append(dict(
             n_dream=int(e - s), n_matched=int(m.sum()),
             frac=float(m.mean()),
@@ -355,8 +408,18 @@ def main():
     # how many VMM triggers went unmatched (expected: DREAM busy veto)
     used = np.zeros(len(tv), bool)
     used[j[ok]] = True
-    a_med = (float(np.median([sp["a_spill"] for sp in spills])) if spills
+    a_med = (float(np.nanmedian([sp["a_spill"] for sp in spills])) if spills
              else float("nan"))
+    # The two DAQs are not started and stopped together: run_31's VMM stream
+    # ends 3 s before DREAM's, which alone accounts for its 14% "unmatched".
+    # So report the match fraction over the DREAM events the VMM was actually
+    # recording as well as over all of them.
+    if ok.any():
+        b_cov = float(np.median(tv[j[ok]] - a_med * td[ok]))
+        tmap = a_med * td + b_cov
+        covered = (tmap >= tv[0]) & (tmap <= tv[-1])
+    else:
+        covered = np.zeros(len(td), bool)
     summary = dict(
         run=args.run, sub=args.sub, vmm_source=vmm_source,
         trigger_vmm=int(chan[0]), trigger_ch=int(chan[1]),
@@ -364,6 +427,9 @@ def main():
         n_dream_events=int(len(td)),
         n_matched=int(ok.sum()),
         match_frac_dream=float(ok.sum() / len(td)),
+        n_dream_covered=int(covered.sum()),
+        match_frac_covered=(float(ok[covered].sum() / covered.sum())
+                            if covered.any() else None),
         vmm_unmatched=int((~used).sum()),
         vmm_unmatched_frac=float((~used).mean()),
         clock_ratio_a=a_med,
