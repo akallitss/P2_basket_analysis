@@ -13,6 +13,7 @@ Quality flag:
     FAIL    below that -- no usable lock (the residual rms then sits at the
             random-coincidence floor, ~1 us, and the fraction near the
             accidental rate)
+    NO-VMM  the VMM side recorded nothing for this sub_run
 """
 import argparse
 import glob
@@ -36,6 +37,8 @@ def run_key(r):
 
 
 def status_of(d):
+    if d.get("vmm_source") == "none":
+        return "NO-VMM"
     f = d.get("match_frac_dream", 0.0)
     rms = d.get("residual_rms_ns") or 1e9
     if f >= 0.90 and rms < 50:
@@ -72,8 +75,8 @@ def rows_from(directory):
         rows.append({
             "run": d["run"], "sub": d["sub"],
             "vmm_source": d.get("vmm_source", "?"),
-            "trigger_vmm": d.get("trigger_vmm", 0),
-            "trigger_ch": d.get("trigger_ch", 44),
+            "trigger_vmm": d.get("trigger_vmm"),
+            "trigger_ch": d.get("trigger_ch"),
             "n_dream_events": d["n_dream_events"],
             "n_vmm_triggers": d["n_vmm_triggers"],
             "n_matched": d["n_matched"],
@@ -92,6 +95,12 @@ def rows_from(directory):
 
 def fmt(v, spec):
     return "" if v is None else format(v, spec)
+
+
+def chan(r):
+    if r["trigger_vmm"] is None:
+        return "-"
+    return f"{r['trigger_vmm']}:{r['trigger_ch']}"
 
 
 def main():
@@ -130,7 +139,7 @@ def main():
     for r in rows:
         lines.append(
             f"| {r['run']} | {r['sub']} | {r['vmm_source'][:5]} | "
-            f"{r['trigger_vmm']}:{r['trigger_ch']} | "
+            f"{chan(r)} | "
             f"{r['n_dream_events']} | {r['n_vmm_triggers']} | "
             f"{r['match_frac_dream']*100:.1f}% | "
             f"{r['vmm_unmatched_frac']*100:.1f}% | "
@@ -145,7 +154,7 @@ def main():
 
     n = len(rows)
     ok = [r for r in rows if r["status"] == "OK"]
-    bad = [r for r in rows if r["status"] == "FAIL"]
+    bad = [r for r in rows if r["status"] in ("FAIL", "NO-VMM")]
     ev = sum(r["n_dream_events"] for r in rows)
     mt = sum(r["n_matched"] for r in rows)
     print(f"\n{n} sub_runs: {len(ok)} OK, "
@@ -158,7 +167,7 @@ def main():
               "median clock drift "
               f"{st.median(r['drift_ppm'] for r in ok):+.2f} ppm")
     if bad:
-        print("FAILED: " + ", ".join(f"{r['run']}/{r['sub']}" for r in bad))
+        print("no lock: " + ", ".join(f"{r['run']}/{r['sub']}" for r in bad))
     print(f"wrote {os.path.abspath(args.csv)}"
           + (f" and {os.path.abspath(args.md)}" if args.md else ""))
 

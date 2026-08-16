@@ -49,6 +49,10 @@ def main():
     evt.collect(sub_dir, [], max_captures=args.scan_captures, counts=counts,
                 quiet=True)
     tot = int(counts.sum())
+    if tot == 0:
+        # run_25/driftscan_* are 272-byte captures: the VMM DAQ recorded
+        # nothing at all, which is a fact about the run, not a search failure
+        sys.exit(f"{args.run}/{args.sub}: the VMM captured no hits at all")
     order = np.argsort(counts.ravel())[::-1][:args.candidates]
     cands = [divmod(int(k), evt.N_CH) for k in order]
     print(f"{args.run}/{args.sub} [{src}] {tot} hits in "

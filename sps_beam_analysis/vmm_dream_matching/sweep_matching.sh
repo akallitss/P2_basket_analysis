@@ -99,8 +99,11 @@ frac_of() { python3 -c "import json;print(json.load(open('\$1'))['match_frac_dre
       python3 $CODE/find_trigger_channel.py "\$run" "\$sub" --out "\$trg" || {
           # no channel coincides with DREAM at all: keep the failed match as
           # the record of that, rather than leaving the sub_run to be retried
-          # by every future sweep
+          # by every future sweep. If there is no match either -- the VMM
+          # captures are empty -- record that instead.
           echo "--- no trigger channel found"
+          [ -f "\$json" ] || python3 $CODE/match_streams.py "\$run" "\$sub" \
+              --out "\$d" --allow-empty
           [ -f "\$json" ] && exit 0 || exit 4; }
       python3 $CODE/match_streams.py "\$run" "\$sub" --out "\$d" --tol-us 2 \
               --vmm-npz "\$trg" || exit 2
@@ -114,6 +117,8 @@ if [ \$rc -ne 0 ]; then
     exit \$rc
 fi
 for f in "\$d"/vmm_triggers_\$tag.npz "\$d"/match_\$tag.json "\$d"/match_\$tag.npz; do
+    # a sub_run the VMM never recorded has only the json
+    [ -f "\$f" ] || continue
     xrdcp -f -s "\$f" "$EOS_URL/$OUT/\$(basename \$f)" || {
         echo "UPLOAD-FAIL \$tag \$(basename \$f)"; exit 3; }
 done
