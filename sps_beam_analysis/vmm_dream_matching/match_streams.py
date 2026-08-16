@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Match the VMM trigger stream to the DREAM event stream for one sub_run.
 
-VMM side  : vmm/runs/<run>/<sub>/hits_store/<capture>/{vmm,ch,offset,bcid,tdc,
-            srs_timestamp}.npy  -> trigger-channel hits (VMM 0 ch 44),
+VMM side  : trigger-channel hits (VMM 0 ch 44) via extract_vmm_triggers --
+            the reduced hits_store columns where they exist, the raw pcapng
+            otherwise (identical results),
             t = srs_timestamp*22.5 + (offset*4096 + bcid)*22.5 + TDC fine.
             NOTE the SRS timestamp tick is 22.5 ns (44.44 MHz, same clock as
             the BCID counter), NOT the 25 ns that vmm_decode.derive assumes —
@@ -14,7 +15,9 @@ DREAM side: runs/<run>/<sub>/combined_hits_root/*.root ->
 Model: t_vmm = a * t_dream + b. a differs from 1 by only ~1 ppm but that
 still accumulates to many ms over a run; b contains a trigger-path latency
 of O(500 us) that is constant within a spill. Stages:
-  1. seed (a, b) from paired spill starts (robust nearest-start pairing)
+  1. first lock: try pairing the densest DREAM spill with every VMM spill and
+     keep the offset whose coincidence histogram spikes (spill-edge proximity
+     alone picks the wrong spill on some runs)
   2. walk spills in time order; per spill re-lock the lag with a residual-
      histogram scan around the previous spill's fit, then greedy nearest-
      neighbour match + robust linear refit at 20 us -> 5 us -> tol_us
@@ -26,49 +29,34 @@ Outputs a JSON summary + npz of matched pairs (eventId <-> t_vmm).
 import argparse, glob, json, os, sys
 import numpy as np
 
-BASE = "/eos/experiment/ntof/data/x17/p2_sps_july"
-CLOCK_PERIOD_NS = 22.5
-# The SRS timestamp ticks on the same 44.44 MHz clock as the BCID counter:
-# spill-period comparison against the DREAM 5-ns hardware clock gives
-# 25/22.500011 exactly (the decoder's abs_time_ns wrongly assumes 25 ns).
-SRS_TICK_NS = 22.5
-TAC_SLOPE_NS = 60.0
-TDC_RANGE = 255
-TRIG_VMM, TRIG_CH = 0, 44
-DEDUP_NS = 1500.0
+import extract_vmm_triggers as evt
+
+BASE = evt.BASE
 
 
-def load_vmm_triggers(run, sub):
-    store = f"{BASE}/vmm/runs/{run}/{sub}/hits_store"
-    caps = sorted(glob.glob(store + "/*/"))
-    if not caps:
-        sys.exit(f"no hits_store captures under {store}")
-    if not os.path.exists(caps[0] + "vmm.npy"):
-        sys.exit(f"hits_store at {store} has no hit columns (dropped at "
-                 "reduce time) — re-decode this run without --drop-columns")
-    ts = []
-    for cap in caps:
-        try:
-            vmm = np.load(cap + "vmm.npy")
-            ch = np.load(cap + "ch.npy")
-        except Exception as e:
-            print(f"  skip {os.path.basename(cap.rstrip('/'))}: {e}")
-            continue
-        m = (vmm == TRIG_VMM) & (ch == TRIG_CH)
-        if not m.any():
-            continue
-        off = np.load(cap + "offset.npy")[m].astype(np.float64)
-        bcid = np.load(cap + "bcid.npy")[m].astype(np.float64)
-        tdc = np.load(cap + "tdc.npy")[m].astype(np.float64)
-        srs = np.load(cap + "srs_timestamp.npy")[m].astype(np.float64)
-        t = (srs * SRS_TICK_NS + (off * 4096 + bcid) * CLOCK_PERIOD_NS
-             + (CLOCK_PERIOD_NS - tdc * TAC_SLOPE_NS / TDC_RANGE))
-        ts.append(t)
-    t = np.sort(np.concatenate(ts))
-    # dedup: a trigger pulse can fire several VMM samples; keep first of each burst
-    keep = np.ones(len(t), bool)
-    keep[1:] = np.diff(t) > DEDUP_NS
-    return t[keep], len(t)
+def load_vmm_triggers(run, sub, npz=None, source="auto"):
+    """Trigger times: from a pre-extracted npz, else straight from the data.
+
+    extract_vmm_triggers reads the reduced column store when it has the hit
+    columns and decodes the raw pcapng when it does not -- the two paths are
+    bit-identical (verified on run_32/meshscan_m00V), so no sub_run of the
+    campaign is out of reach.
+    """
+    if npz:
+        d = np.load(npz)
+        meta = json.loads(str(d["meta"]))
+        return d["t_ns"], meta["n_trigger_hits"], meta["source"]
+    sub_dir = f"{BASE}/vmm/runs/{run}/{sub}"
+    t, used, src = None, [], None
+    if source in ("auto", "store"):
+        t, used = evt.from_store(sub_dir)
+        src = "hits_store" if t is not None else None
+    if t is None and source in ("auto", "pcapng"):
+        t, used = evt.from_pcapng(sub_dir)
+        src = "pcapng" if t is not None else None
+    if t is None:
+        sys.exit(f"no VMM trigger hits for {run}/{sub} under {sub_dir}")
+    return evt.dedup(t), len(t), src
 
 
 def load_dream_triggers(run, sub):
@@ -106,48 +94,64 @@ def spill_starts(t, gap_s=2.0, min_n=1000):
     return t[s[keep]]
 
 
-def seed_from_spills(tv, td):
-    """Fit t_vmm = a * t_dream + b on paired spill starts.
+def residual_peak(tv, td_sample, lag, half, bin_ns):
+    """Peak of the pairwise-residual histogram of (tv - (td_sample + lag)).
 
-    The two DAQs run on different clock frequencies (SRS timestamp ticks are
-    22.5 ns, not the 25 ns the decoder's abs_time_ns assumes), so a is far
-    from 1 (~0.9). Pair spills by trying small index shifts and keeping the
-    pairing whose linear fit has the smallest residual.
+    Returns (peak_lag_ns, peak_height, background_mean). Batched, so the
+    window may be wide: at 1 us bins over +-0.6 s the true coincidences pile
+    into a single bin while the random background stays at
+    n_dream * n_vmm_in_window / n_bins.
+    """
+    nb = max(int(2 * half / bin_ns), 1)
+    hist = np.zeros(nb, np.int64)
+    lo = np.searchsorted(tv, td_sample + lag - half)
+    hi = np.searchsorted(tv, td_sample + lag + half)
+    for k in range(0, len(td_sample), 200):
+        sl = slice(k, k + 200)
+        parts = [tv[l:h] - (x + lag) for x, l, h
+                 in zip(td_sample[sl], lo[sl], hi[sl])]
+        if not parts:
+            continue
+        res = np.concatenate(parts)
+        if len(res):
+            hist += np.histogram(res, bins=nb, range=(-half, half))[0]
+    j = int(np.argmax(hist))
+    return lag + (j + 0.5) * bin_ns - half, int(hist[j]), float(hist.mean())
+
+
+def first_lock(tv, td, verbose=True):
+    """Find the absolute VMM-DREAM offset with no prior, by testing every
+    plausible spill pairing.
+
+    The spill-start linear seed is not reliable on its own: the first "spill"
+    of a stream is often just the DAQ start, and one bad point can pull the
+    fit onto a wrong spill pairing (run_57 was seeded 31 s away from the
+    truth). Coincidence is a much stronger discriminator than spill-edge
+    proximity, so pair one dense DREAM spill against each VMM spill in turn
+    and keep the offset whose residual histogram actually spikes.
     """
     sv, sd = spill_starts(tv), spill_starts(td)
-    # rough start: index-shift pairing on the first 20 spills only
+    g = np.where(np.diff(td) > 2e9)[0]
+    s = np.concatenate([[0], g + 1])
+    e = np.concatenate([g + 1, [len(td)]])
+    n = e - s
+    i = int(np.argmax(n))                     # the densest DREAM spill
+    tds = td[s[i]:e[i]]
+    step = max(1, len(tds) // 2000)
+    sample = tds[::step]
     best = None
-    for k in range(-4, 5):
-        i0, j0 = max(0, k), max(0, -k)
-        n = min(len(sv) - i0, len(sd) - j0, 20)
-        if n < 3:
-            continue
-        x, y = sd[j0:j0 + n], sv[i0:i0 + n]
-        A = np.polyfit(x, y, 1)
-        rms = float(np.std(y - np.polyval(A, x)))
-        if best is None or rms < best[0]:
-            best = (rms, A[0], A[1], k)
-    rms, a, b, k = best
-    # refine: nearest-start pairing under the current map, outlier-clipped,
-    # iterated — survives noise blips and spills missing on one side
-    n_used = 0
-    for _ in range(4):
-        pred = a * sd + b
-        idx = np.clip(np.searchsorted(sv, pred), 1, len(sv) - 1)
-        near = np.where(pred - sv[idx - 1] < sv[idx] - pred, idx - 1, idx)
-        res = sv[near] - pred
-        mad = 1.4826 * np.median(np.abs(res - np.median(res)))
-        keep = np.abs(res - np.median(res)) < max(3 * mad, 5e7)
-        if keep.sum() < 3:
-            break
-        A = np.polyfit(sd[keep], sv[near[keep]], 1)
-        a, b = A[0], A[1]
-        rms = float(np.std(sv[near[keep]] - np.polyval(A, sd[keep])))
-        n_used = int(keep.sum())
-    print(f"[spill seed] {len(sv)} vmm / {len(sd)} dream spills, shift {k}, "
-          f"{n_used} paired after clip: a = {a:.9f}, "
-          f"spill-start residual rms {rms/1e3:.1f} us")
-    return a, b
+    for lag in sv - tds[0]:
+        pk_lag, pk, mu = residual_peak(tv, sample, lag, 0.6e9, 1e3)
+        sig = (pk - mu) / max(np.sqrt(max(mu, 1.0)), 1.0)
+        if best is None or sig > best[0]:
+            best = (sig, pk_lag, pk, mu)
+    sig, lag, pk, mu = best
+    if verbose:
+        print(f"[first lock] {len(sv)} vmm / {len(sd)} dream spills; densest "
+              f"dream spill {i} ({len(tds)} ev, {len(sample)} sampled): "
+              f"offset {lag/1e9:+.6f} s, peak {pk} vs background {mu:.1f} "
+              f"({sig:.0f} sigma)")
+    return 1.0, lag, sig
 
 
 def lag_scan(tv, td, a, b, half=5e6, bin_ns=1000.0, sample=20, quiet=False):
@@ -211,12 +215,17 @@ def main():
     ap.add_argument("--out", default=".")
     ap.add_argument("--tol-us", type=float, default=50.0,
                     help="match tolerance for the final pass")
+    ap.add_argument("--vmm-npz", default=None,
+                    help="pre-extracted trigger times (extract_vmm_triggers)")
+    ap.add_argument("--vmm-source", choices=["auto", "store", "pcapng"],
+                    default="auto")
     args = ap.parse_args()
 
     print(f"[vmm] loading triggers {args.run}/{args.sub}")
-    tv, n_raw = load_vmm_triggers(args.run, args.sub)
-    print(f"  {n_raw} trigger hits -> {len(tv)} dedup'd triggers, "
-          f"span {(tv[-1]-tv[0])/1e9:.1f} s")
+    tv, n_raw, vmm_source = load_vmm_triggers(args.run, args.sub,
+                                              args.vmm_npz, args.vmm_source)
+    print(f"  {n_raw} trigger hits -> {len(tv)} dedup'd triggers "
+          f"[{vmm_source}], span {(tv[-1]-tv[0])/1e9:.1f} s")
 
     print("[dream] loading events")
     eid, td = load_dream_triggers(args.run, args.sub)
@@ -224,10 +233,10 @@ def main():
           f"t range [{td[0]:.0f}, {td[-1]:.0f}] ns")
     print(f"  vmm t range [{tv[0]:.3e}, {tv[-1]:.3e}] ns")
 
-    # seed a (clock ratio) + b from spill-start pairing. The seed is only
-    # good to O(10 ppm) / O(ms); the per-spill sequential tracker below does
-    # the real locking.
-    a, b = seed_from_spills(tv, td)
+    # absolute offset from the best spill pairing, judged by coincidence.
+    # Good to O(us) at the spill it locked on; the per-spill tracker below
+    # picks up the clock drift from there.
+    a, b, lock_sigma = first_lock(tv, td)
 
     # ---- per-spill sequential tracking: within a spill the clock relation
     # is linear to ~10 ns, but the seed's a-error accumulates to many ms over
@@ -273,40 +282,51 @@ def main():
             b_minus_global_us=float((b_s - b) / 1e3),
             res_med_ns=float(np.median(rr[m])) if m.any() else None,
             res_rms_ns=float(np.std(rr[m])) if m.any() else None))
-    fr = [sp["frac"] for sp in spills]
-    print(f"[per-spill] {len(spills)} spills refit: match frac "
-          f"min {min(fr):.3f} med {np.median(fr):.3f} max {max(fr):.3f}; "
-          f"residual rms med "
-          f"{np.median([sp['res_rms_ns'] for sp in spills]):.1f} ns")
+    if spills:
+        fr = [sp["frac"] for sp in spills]
+        print(f"[per-spill] {len(spills)} spills refit: match frac "
+              f"min {min(fr):.3f} med {np.median(fr):.3f} max {max(fr):.3f}; "
+              f"residual rms med "
+              f"{np.median([sp['res_rms_ns'] for sp in spills]):.1f} ns")
+    else:
+        print("[per-spill] NO spill locked — streams look mutually incoherent")
 
     # how many VMM triggers went unmatched (expected: DREAM busy veto)
     used = np.zeros(len(tv), bool)
     used[j[ok]] = True
+    a_med = (float(np.median([sp["a_spill"] for sp in spills])) if spills
+             else float("nan"))
     summary = dict(
-        run=args.run, sub=args.sub,
+        run=args.run, sub=args.sub, vmm_source=vmm_source,
         n_vmm_trig_hits=int(n_raw), n_vmm_triggers=int(len(tv)),
         n_dream_events=int(len(td)),
         n_matched=int(ok.sum()),
         match_frac_dream=float(ok.sum() / len(td)),
         vmm_unmatched=int((~used).sum()),
         vmm_unmatched_frac=float((~used).mean()),
-        clock_ratio_a=float(np.median([sp["a_spill"] for sp in spills])),
-        drift_ppm=float((np.median([sp["a_spill"] for sp in spills]) - 1)
-                        * 1e6),
-        offset_seed_ns=float(b),
-        residual_rms_ns=float(np.std(r[ok])),
-        residual_med_ns=float(np.median(r[ok])),
+        clock_ratio_a=a_med,
+        drift_ppm=(a_med - 1) * 1e6,
+        offset_seed_ns=float(b), lock_sigma=float(lock_sigma),
+        residual_rms_ns=float(np.std(r[ok])) if ok.any() else None,
+        residual_med_ns=float(np.median(r[ok])) if ok.any() else None,
         n_spills=len(spills), spills=spills)
 
     os.makedirs(args.out, exist_ok=True)
     tag = f"{args.run}_{args.sub}"
     with open(f"{args.out}/match_{tag}.json", "w") as f:
         json.dump(summary, f, indent=1)
+    # One row per DREAM event, matched or not (the unmatched ones are the
+    # denominator of any efficiency built on this), plus which VMM triggers
+    # were consumed. The VMM trigger times themselves live in the companion
+    # vmm_triggers_<tag>.npz, indexed by vmm_index -- no need to duplicate
+    # them here.
+    vmm_index = np.where(ok, j, -1).astype(np.int64)
     np.savez_compressed(
         f"{args.out}/match_{tag}.npz",
-        event_id=eid[ok], t_dream_ns=td[ok], t_vmm_ns=tv[j[ok]],
-        residual_ns=r[ok], a=a, b=b,
-        tv_all=tv, td_all=td, matched_mask=ok, vmm_used=used)
+        event_id=eid, t_dream_ns=td, matched=ok, vmm_index=vmm_index,
+        t_vmm_ns=np.where(ok, tv[j], np.nan),
+        residual_ns=r.astype(np.float32),
+        vmm_used=used, n_vmm_triggers=len(tv), a_seed=a, b_seed=b)
     print(json.dumps({k: v for k, v in summary.items() if k != "spills"},
                      indent=1))
     print(f"wrote {args.out}/match_{tag}.json + .npz")
