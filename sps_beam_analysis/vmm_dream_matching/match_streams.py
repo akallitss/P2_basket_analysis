@@ -120,7 +120,8 @@ def residual_peak(tv, td_sample, lag, half, bin_ns):
     return lag + (j + 0.5) * bin_ns - half, int(hist[j]), float(hist.mean())
 
 
-def first_lock(tv, td, verbose=True, max_lag_ns=60e9, min_sigma=25.0):
+def first_lock(tv, td, verbose=True, max_lag_ns=120e9, min_sigma=25.0,
+               pair_budget=2e7):
     """Find the absolute VMM-DREAM offset with no prior, by testing every
     plausible spill pairing.
 
@@ -138,13 +139,21 @@ def first_lock(tv, td, verbose=True, max_lag_ns=60e9, min_sigma=25.0):
     n = e - s
     i = int(np.argmax(n))                     # the densest DREAM spill
     tds = td[s[i]:e[i]]
-    step = max(1, len(tds) // 2000)
+    # Cost per candidate is n_sample x (VMM triggers inside the +-0.6 s
+    # window), and a junk trigger line can run at 200 kHz -- 100x a real one.
+    # Scale the sample to keep that product bounded; 200 points still put a
+    # true peak far above the background.
+    half = 0.6e9
+    rate = len(tv) / max(tv[-1] - tv[0], 1.0)         # triggers per ns
+    n_sample = int(np.clip(pair_budget / max(2 * half * rate, 1.0),
+                           200, 2000))
+    step = max(1, len(tds) // n_sample)
     sample = tds[::step]
 
     def scan(lags):
         best = None
         for lag in lags:
-            pk_lag, pk, mu = residual_peak(tv, sample, lag, 0.6e9, 1e3)
+            pk_lag, pk, mu = residual_peak(tv, sample, lag, half, 1e3)
             s = (pk - mu) / max(np.sqrt(max(mu, 1.0)), 1.0)
             if best is None or s > best[0]:
                 best = (s, pk_lag, pk, mu)
@@ -156,7 +165,12 @@ def first_lock(tv, td, verbose=True, max_lag_ns=60e9, min_sigma=25.0):
     all_lags = sv - tds[0]
     near = all_lags[np.abs(all_lags) < max_lag_ns]
     best = scan(near) if len(near) else None
-    if (best is None or best[0] < min_sigma) and len(all_lags) > len(near):
+    # the full fallback is for the case where the DAQs were started minutes
+    # apart, which has not been seen (offsets measured so far: 0.8-6.4 s).
+    # On a long run it is 200+ candidates, so only pay for it when the run is
+    # short enough that it is cheap.
+    if ((best is None or best[0] < min_sigma) and len(all_lags) > len(near)
+            and len(all_lags) <= 40):
         cand = [b for b in (best, scan(all_lags)) if b is not None]
         best = max(cand, key=lambda b: b[0]) if cand else None
     if best is None:

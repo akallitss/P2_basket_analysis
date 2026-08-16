@@ -33,6 +33,9 @@ def main():
     ap.add_argument("--candidates", type=int, default=6)
     ap.add_argument("--scan-captures", type=int, default=2,
                     help="captures used to rank channels by occupancy")
+    ap.add_argument("--search-captures", type=int, default=24,
+                    help="captures used to test the candidates; the winner "
+                         "is then re-read over the whole sub_run")
     ap.add_argument("--min-sigma", type=float, default=25.0)
     args = ap.parse_args()
 
@@ -53,10 +56,18 @@ def main():
           + ", ".join(f"vmm{v}ch{c} ({100*counts[v, c]/max(tot,1):.1f}%)"
                       for v, c in cands))
 
-    # pass 2: their times over the whole sub_run, then ask DREAM
-    times, used = evt.collect(sub_dir, cands, quiet=True)
+    # pass 2: their times over the first captures -- enough to tell a trigger
+    # channel from anything else, and the whole sub_run is only worth reading
+    # again for the winner (nothing at all when there is no winner)
+    times, _ = evt.collect(sub_dir, cands, max_captures=args.search_captures,
+                           quiet=True)
     eid, td = ms.load_dream_triggers(args.run, args.sub)
-    print(f"dream: {len(td)} events over {(td[-1]-td[0])/1e9:.1f} s")
+    span = [min(t.min() for t in times.values() if len(t)),
+            max(t.max() for t in times.values() if len(t))]
+    # the DAQs start together, so a 120 s margin on the VMM window is ample
+    td = td[(td > span[0] - 120e9) & (td < span[1] + 120e9)]
+    print(f"dream: {len(td)} events over {(td[-1]-td[0])/1e9:.1f} s "
+          f"within the searched VMM window")
 
     ranked = []
     for (v, c) in cands:
@@ -80,9 +91,10 @@ def main():
     print(f"=> vmm {v} ch {c} at {sig:.1f} sigma  [{verdict}]")
 
     if args.out and sig >= args.min_sigma:
-        t = evt.dedup(times[(v, c)])
-        meta = evt.write_npz(args.out, t, args.run, args.sub, src, used,
-                             v, c, len(times[(v, c)]))
+        full, used = evt.collect(sub_dir, [(v, c)], quiet=True)
+        raw = full[(v, c)]
+        meta = evt.write_npz(args.out, evt.dedup(raw), args.run, args.sub,
+                             src, used, v, c, len(raw))
         print(json.dumps({k: x for k, x in meta.items() if k != "captures"},
                          indent=1))
         print(f"wrote {args.out}")
