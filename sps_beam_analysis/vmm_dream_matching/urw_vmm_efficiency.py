@@ -53,6 +53,9 @@ import vmm_stations as VS                 # noqa: E402
 
 BASE = evt.BASE
 STATIONS = VS.STATIONS
+# A single pad in the core of this beam takes a few kHz. Anything two decades
+# above that is not the detector responding -- see the note in station_hits.
+MAX_CHANNEL_HZ = 20000.0
 
 
 # --------------------------------------------------------------------------- #
@@ -72,7 +75,7 @@ def load_match(run, sub, match_dir):
 
 
 def station_hits(sub_dir, station, t_want, pre_ns, post_ns, source="auto",
-                 max_captures=None, quiet=True):
+                 max_captures=None, quiet=True, max_hz=MAX_CHANNEL_HZ):
     """VMM hits of one station that land near one of the times in `t_want`.
 
     Streams the captures and throws away, per chunk, everything that is not
@@ -93,9 +96,15 @@ def station_hits(sub_dir, station, t_want, pre_ns, post_ns, source="auto",
                         np.clip(cols["ch"][sel], 0, 63)), 1)
         t = evt.hit_times(cols, sel)
         if len(t):
-            lo_hi = span.setdefault(_name, [t.min(), t.max()])
-            lo_hi[0] = min(lo_hi[0], float(t.min()))
-            lo_hi[1] = max(lo_hi[1], float(t.max()))
+            # quantiles, not min/max: a handful of hits per capture carry
+            # srs_timestamp = 0, and taking the minimum stretched every
+            # capture's span back to t = 0. Unioned, that made
+            # covered_by_captures accept everything -- the cut silently did
+            # nothing -- and made the live time come out 25x too long.
+            q0, q1 = np.quantile(t, [0.002, 0.998])
+            lo_hi = span.setdefault(_name, [float(q0), float(q1)])
+            lo_hi[0] = min(lo_hi[0], float(q0))
+            lo_hi[1] = max(lo_hi[1], float(q1))
         # nearest wanted time, then the window cut
         k = np.searchsorted(t_want, t)
         k = np.clip(k, 1, len(t_want) - 1)
@@ -122,22 +131,67 @@ def station_hits(sub_dir, station, t_want, pre_ns, post_ns, source="auto",
         "vmm": np.concatenate(vv).astype(np.int16),
         "ch": np.concatenate(cc).astype(np.int16),
         "adc": np.concatenate(aa).astype(np.int32)})
-    # Hot channels are not optional here. VMM 5 (P2_IN) carries 93% of that
-    # station's hits in run_32; left in, its pad wins the leading-cluster vote
-    # in most events and drags the centroid, which is exactly what poisoned
-    # the cosmic-bench det3 analysis. Mask on the WHOLE-capture occupancy, not
-    # on the near-trigger subset, so the beam spot cannot flag itself.
-    mask = VS.merge_masks(VS.NOISY_CHANNELS, _hot_from_occupancy(occ, vmms))
+    # Hot channels have to be flagged on an ABSOLUTE rate, not on a ratio to
+    # their own chip's median.
+    #
+    # The ratio test (the original: 8x the chip's median occupancy) flags the
+    # beam spot on any chip whose threshold has been raised. VMM 9 of P2_MID
+    # sits at sdt 256, which suppresses its noise; its median channel then
+    # collapses, its illuminated pads stand 30-50x above it, and they get
+    # masked. That threw away 64,630 hits arriving exactly at the +115 ns
+    # trigger latency -- 7.7 points of P2_MID efficiency (0.5916 -> 0.6688),
+    # deleted as noise. Flagging on the out-of-time occupancy does not fix it
+    # either: the beam delivers particles at tens of kHz while the matched
+    # trigger runs at ~1.4 kHz, so most of a beam pad's hits are out of time
+    # with a matched trigger and it stays flagged.
+    #
+    # An absolute rate does separate them cleanly. A 12 x 12 mm pad in the
+    # core of this beam takes a few kHz at most; the pathological channels are
+    # at 10^5 Hz (VMM 4 ch 39 at 460 kHz, VMM 19 ch 20 at 116 kHz in run_46).
+    # There are two decades of clear air between the two populations.
+    #
+    # And masking matters far less here than it did for the centroid analyses
+    # this inherited the machinery from: the efficiency asks whether ANY pad
+    # within probe_r fired, so a hot channel costs accidentals, and those are
+    # measured in the sideband -- 5e-4 on P2_OUT with 131 kHz of noise left in.
+    # Where a wrong mask costs 7.7 points and a missing one costs 0.05, the
+    # cut belongs on the safe side.
+    # wall clock of the sub_run, from the triggers themselves -- summing the
+    # capture spans double-counts wherever two captures overlap
+    dur = float(t_want[-1] - t_want[0]) / 1e9 if len(t_want) > 1 else 0.0
+    mask = VS.merge_masks(VS.NOISY_CHANNELS,
+                          _hot_from_rate(occ, vmms, dur, max_hz))
     h, n_drop = VS.apply_channel_mask(h, mask)
     return h.reset_index(drop=True), {"mask": {int(k): v for k, v in
                                                mask.items()},
                                       "n_masked_hits": int(n_drop),
+                                      "mask_by_ratio_would_have_been": {
+                                          int(k): v for k, v in
+                                          _hot_from_occupancy(occ,
+                                                              vmms).items()},
+                                      "live_seconds": dur,
                                       "coverage": cov,
                                       "n_captures": len(cov)}
 
 
+def _hot_from_rate(occ, vmms, seconds, max_hz=MAX_CHANNEL_HZ):
+    """{vmm: [ch]} for channels whose rate is beyond anything the beam can do."""
+    if seconds <= 0:
+        return {}
+    found = {}
+    for v in vmms:
+        hot = np.flatnonzero(occ[v] / seconds > max_hz)
+        if hot.size:
+            found[int(v)] = [int(x) for x in hot]
+    return found
+
+
 def _hot_from_occupancy(occ, vmms, ratio=VS.HOT_RATIO, min_hits=200):
-    """{vmm: [ch]} for channels far above their own VMM's median occupancy."""
+    """{vmm: [ch]} for channels far above their own VMM's median occupancy.
+
+    Kept only to record, in the summary, what the old ratio rule would have
+    masked -- see the note in station_hits for why it is not used.
+    """
     found = {}
     for v in vmms:
         c = occ[v].astype(float)
