@@ -78,14 +78,34 @@ tag=\${run}_\${sub}
 d=$WORK/\$tag
 mkdir -p "\$d"
 log=\$d/log.txt
+trg=\$d/vmm_triggers_\$tag.npz
+json=\$d/match_\$tag.json
+frac_of() { python3 -c "import json;print(json.load(open('\$1'))['match_frac_dream'])" 2>/dev/null || echo 0; }
 # a subshell, so a failing stage leaves only the subshell and this script can
 # still report which sub_run died and why
 (
   echo "=== \$tag  \$(date -u +%H:%M:%S)"
-  python3 $CODE/extract_vmm_triggers.py "\$run" "\$sub" \
-          --out "\$d/vmm_triggers_\$tag.npz" || exit 1
-  python3 $CODE/match_streams.py "\$run" "\$sub" --out "\$d" --tol-us 2 \
-          --vmm-npz "\$d/vmm_triggers_\$tag.npz" || exit 2
+  # the usual path: the trigger fan-out on VMM 0 ch 44
+  if python3 $CODE/extract_vmm_triggers.py "\$run" "\$sub" --out "\$trg"; then
+      python3 $CODE/match_streams.py "\$run" "\$sub" --out "\$d" --tol-us 2 \
+              --vmm-npz "\$trg" || exit 2
+  fi
+  # ... but the cabling is not the same all campaign long (run_25 has no hits
+  # on that channel at all), so when the default channel gives no usable lock,
+  # go and find which channel the trigger is really on and match again.
+  f=\$(frac_of "\$json")
+  if python3 -c "import sys;sys.exit(0 if \$f < 0.5 else 1)"; then
+      echo "--- default channel gave frac=\$f, searching for the trigger channel"
+      python3 $CODE/find_trigger_channel.py "\$run" "\$sub" --out "\$trg" || {
+          # no channel coincides with DREAM at all: keep the failed match as
+          # the record of that, rather than leaving the sub_run to be retried
+          # by every future sweep
+          echo "--- no trigger channel found"
+          [ -f "\$json" ] && exit 0 || exit 4; }
+      python3 $CODE/match_streams.py "\$run" "\$sub" --out "\$d" --tol-us 2 \
+              --vmm-npz "\$trg" || exit 2
+  fi
+  [ -f "\$json" ] || exit 1
 ) > "\$log" 2>&1
 rc=\$?
 if [ \$rc -ne 0 ]; then
