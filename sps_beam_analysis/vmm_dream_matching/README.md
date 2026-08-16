@@ -95,6 +95,25 @@ single match npz is tens of MB, so nothing of size may land there.
 `matching_table.csv` (+ a markdown table) — see `MATCHING_TABLE.md` for the
 committed result.
 
+## What the matching unlocks
+
+**`urw_vmm_efficiency.py`** measures each VMM-read station against uRWELL
+tracks — the measurement the campaign could not make before, because the
+DREAM DAQ kept only the uRWELL references while the stations were on the VMM.
+`sweep_efficiency.sh` runs it over every matched sub_run, `tabulate_efficiency.py`
+collects the results, and `EFFICIENCY_TABLE.md` is the committed answer:
+**85% on P2_OUT at the best VMM configuration, against 96–97% for the same
+detectors on the DREAM readout**, with the mesh scans still on their rising
+edge at the highest HV used.
+
+**`build_qa_data.py` + `embed_qa_page.py`** feed the campaign QA page on the
+website (`cern-site/notes/2026-08-16-sps-qa.html`): runs, processing state,
+the matching spill by spill with the reason each unmatched spill failed, and
+the efficiency. Rebuild with
+
+    python3 build_qa_data.py --out sps_qa_data.json          # on lxplus
+    python3 embed_qa_page.py sps_qa_data.json <page>.html    # then deploy
+
 ## Result
 
 **110 sub_runs: 77 OK, 1 partial, 32 without a lock** — see
