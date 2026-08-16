@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P2 @ SPS H4 — full preliminary analysis for MPGD26</title>
+<style>
+  :root {
+    --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --grid: #d9d8d4;
+    --in: #2a78d6; --mid: #eb6834; --out: #1baf7a; --vio: #4a3aa7;
+    --warn-bg: #fdf3e7; --note-bg: #eef3fa; --ok-bg: #ecf6ef;
+  }
+  html { scroll-behavior: smooth; }
+  body { background: var(--surface); color: var(--ink);
+         font: 16px/1.55 "Segoe UI", system-ui, sans-serif;
+         margin: 0; }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 24px 28px 80px; }
+  h1 { font-size: 1.9em; line-height: 1.2; margin: 0.4em 0 0.2em; }
+  h2 { font-size: 1.45em; border-bottom: 2px solid var(--grid);
+       padding-bottom: 6px; margin-top: 2.2em; }
+  h3 { font-size: 1.12em; margin-top: 1.6em; }
+  .sub { color: var(--ink2); font-size: 1.02em; }
+  figure { margin: 22px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--grid);
+               border-radius: 6px; }
+  figcaption { color: var(--ink2); font-size: 0.9em; margin-top: 7px; }
+  table { border-collapse: collapse; margin: 14px 0; font-size: 0.92em; }
+  .tablewrap { overflow-x: auto; }
+  th, td { border: 1px solid var(--grid); padding: 5px 10px; text-align: right; }
+  th { background: #f2f1ee; text-align: center; }
+  td:first-child, th:first-child { text-align: left; }
+  .note, .warn, .ok { border-radius: 8px; padding: 12px 16px; margin: 16px 0;
+                      font-size: 0.95em; }
+  .note { background: var(--note-bg); }
+  .warn { background: var(--warn-bg); }
+  .ok  { background: var(--ok-bg); }
+  code { background: #f2f1ee; padding: 1px 5px; border-radius: 4px;
+         font-size: 0.88em; }
+  .din { color: var(--in); font-weight: 600; }
+  .dmid { color: var(--mid); font-weight: 600; }
+  .dout { color: var(--out); font-weight: 600; }
+  .toc { background: #f6f5f2; border-radius: 8px; padding: 14px 22px; }
+  .toc a { color: var(--ink); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .toc ol { margin: 6px 0; }
+  .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 800px) { .twocol { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>P2 telescope at the SPS H4 beam — full preliminary analysis</h1>
+<p class="sub">Prepared for MPGD26 (talk 4 Sep 2026). Campaign
+TB_July2026_H4, 23 Jul – 3 Aug 2026. Analysis pass of 15–16 Aug 2026 run
+end-to-end from the consolidated nTOF EOS copy
+(<code>/eos/experiment/ntof/data/x17/p2_sps_july</code>) on lxplus HTCondor.
+All figures regenerated tonight; every number traceable to a CSV/JSON under
+<code>data/</code> or the EOS analysis tree.</p>
+
+<div class="toc">
+<b>Contents</b>
+<ol>
+<li><a href="#summary">Executive summary and headline numbers</a></li>
+<li><a href="#campaign">The campaign: setup, runs, detectors, gases</a></li>
+<li><a href="#method">Method: the uRWELL-referenced absolute measurement</a></li>
+<li><a href="#efficiency">Efficiency: scans, 2D map, methods</a></li>
+<li><a href="#loss">Where the efficiency goes — the loss budget</a></li>
+<li><a href="#stability">Stability in time: charging-up, sparks, HV</a></li>
+<li><a href="#timing">Time resolution: scans, corrections, 2D surface</a></li>
+<li><a href="#gas">The gas change: measurement vs Magboltz</a></li>
+<li><a href="#vmm">The VMM arm: config scan, gas A/B, DREAM comparison</a></li>
+<li><a href="#detectors">Detector-by-detector verdicts</a></li>
+<li><a href="#quality">Data-quality register and open anomalies</a></li>
+<li><a href="#options">Options for the conference talk</a></li>
+<li><a href="#repro">Reproducibility: where everything lives</a></li>
+</ol>
+</div>
+
+<h2 id="summary">1. Executive summary</h2>
+<ul>
+<li><b>Absolute efficiency 96–97 %</b> per station at the working point
+(mesh 450 V / drift 700 V), measured against 1.15 M independent uRWELL
+tracks per station, with a ~0.3 % systematic. The residual inefficiency is
+~83 % "no response at all" (a uniform gain/threshold floor), not
+reconstruction losses.</li>
+<li><b>The efficiency breathes with beam exposure.</b> New tonight: binning
+inside sub-runs shows P2_MID/P2_OUT decay by 1–2.5 points with a ~30–40 min
+time constant after every beam-on and reset during pauses — charging-up
+dynamics, not a rate artefact. P2_IN is flat. Quote the settled values
+(≈96 % MID, ≈95 % OUT) or state the band.</li>
+<li><b>Time resolution 15.5 (MID) / 18.4 (OUT) / 22.4 (IN) ns</b> per
+station at the working point after clock-phase + walk corrections — the
+20 ns P2 goal is met on two of three stations. The drift-voltage optimum
+(750–800 V) is confirmed; the working point sits within 0.5 ns of it.</li>
+<li><b>Timing vs drift voltage matches Magboltz</b> once a fitted 13.2 ns
+non-gas floor is added. The same model says the new
+Ar/CF<sub>4</sub>/iC<sub>4</sub>H<sub>10</sub> 88/10/2 gas
+makes the gas term negligible (3.3 ns): the next campaign will be
+electronics/walk-limited (~13–14 ns) rather than gas-limited.</li>
+<li><b>The gas change is observed in data.</b> The VMM arm took the same
+mesh and drift scans on both gases: the turn-on shifts by ≈ +20–25 V and
+the drift-latency handle shortens, both in the direction and rough size
+Magboltz predicts. The changeover is pinned to the run_60 overnight
+(P2 HV off, 1→2 Aug) — and the wrong gas labels in 136 run configs on EOS
+were corrected tonight.</li>
+<li><b>The CERN-made detector story inverted:</b> the CERN bulk chamber was
+the <i>original</i> P2_IN (23–27 Jul; repaired 26 Jul, pulled 27 Jul after
+visible decline), replaced on 28 Jul by a new metallic-mesh Micromegas that
+reaches 93 % at mesh 450 with a turn-on ~10–15 V above the CERN one.</li>
+<li><b>One localized hardware defect found:</b> P2_IN connector 11 reads
+~0.72 efficiency in-beam (and connector 14 is dead on the fringe) —
+worth a cabling/FEU check before the next installation. P2_OUT is the weak
+station overall: ~1 point lower, per-pad distribution 4 points lower, 69
+sparks (vs 15/12) and ~4 % spark dead-time in July.</li>
+</ul>
+
+<h2 id="campaign">2. The campaign</h2>
+<p>Five-plane setup on the H4 muon beam: two EIC uRWELL reference trackers
+(z = 0 / 1370 mm, DREAM FEU 1) around three P2 BASKET pad Micromegas —
+<span class="din">P2_IN</span> (z = 320 mm),
+<span class="dmid">P2_MID</span> (z = 630 mm),
+<span class="dout">P2_OUT</span> (z = 940 mm) — external
+scintillator/TCM trigger, DREAM readout with 16 × 60 ns waveforms. From
+1 Aug the nTOF group's MX17 chamber ("Detector E") sat at z = 1155 mm.</p>
+<p>The campaign has <b>two phases with two readouts</b>:</p>
+<div class="tablewrap"><table>
+<tr><th>phase</th><th>dates</th><th>runs</th><th>P2 readout</th><th>content</th></tr>
+<tr><td>DREAM telescope</td><td>23–29 Jul</td><td>23 named runs</td>
+<td>DREAM (waveforms)</td>
+<td>commissioning, latency scan, mesh scans (330–450 V), drift scans
+(450–900 V), two 7×7 2D (mesh, drift) grids, high-stat efficiency runs,
+transparency extension, P2_IN chamber swap + re-commissioning</td></tr>
+<tr><td>VMM campaign</td><td>30 Jul – 3 Aug</td><td>run_21…72</td>
+<td><b>VMM3a/SRS</b> (pads recabled)</td>
+<td>VMM config scan (gain 3.0/4.5 mV/fC × peaking 25/50/100/200 ns),
+mesh + drift scans on VMM, long "operating" runs — repeated on
+<b>both gases</b>; DREAM keeps the uRWELLs (+ MX17) alive as reference</td></tr>
+</table></div>
+<div class="warn"><b>Bookkeeping trap found tonight:</b> the DREAM and VMM
+DAQs number their runs independently and drift apart after run_58 (there is
+no VMM run_60; VMM run_61 starts 15:23, DREAM run_61 16:06). VMM data must
+be labelled from <code>vmm/runs/&lt;run&gt;/run_config.json</code>, never
+from the DREAM configs. All VMM results below do so.</div>
+<figure>
+<img src="figs/hv_campaign_timeline.png" alt="campaign HV timeline">
+<figcaption><b>The campaign at a glance.</b> Mesh voltage readback (top) and
+30 s maximum mesh current (bottom) for all three stations over the 12 days.
+The staircases are the HV scans; the shaded window is the gas exchange
+(P2 HV off overnight 1→2 Aug); the P2_IN chamber swap on 28 Jul is marked.
+</figcaption></figure>
+<h3>2.1 Gas bookkeeping — fixed tonight</h3>
+<p>Every DAQ config recorded <code>gas: "Ar/Iso 95/5"</code> for the whole
+campaign. The bottle actually flowing until 1 Aug was
+<b>Ar/CO<sub>2</sub>/iC<sub>4</sub>H<sub>10</sub> 93/5/2</b>; after the
+overnight exchange it was
+<b>Ar/CF<sub>4</sub>/iC<sub>4</sub>H<sub>10</sub> 88/10/2</b> (the mixture
+selected by the 1 Aug Magboltz study). The changeover is confirmed in data
+by the VMM turn-on shift and drift-latency drop (§8). Tonight the
+<code>gas</code> field of all 136 pre-changeover configs on EOS (runs,
+runs_meta and vmm trees, ≤ run_58) was corrected in place with an
+explanatory <code>gas_note</code>; the post-changeover runs (run_59+) are
+left for confirmation before being relabelled
+Ar/CF<sub>4</sub>/iC<sub>4</sub>H<sub>10</sub> 88/10/2.</p>
+<h3>2.2 Which chamber is the CERN one?</h3>
+<p>The EOS logbook (2026-07-28) settles it: <b>P2_IN was the CERN bulk
+chamber from first beam to 27 Jul 15:00</b> — repaired on 26 Jul (8:1
+channel), pulled after its amplitude declined through
+<code>eff_nominal_1</code> — and replaced on 28 Jul by a <b>new
+metallic-mesh Micromegas</b>, commissioned from scratch that morning
+(<code>p2in_hvrange_1/2</code>). Both chambers therefore have full
+efficiency curves (§4.4), and the entire VMM campaign ran with the
+metallic-mesh chamber.</p>
+
+<h2 id="method">3. Method: absolute efficiency against uRWELL tracks</h2>
+<p>The workhorse measurement is <code>urw_reference</code>: two-point tracks
+from the front/back uRWELLs (residual spread ≤ 0.66 mm, no rotation,
+divergence understood as a virtual source ~40 m upstream), projected to each
+P2 plane through a fitted affine frame (rotation −59.7° to −60.0°,
+shear &lt; 0.0013). Denominator hygiene: triggers the probe FEU never
+recorded (from <code>recorded_events.npz</code>), HV-settle and spark-veto
+windows are removed <i>by time</i>, and tracks must fall in the pad fiducial
+(9 mm). Efficiency = a P2 cluster within 15 mm; the probe-radius scan
+plateaus by 10 mm with an accidental slope of only 7×10<sup>-4</sup> per
+10 mm — read the result as <b>±0.3 % systematic</b>.</p>
+<figure>
+<img src="figs/urw_panels_P2_MID.png" alt="uRWELL reference panels P2_MID">
+<figcaption><b>The measurement in one picture</b> (P2_MID, working point):
+track projections, matched clusters, the 2D residual (3.4 mm rms per axis
+= 12 mm/√12 — clean binary pad response, no charge sharing), per-pad maps
+in both the P2 and uRWELL frames, and the efficiency-vs-probe-radius
+systematic scan.</figcaption></figure>
+<p>Spatial resolution: <b>3.37–3.39 mm (x), 3.44–3.47 mm (y)</b> rms on all
+three stations — exactly the 12 mm/√12 binary-readout limit. Cluster size
+1.05–1.08 pads. A cross-check with deliberately mis-set mapping moves the
+efficiency to 60 % — "if efficiency reads far below 90 %, suspect the
+mapping before the detector".</p>
+
+<h2 id="efficiency">4. Efficiency</h2>
+<h3>4.1 Versus mesh voltage</h3>
+<figure>
+<img src="figs/eff_vs_mesh_urw.png" alt="efficiency vs mesh">
+<figcaption>Absolute efficiency vs mesh HV (<code>drift_mesh_scan_1</code>,
+25 Jul, drift field held constant per station). MID 0.81→0.96 and OUT
+0.86→0.95 over 390→445 V; the CERN-era P2_IN 0.31→0.90 over 370→425 V.
+<b>No station reaches a plateau by the HV ceiling</b> — the working point
+sits at the top of the scanned range.</figcaption></figure>
+<h3>4.2 Versus drift voltage</h3>
+<figure>
+<img src="figs/eff_vs_drift_urw.png" alt="efficiency vs drift">
+<figcaption>Absolute efficiency vs drift HV at mesh 450. The 450 V point is
+zero drift field (prompt conversions only, ~16 %); the curve rises to 0.90
+by 500 V and flattens above ~850 V near 0.97. The separate
+<code>drift_transparency_1</code> run (mesh 390) extended the range to
+gap 510 V: occupancy falls only 2–3 % with no turnover knee, so the
+transparency plateau extends past the HV ceiling.</figcaption></figure>
+<h3>4.3 Three methods, one answer</h3>
+<figure>
+<img src="figs/eff_methods_comparison.png" alt="methods comparison">
+<figcaption>uRWELL-referenced (absolute), tag-and-probe (2-of-3 majority),
+and the clustering-free raw-ZS-stream check on the same scan. The two
+track-based methods agree to 1–2 points on scan runs (tag-probe reads up to
+4 points low at the working point where the 12 mm tag smearing bites); the
+raw-stream curve is a per-channel threshold count — a shape check, not an
+efficiency.</figcaption></figure>
+<h3>4.4 The 2D (mesh, drift) map and the P2_IN swap</h3>
+<figure>
+<img src="figs/eff_2d_drift_mesh_2d_2.png" alt="2D efficiency map">
+<figcaption><b>The campaign summary plot:</b> tag-probe efficiency over the
+full 7×7 (mesh, drift−mesh) grid (<code>drift_mesh_2d_2</code>, 27 Jul).
+Efficiency is mesh-dominated; the drift dependence is mild above
+gap ≈ 200 V. P2_IN's lower gain is visible as the whole surface shifting
+one column right.</figcaption></figure>
+<figure>
+<img src="figs/eff_p2in_swap.png" alt="P2_IN swap comparison">
+<figcaption>The two P2_IN chambers. The metallic-mesh replacement turns on
+~10–15 V above the CERN bulk chamber and reaches 0.93 at mesh 450 — and,
+unlike the CERN one, it was scanned to its plateau region.</figcaption>
+</figure>
+
+<h2 id="loss">5. Where the efficiency goes — the loss budget</h2>
+<p>Computed tonight from the per-pad maps + the uRWELL miss classification
+(full tables in <code>data/loss_budget.csv</code>,
+<code>data/findings.md</code>). At the working point:</p>
+<div class="tablewrap"><table>
+<tr><th>mechanism (percentage points)</th>
+<th class="din">P2_IN</th><th class="dmid">P2_MID</th><th class="dout">P2_OUT</th></tr>
+<tr><td>total inefficiency</td><td>3.5</td><td>2.9</td><td>4.0</td></tr>
+<tr><td>— no P2 cluster anywhere in the event</td><td>2.9</td><td>2.4</td><td>3.3</td></tr>
+<tr><td>— cluster present but &gt; 15 mm away</td><td>0.6</td><td>0.5</td><td>0.6</td></tr>
+<tr><td>attributable to localized cold pads</td><td>2.9*</td><td>0.1</td><td>0.1</td></tr>
+<tr><td>efficiency drift across the run (max−min)</td><td>0.4</td><td>1.3</td><td>1.4</td></tr>
+<tr><td>spark-veto dead-time (live-time, not eff.)</td><td>0.5</td><td>0.2</td><td>4.1</td></tr>
+</table></div>
+<p class="sub">*P2_IN's cold-pad loss is dominated by connector 11
+(channels 704–767, in-beam efficiency 0.72 vs 0.95 for the same channels on
+MID/OUT) plus a nearly dead connector 14 on the beam fringe — a genuine
+cabling/FEU-input suspect, unique to P2_IN. In the uRWELL-referenced number
+part of these tracks is recovered by neighbouring pads within the 15 mm
+window.</p>
+<figure>
+<img src="figs/padmap_working_point.png" alt="per-pad efficiency maps">
+<figcaption>Per-pad efficiency in the beam core (n<sub>tag</sub> ≥ 2000).
+The bulk is uniform at 0.96–0.97 (MID median 0.969); P2_IN shows its cold
+connector-11 band along the upper-left edge; the isolated pale pads that
+repeat at the SAME positions on all three stations are the known support
+pillars — they cost only ~0.07 points inside this beam spot. P2_OUT's whole
+distribution sits ~4 points low (uniform gain deficit, not damage).
+</figcaption></figure>
+<div class="ok"><b>Bottom line:</b> ~83 % of all misses are "the station
+recorded nothing for this trigger" — a uniform gain/threshold floor that
+more voltage (or the faster gas at equal gain) attacks directly. Localized
+hardware explains almost nothing on MID/OUT; on IN it is one connector.
+</div>
+
+<h2 id="stability">6. Stability in time</h2>
+<h3>6.1 Charging-up, resolved (new tonight)</h3>
+<p>The known puzzle: <code>highstat_eff_1</code> loses ~1.3 points over
+2.5 h, but the recovery sub-run changed rate <i>and</i> pause together. The
+new <code>--time-bins</code> mode of the uRWELL stage (run on condor for all
+35 sub-runs of the three efficiency runs) breaks the degeneracy:</p>
+<figure>
+<img src="figs/eff_vs_time_highstat_eff_1.png" alt="eff vs time highstat">
+<figcaption>Efficiency in 2-minute bins through
+<code>highstat_eff_1</code> (25 Jul, constant HV, 4.6 kHz). MID and OUT
+decay smoothly with a ~30–40 min time constant and <b>reset over the beam
+pause, then re-decay</b> (right block, 3.2 kHz); P2_IN is flat. The
+initial-vs-settled band is 0.976→0.958 (MID) and 0.974→0.945 (OUT).
+</figcaption></figure>
+<p><b>Reading:</b> the decay re-arms during beam-off — the signature of a
+charging process (with a possible smaller rate term: the second block decays
+slightly less at 30 % lower rate), not beam or DAQ drift. P2_IN's flatness
+says the effect is chamber-specific, not environmental.
+<b>Recommendation for the talk:</b> quote "96–97 % settling to ≈96/95 %
+after ~1 h of beam at 4.6 kHz", with this figure as backup.</p>
+<figure>
+<img src="figs/eff_vs_time_eff_nominal_1.png" alt="eff vs time eff_nominal">
+<figcaption>Same measurement two days later (<code>eff_nominal_1</code>,
+27 Jul, drift 750). Two things changed: overall levels are lower and
+re-ordered (OUT 0.955, MID 0.91, IN 0.88) and P2_IN now <i>declines</i>
+visibly within 3 h — this is the CERN chamber's documented deterioration on
+its last morning; it was pulled at 15:00 that day. The MID/OUT level shift
+vs 25 Jul (also visible in the tag-probe scalars) is an open item —
+candidates: charging history, beam steering into the weaker pad region, and
+the drift 700→750 change (§11).</figcaption></figure>
+<h3>6.2 Sparks and HV health</h3>
+<div class="tablewrap"><table>
+<tr><th>period</th><th>hours@HV</th>
+<th class="din">P2_IN [sparks/h]</th><th class="dmid">P2_MID</th><th class="dout">P2_OUT</th></tr>
+<tr><td>July DREAM phase (gas A)</td><td>49–60</td><td>0.3</td><td>0.2</td><td><b>1.3</b></td></tr>
+<tr><td>VMM phase, gas A (30 Jul–1 Aug)</td><td>35</td><td><b>1.6</b></td><td>0.5</td><td>0.1</td></tr>
+<tr><td>VMM phase, gas B (2–3 Aug)</td><td>11</td><td><b>1.4</b></td><td>0.2</td><td>0.3</td></tr>
+</table></div>
+<p>(30 s windows with mesh I<sub>mon</sub> &gt; 2 µA while at voltage;
+<code>data/spark_periods.csv</code>.) Three stories: (i) <b>P2_OUT</b> was
+the July offender — 69 counted sparks, up to 11 % dead-time in single
+sub-runs, and sporadic current excursions that grow with drift field
+(0.20→0.47 µA up to gap 500) — it conditioned quiet by August. (ii) The
+<b>new P2_IN</b> chamber sparks at ~1.5/h through the whole VMM phase —
+normal conditioning for a fresh chamber, worth watching. (iii) <b>No spark
+penalty is visible for the CF<sub>4</sub> gas</b> in its 11 hours — a key
+worry about CF<sub>4</sub> mixtures, so far absent. Zero HV trips after
+25 Jul (the one P2_MID trip killed <code>drift_mesh_2d_1</code>, superseded
+by <code>_2</code>).</p>
+<figure>
+<img src="figs/spark_summary.png" alt="spark summary">
+<figcaption>July spark totals per station and P2_OUT's per-sub-run spark
+rate vs mesh voltage.</figcaption></figure>
+
+<h2 id="timing">7. Time resolution</h2>
+<h3>7.1 The measurement and its corrections</h3>
+<figure>
+<img src="figs/timing_ladder.png" alt="timing correction ladder">
+<figcaption>Waveform time-of-arrival at the working point
+(<code>highstat_eff_1</code>): raw → ftst clock-phase → time-walk. The ftst
+slope is fitted <i>per FEU</i> (−9.6/−6.6/−5.5 ns per unit — never assume a
+common clock phase). Best algorithms: frac30 (MID/OUT), dCFD (IN).
+Pair-derived single-station resolutions:
+<b>P2_MID 17.1, P2_OUT ~18–20, P2_IN ~19–20 ns</b> from this sub-run;
+station-vs-trigger values 15.5/18.4/22.4 ns, stable to &lt;0.5 ns over
+4.5 h.</figcaption></figure>
+<h3>7.2 Versus mesh and drift voltage</h3>
+<div class="twocol">
+<figure>
+<img src="figs/timing_vs_mesh.png" alt="timing vs mesh">
+<figcaption>σ vs mesh HV — monotonic improvement, no plateau by the
+ceiling: MID 21.8→16.2 ns, OUT 24.3→19.2 ns over 390→450 V; the CERN P2_IN
+flat ~32 ns below 385 V (amplitude-limited), 27 ns at 430 V.</figcaption>
+</figure>
+<figure>
+<img src="figs/timing_vs_mesh_bothruns.png" alt="timing vs mesh both eras">
+<figcaption>Same scan repeated after the chamber swap
+(<code>p2_mesh_drift_eff_1</code>, dashed): MID/OUT reproduce, and the new
+P2_IN tracks the other stations far better than the CERN chamber did.
+</figcaption></figure>
+</div>
+<figure>
+<img src="figs/timing_2d_drift_mesh_2d_2.png" alt="timing 2D surface">
+<figcaption>σ over the full (mesh, drift−mesh) grid — the timing companion
+of the 2D efficiency map. The optimum ridge sits at high mesh and
+gap ≈ 300–450 V; at low drift field the drift-time spread explodes
+(&gt;100 ns).</figcaption></figure>
+<h3>7.3 The narrative for the talk</h3>
+<p>Bench cosmics 46 ns (drift-geometry-limited) → <b>beam 15.5–22.4 ns</b>
+per station at the working point → Garfield physics floor 3–7 ns → the
+<b>20 ns P2 goal is met at MID/OUT</b> and the path further down is known
+(§8): the gas term, then the 13 ns electronics/walk floor.</p>
+
+<h2 id="gas">8. The gas change: measurement vs Magboltz</h2>
+<h3>8.1 The prediction</h3>
+<p>The 1 Aug five-mixture Magboltz study (now in
+<code>gas_studies/</code>) picked
+Ar/CF<sub>4</sub>/iC<sub>4</sub>H<sub>10</sub> 88/10/2: 2.4× drift
+velocity, flattest v<sub>d</sub> plateau, only +16 V mesh for equal gain,
+gas-timing floor 8.8 → 3.3 ns at the working drift field
+(<code>data/gas_timing_model.csv</code>).</p>
+<figure>
+<img src="figs/timing_vs_drift_magboltz.png" alt="timing vs drift + Magboltz">
+<figcaption><b>Left:</b> measured σ vs drift voltage (25 Jul scan) —
+plateau at 750–800 V, catastrophic below 600 V. <b>Right:</b> the same data
+against the Magboltz gas floor ⊕ a fitted 13.2 ns non-gas term: the model
+reproduces the plateau and its shape (the extra low-field rise is the
+full-gap drift-time spread the first-cluster model excludes). The dashed
+curve is the same electronics floor with the CF<sub>4</sub> gas:
+<b>expected ≈13.5 ns at P2_MID — the gas ceases to be the limit.</b>
+</figcaption></figure>
+<h3>8.2 The changeover, observed</h3>
+<figure>
+<img src="figs/vmm_turnon_gasAB.png" alt="VMM turn-on gas A vs B">
+<figcaption>The same VMM mesh scan on both gases (31 Jul vs 2 Aug). The
+turn-on shifts right by ≈20–25 V at these voltages — the CF<sub>4</sub>
+mixture has lower gain at equal HV, in the direction and rough size of the
+Magboltz equal-gain prediction (+16 V at 425 V, growing with V). At
+mesh 450: MID 0.58→0.33; OUT shifts least (0.62→0.54) — a real
+chamber-to-chamber spread in gain response worth a follow-up.</figcaption>
+</figure>
+<figure>
+<img src="figs/vmm_drift_gasAB.png" alt="VMM drift scan gas A vs B">
+<figcaption>The drift-scan latency handle (P2_MID): the mean hit latency
+vs the trigger falls with drift field as electrons arrive faster. The gas-B
+points (2 Aug) sit ~30 ns earlier at gap 150 than the matching gas-A scan
+of the previous day, and the low-field excess over plateau shrinks from
+~73 ns to ~42 ns — <b>drift is measurably faster with CF<sub>4</sub></b>.
+(The offset between the two gas-A scans taken two days apart is an open
+anomaly — §11.)</figcaption></figure>
+<div class="note"><b>What the gas comparison cannot yet say:</b> the DREAM
+waveform timing only exists for gas A (the P2 pads were on the VMM, which
+has no waveforms and is BCID-quantised at 22.5 ns). The σ gain of the
+CF<sub>4</sub> mixture is a Magboltz prediction validated in shape by the
+latency data — measuring it directly is the strongest argument for a short
+DREAM run on the new gas at the next opportunity.</div>
+
+<h2 id="vmm">9. The VMM arm</h2>
+<p>All ~3 400 usable VMM captures (130 sub-runs, runs 2–71, ~400 GB of
+pcapng) were decoded tonight on condor with the vectorised
+<code>vmm_reduce</code> pipeline: per-capture additive histograms +
+trigger-referenced efficiency (trigger = VMM 0 ch 44, dedup 1.5 µs,
+sideband-subtracted) now live at
+<code>analysis/vmm/&lt;run&gt;/&lt;sub_run&gt;/&lt;capture&gt;/</code>.</p>
+<h3>9.1 Working-point numbers and the denominator caveat</h3>
+<div class="tablewrap"><table>
+<tr><th></th><th class="din">P2_IN</th><th class="dmid">P2_MID</th><th class="dout">P2_OUT</th></tr>
+<tr><td>VMM eff., gas A nominal (run_24, 136 M trig)</td>
+<td>0.105</td><td>0.546</td><td>0.577</td></tr>
+<tr><td>VMM eff., gas B operating (run_63)</td>
+<td>0.112</td><td>0.347</td><td>0.571</td></tr>
+<tr><td>coincidence σ [ns] (BCID-limited)</td>
+<td>44–50</td><td>19–22</td><td>25</td></tr>
+</table></div>
+<figure>
+<img src="figs/vmm_vs_dream_caveat.png" alt="DREAM vs VMM">
+<figcaption><b>Never put these on one axis as numbers:</b> DREAM efficiency
+is per-track over the illuminated pads; the VMM number counts <i>every</i>
+trigger while only connectors c4–c6 (of ~10) carry VMM hybrids, and P2_IN
+additionally sat below its turn-on. The VMM turn-on <i>shape</i>, its
+cluster size (1.11–1.18 pads vs DREAM 1.05–1.08) and its hit maps are the
+honest like-for-like comparisons. The per-pad acceptance-restricted VMM
+efficiency (taskplan T3) is the remaining step — the pad map and in-time
+selection exist; tonight's per-capture stores make the backfill cheap.
+</figcaption></figure>
+<h3>9.2 The electronics config scan</h3>
+<figure>
+<img src="figs/vmm_config_scan.png" alt="VMM config scan">
+<figcaption>Efficiency and coincidence width vs VMM peaking time and gain
+(gas A runs). Efficiency rises steadily with peaking time; the best settings
+are <b>gain 4.5 mV/fC with 100–200 ns peaking</b> (MID 0.60 at pt 100).
+Timing improves ~7 ns from 25→200 ns peaking but stays BCID-dominated.
+Full table: <code>data/vmm_config_scan_table.csv</code>.</figcaption>
+</figure>
+
+<h2 id="detectors">10. Detector-by-detector verdicts</h2>
+<div class="tablewrap"><table>
+<tr><th>detector</th><th>efficiency (WP)</th><th>timing σ</th><th>stability</th><th>verdict / action</th></tr>
+<tr><td class="din">P2_IN (CERN bulk, 23–27 Jul)</td>
+<td>96.5 % (uRW), turn-on 370–425 V, no plateau</td>
+<td>22.4 ns (amplitude-limited)</td>
+<td>flat in time, but amplitude declined on 27 Jul; connector 11 weak, 14 dead</td>
+<td>declined and was pulled — check connector 11/14 cabling before any re-use</td></tr>
+<tr><td class="din">P2_IN (metallic mesh, 28 Jul→)</td>
+<td>93 % at 450 V (tag-probe), plateau reached</td>
+<td>tracks MID/OUT in the 28 Jul scan</td>
+<td>conditioning sparks ~1.5/h through VMM phase</td>
+<td>healthy; try 445–450 V as its working point next time</td></tr>
+<tr><td class="dmid">P2_MID</td>
+<td>97.1 % initial / ≈96 % settled</td>
+<td><b>15.5 ns — best station</b></td>
+<td>1.3-point charging band; 0.2 sparks/h</td>
+<td>the reference station; nothing to fix</td></tr>
+<tr><td class="dout">P2_OUT</td>
+<td>96.0 % initial / ≈94.6 % settled; per-pad distribution 4 pts low</td>
+<td>18.4 ns</td>
+<td>69 July sparks, up to 11 % dead-time; high-drift discharges; largest charging drift</td>
+<td>works but is the weak unit: uniform gain deficit + spark propensity —
+candidate for gain calibration / HV contact inspection</td></tr>
+<tr><td>uRWELLs (front/back)</td><td colspan="3">rock-stable all campaign at
+620/420 V — 1.15 M tracks/station in one sub-run, alignment constant, one
+~5×5 mm reference hole identified and localized</td>
+<td>keep exactly as-is as the reference system</td></tr>
+<tr><td>MX17 "Detector E"</td><td colspan="3">in the DREAM stream (FEU 3)
+from 1 Aug on both gases — <b>not yet analysed</b></td>
+<td>untouched dataset; optional gas A/B cross-check</td></tr>
+</table></div>
+
+<h2 id="quality">11. Data-quality register and open anomalies</h2>
+<ul>
+<li><b>Decoder-hang holes (known, unfixed):</b> 7 FEU files across
+<code>eff_nominal_1</code> (sub 10/14/15), <code>mesh_drift_scan_up_1</code>
+(drift2_11), <code>drift_mesh_scan_1</code> (drift_700) sit as intact
+<code>*.fdf.hang</code> — re-decode needs the DREAM decoder binary (the DAQ
+machines are off). These are also the 3 failures of tonight's 35-job
+time-bins sweep.</li>
+<li><b>VMM capture holes:</b> VMM run_59 recorded no pcapng (its scan was
+retaken as VMM run_61); run_62 captured only 2 of 6 drift points; run_61's
+drift half produced no usable captures — <b>gas-B VMM drift data = 2
+points</b>. run_25's drift sub-runs are empty.</li>
+<li><b>Open anomaly (worth one shift-log question):</b> the two gas-A VMM
+drift scans (run_26, 30 Jul vs run_57, 1 Aug — identical setpoints) differ
+by ~27 ns in plateau latency and by 52 vs 73 ns in low-field drift-time
+excess, i.e. the drift looked ~30 % slower on 1 Aug. Same direction as the
+old "slow bottle" mystery from the July bench studies. Temperature/pressure
+or flow logs would settle it.</li>
+<li><b>eff_nominal_1 level shift:</b> MID/OUT read 3–5 points lower on
+27 Jul (drift 750) than 25 Jul (drift 700) in both methods, with the
+station order re-arranged; charging history and beam steering are the
+candidates. Recommend quoting the 25 Jul high-stat numbers (the taskplan
+already does) and flagging this in backup.</li>
+<li><b>drift_mesh_2d_1</b>: superseded by _2 (P2_MID trip); its dm_01_00–02
+sub-runs are beam-off. <b>drift_450</b> of drift_mesh_scan_1 = zero drift
+field — never fit it as a normal point.</li>
+<li><b>Chunked sub-runs</b> (<code>_000/_001/_002</code>): any analysis
+globbing one file per sub-run silently loses up to 57 % — all tonight's
+processing sums chunks.</li>
+<li><b>Gas labels:</b> 136 configs fixed on EOS (§2.1); run_59+ pending.</li>
+</ul>
+
+<h2 id="options">12. Options for the conference talk</h2>
+<p>Ranked within each act; ★ = recommended core, ○ = backup. The deck in
+<a href="slides.html"><b>slides.html</b></a> lays every option out
+one-per-slide for picking.</p>
+<ol>
+<li><b>Act 3 core (the punchline):</b>
+★ campaign timeline (§2) as the "what we did" slide —
+★ method figure + 3.46 mm binary residual (§3) —
+★ ε vs mesh + ε vs drift (§4.1–4.2) —
+★ 2D efficiency map (§4.4) —
+★ per-pad map + loss budget table (§5) —
+★ charging ε(t) (§6.1, the new result) —
+★ timing ladder + σ vs drift with Magboltz overlay (§7–8) —
+★ VMM turn-on gas A/B (§8.2).</li>
+<li><b>Strong optional slides:</b>
+○ timing 2D surface (§7.2) — ○ P2_IN chamber swap curve (§4.4) —
+○ VMM config scan (§9.2) — ○ spark/stability table (§6.2) —
+○ methods-comparison triptych (§4.3) — ○ drift latency gas A/B (§8.2).</li>
+<li><b>Honest-caveat slides (have ready):</b> VMM/DREAM denominator
+caveat (§9.1) — data-quality register (§11) — eff_nominal level shift.</li>
+<li><b>Outlook slide material:</b> CF<sub>4</sub> gas: predicted
+13.5 ns, needs one DREAM run to confirm — per-pad VMM efficiency backfill
+(cheap now) — MX17 dataset — connector-11 fix — drift ceiling &gt;900 V for
+the transparency turnover.</li>
+</ol>
+
+<h2 id="repro">13. Reproducibility</h2>
+<ul>
+<li><b>Raw + products:</b> <code>/eos/experiment/ntof/data/x17/p2_sps_july/</code>
+— <code>runs/</code> (DREAM), <code>vmm/runs/</code> (pcapng),
+<code>analysis/</code> (all stage products; new tonight:
+<code>analysis/vmm/…/scalars.json</code> per capture and
+<code>analysis/urw_timebins/…</code>).</li>
+<li><b>Tonight's condor sweeps</b> (all from the laptop via
+<code>lxplus</code>): DREAM <code>rec</code>+<code>hits</code> for
+run_21–72 (<code>sps_beam_analysis/condor/submit.sh</code>); VMM reduce
+(<code>~/p2_condor_vmm</code> on lxplus AFS, 130 jobs); uRWELL time-bins
+(<code>~/p2_condor_urw</code>, 35 jobs).</li>
+<li><b>Code changes to commit:</b>
+<code>urw_reference/urw_lib.py</code> (portable package/det-dir resolution)
+and <code>urw_reference/urw_p2_efficiency.py</code>
+(<code>--time-bins</code>) — plus this report directory.</li>
+<li><b>Aggregated datasets + figure scripts:</b> this directory's
+<code>data/</code>, and the session scratchpad
+(<code>aggregate.py</code>, <code>figs/fig_*.py</code>) — deterministic
+from the EOS products.</li>
+<li><b>Gas study:</b> <code>gas_studies/</code> (results CSVs for 7
+mixtures; still uncommitted — taskplan T15).</li>
+</ul>
+
+<p class="sub" style="margin-top:40px">Generated overnight 15→16 Aug 2026.
+Companion deck: <a href="slides.html">slides.html</a>.</p>
+</div>
+</body>
+</html>

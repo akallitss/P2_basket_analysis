@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MPGD26 slide options — P2 @ SPS H4</title>
+<style>
+  :root { --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --grid:#d9d8d4;
+          --in:#2a78d6; --mid:#eb6834; --out:#1baf7a; --vio:#4a3aa7; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#e8e7e3; color:var(--ink);
+         font:17px/1.45 "Segoe UI", system-ui, sans-serif; }
+  .slide { width:min(1180px, 96vw); min-height:640px; margin:26px auto;
+           background:var(--surface); border-radius:10px;
+           box-shadow:0 2px 10px rgba(0,0,0,.10);
+           padding:34px 46px 30px; position:relative; }
+  .slide h1 { font-size:1.9em; margin:0.2em 0; }
+  .slide h2 { font-size:1.45em; margin:0 0 10px; }
+  .tag { position:absolute; top:20px; right:26px; font-size:.78em;
+         font-weight:700; padding:3px 12px; border-radius:20px; }
+  .core { background:#e3edda; color:#2c5e1a; }
+  .opt  { background:#e8e4f5; color:#41338f; }
+  .bkup { background:#f3e9dc; color:#7a5218; }
+  .meta { background:#e8e8e8; color:#444; }
+  .slide img { max-width:100%; max-height:430px; display:block;
+               margin:10px auto; border:1px solid var(--grid); border-radius:6px; }
+  .slide .msg { background:#f4f3f0; border-left:4px solid var(--vio);
+                padding:9px 14px; margin:10px 0; font-size:.95em; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+  .cols img { max-height:400px; }
+  ul { margin:8px 0; }
+  li { margin:4px 0; }
+  table { border-collapse:collapse; margin:10px auto; font-size:.9em; }
+  th,td { border:1px solid var(--grid); padding:4px 10px; text-align:right; }
+  th { background:#f2f1ee; }
+  td:first-child, th:first-child { text-align:left; }
+  .num { font-size:.8em; color:var(--ink2); position:absolute;
+         bottom:14px; right:22px; }
+  .foot { text-align:center; color:var(--ink2); font-size:.85em;
+          padding:20px 0 46px; }
+  .in{color:var(--in);font-weight:600} .mid{color:var(--mid);font-weight:600}
+  .out{color:var(--out);font-weight:600}
+</style>
+<script>
+  // arrow-key navigation between slides
+  addEventListener('keydown', e => {
+    const s = [...document.querySelectorAll('.slide')];
+    const y = scrollY + 40;
+    let i = s.findIndex(el => el.offsetTop > y);
+    if (i < 0) i = s.length;
+    if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+      if (i < s.length) s[i].scrollIntoView(); e.preventDefault();
+    } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+      if (i > 1) s[i-2].scrollIntoView(); else scrollTo(0,0); e.preventDefault();
+    }
+  });
+  addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.slide').forEach((el,i) => {
+      const n = document.createElement('div');
+      n.className = 'num'; n.textContent = (i+1);
+      el.appendChild(n);
+    });
+  });
+</script>
+</head>
+<body>
+
+<section class="slide"><span class="tag meta">DECK GUIDE</span>
+<h1>P2 @ SPS H4 — slide options for MPGD26</h1>
+<p class="msg">One <b>option per slide</b>, grouped into the talk's three
+acts + synthesis. Tags: <span class="tag core" style="position:static">CORE</span>
+recommended for the 15-min talk,
+<span class="tag opt" style="position:static">OPTIONAL</span> strong if time
+allows, <span class="tag bkup" style="position:static">BACKUP</span> keep
+ready for questions. Navigate with ←/→. Every figure is a PNG in
+<code>figs/</code>, regenerated 16 Aug from the EOS products; numbers match
+<a href="index.html">the full report</a>.</p>
+<ul>
+<li>Suggested 15-min skeleton (taskplan T8): motivation 2 — Act 1 SNR/rate 3
+— geometry verdict 1 — Act 2 bench+QA 3 — <b>Act 3 beam test 5</b> —
+synthesis + outlook 1.</li>
+<li>This deck covers <b>Act 3 + gas/outlook + synthesis</b> (the July–August
+beam test). Act 1 (Nov-2025 SNR/rate) and Act 2 (cosmic bench) come from the
+existing material.</li>
+</ul>
+</section>
+
+<section class="slide"><span class="tag core">CORE — setup</span>
+<h2>The July 2026 H4 campaign in one picture</h2>
+<img src="figs/hv_campaign_timeline.png" alt="campaign timeline">
+<p class="msg"><b>Message:</b> 12 days, two readout phases (DREAM telescope →
+VMM campaign on the same detectors), two gases, every scan type: mesh, drift,
+two 7×7 2D grids, high-stat efficiency, electronics config scan.
+537 GB DREAM + ~400 GB VMM, all on EOS, all analysed.</p>
+<ul><li>3 × P2 BASKET pad Micromegas between 2 EIC uRWELL trackers, SPS muons</li>
+<li>Speakable numbers: 23 named runs + 51 VMM-phase runs, ~10<sup>8</sup> triggers on tape</li></ul>
+</section>
+
+<section class="slide"><span class="tag core">CORE — method</span>
+<h2>Absolute efficiency against an independent tracker</h2>
+<img src="figs/urw_panels_P2_MID.png" alt="method panels">
+<p class="msg"><b>Message:</b> two uRWELL planes give 1.15 M tracks/station
+per sub-run; residuals are 3.4 mm rms = 12 mm/√12 — textbook binary pad
+response. Denominator hygiene (recorded-trigger, settle, spark-veto,
+fiducial) and a probe-radius systematic scan → ε to ±0.3 %.</p>
+<ul><li>Bonus credibility: a deliberately flipped ribbon in the map drops ε
+to 60 % — the method catches mapping errors two independent ways.</li></ul>
+</section>
+
+<section class="slide"><span class="tag core">CORE — efficiency</span>
+<h2>Efficiency vs mesh voltage (absolute)</h2>
+<img src="figs/eff_vs_mesh_urw.png" alt="eff vs mesh">
+<p class="msg"><b>Message:</b> clean turn-ons; <span class="mid">MID</span>
+0.81→0.96, <span class="out">OUT</span> 0.86→0.95 (390→445 V);
+<span class="in">IN</span> (CERN bulk chamber) 0.31→0.90. No plateau by the
+HV ceiling — the working point is the top of the scanned range.</p>
+</section>
+
+<section class="slide"><span class="tag core">CORE — efficiency</span>
+<h2>Efficiency vs drift voltage</h2>
+<img src="figs/eff_vs_drift_urw.png" alt="eff vs drift">
+<p class="msg"><b>Message:</b> from 16 % at zero drift field to 97 %
+flattening above ~850 V; the transparency plateau extends past the HV
+ceiling (confirmed by the dedicated mesh-390 extension run).</p>
+</section>
+
+<section class="slide"><span class="tag core">CORE — hero plot</span>
+<h2>The full (mesh, drift) efficiency surface</h2>
+<img src="figs/eff_2d_drift_mesh_2d_2.png" alt="2D efficiency">
+<p class="msg"><b>Message:</b> a complete 7×7 map per station from one
+overnight run — efficiency is mesh-dominated, drift dependence mild above
+gap 200 V. This is the "we characterised the detector, not a point" slide.</p>
+</section>
+
+<section class="slide"><span class="tag core">CORE — loss budget</span>
+<h2>Where the missing 3–4 % actually goes</h2>
+<div class="cols">
+<img src="figs/padmap_working_point.png" alt="pad maps"
+     style="max-height:330px">
+<div>
+<table>
+<tr><th>pp</th><th class="in">IN</th><th class="mid">MID</th><th class="out">OUT</th></tr>
+<tr><td>total ineff.</td><td>3.5</td><td>2.9</td><td>4.0</td></tr>
+<tr><td>"no response"</td><td>2.9</td><td>2.4</td><td>3.3</td></tr>
+<tr><td>far cluster</td><td>0.6</td><td>0.5</td><td>0.6</td></tr>
+<tr><td>cold pads</td><td>2.9*</td><td>0.1</td><td>0.1</td></tr>
+</table>
+<p class="msg"><b>Message:</b> ~83 % of misses = no response at all — a
+uniform gain/threshold floor, so more gain (or the faster gas at equal
+gain) attacks it directly. Localized losses are one weak connector on
+P2_IN (*0.72 in-beam) and the support pillars (0.07 pp). Pillars repeat at
+identical positions on all three stations — the map is self-validating.</p>
+</div></div>
+</section>
+
+<section class="slide"><span class="tag core">CORE — stability (new)</span>
+<h2>Charging-up, caught in the act</h2>
+<img src="figs/eff_vs_time_highstat_eff_1.png" alt="eff vs time">
+<p class="msg"><b>Message (new analysis):</b> in 2-min bins at constant HV,
+<span class="mid">MID</span>/<span class="out">OUT</span> decay 1–2.5 pp
+with a ~30–40 min time constant after every beam-on and <b>reset during the
+pause</b> — charging-up dynamics, chamber-specific
+(<span class="in">IN</span> is flat). Honest headline: "96–97 % settling to
+≈96/95 % after an hour at 4.6 kHz".</p>
+</section>
+
+<section class="slide"><span class="tag core">CORE — timing</span>
+<h2>Time resolution: the correction ladder</h2>
+<img src="figs/timing_ladder.png" alt="timing ladder">
+<p class="msg"><b>Message:</b> waveform TOA with per-FEU clock-phase and
+walk corrections: <span class="mid">15.5</span> /
+<span class="out">18.4</span> / <span class="in">22.4</span> ns — the
+<b>20 ns P2 goal is met on two of three stations</b>, stable to &lt;0.5 ns
+over 4.5 h.</p>
+</section>
+
+<section class="slide"><span class="tag core">CORE — timing + gas</span>
+<h2>σ vs drift voltage — and what Magboltz says about the new gas</h2>
+<img src="figs/timing_vs_drift_magboltz.png" alt="timing vs drift + Magboltz">
+<p class="msg"><b>Message:</b> the measured drift-scan plateau (750–800 V)
+is reproduced by Magboltz ⊕ a fitted 13.2 ns non-gas floor. Swap in the
+chosen Ar/CF<sub>4</sub>/iC<sub>4</sub>H<sub>10</sub> 88/10/2 and the gas
+term collapses (8.8→3.3 ns): <b>expected ≈13.5 ns — the next campaign is
+electronics-limited, not gas-limited.</b></p>
+</section>
+
+<section class="slide"><span class="tag core">CORE — gas change</span>
+<h2>We already ran on the new gas — and see it</h2>
+<img src="figs/vmm_turnon_gasAB.png" alt="gas A/B turn-on">
+<p class="msg"><b>Message:</b> the same VMM mesh scan on both gases: the
+turn-on shifts ≈+20–25 V — the direction and rough size of the Magboltz
+equal-gain prediction. The gas exchange is pinned in the HV record (P2 off
+overnight 1→2 Aug) and the wrong gas labels in 136 DAQ configs were
+corrected on EOS.</p>
+</section>
+
+<section class="slide"><span class="tag core">CORE — synthesis</span>
+<h2>Synthesis table (the slide people photograph)</h2>
+<table style="font-size:1.02em">
+<tr><th>station</th><th>ε @ WP (abs.)</th><th>settled ε</th><th>σ [ns]</th>
+<th>spatial</th><th>sparks Jul</th><th>verdict</th></tr>
+<tr><td class="in">P2_IN (CERN bulk)</td><td>96.5 %</td><td>flat</td>
+<td>22.4</td><td rowspan="3">3.4 mm<br>= 12 mm/√12</td><td>15</td>
+<td>declined, swapped 28 Jul</td></tr>
+<tr><td class="mid">P2_MID</td><td>97.1 %</td><td>≈96 %</td><td><b>15.5</b></td>
+<td>12</td><td>best station</td></tr>
+<tr><td class="out">P2_OUT</td><td>96.0 %</td><td>≈94.6 %</td><td>18.4</td>
+<td>69</td><td>works; uniform gain deficit + sparky</td></tr>
+<tr><td>VMM readout (c4–c6)</td><td colspan="2">turn-on shape ✓, cluster 1.11–1.18 pads</td>
+<td>BCID 22.5</td><td>—</td><td>—</td><td>needs per-pad denominator (path known)</td></tr>
+</table>
+<p class="msg"><b>Message:</b> a P2-geometry telescope measured absolutely:
+96–97 % efficiency, 15–22 ns timing, binary-readout resolution, with its
+loss budget itemised and its time-dependence understood.</p>
+</section>
+
+<section class="slide"><span class="tag opt">OPTIONAL — timing</span>
+<h2>The timing (mesh, drift) surface</h2>
+<img src="figs/timing_2d_drift_mesh_2d_2.png" alt="timing 2D">
+<p class="msg"><b>Message:</b> timing companion of the 2D efficiency map:
+optimum ridge at high mesh, gap 300–450 V; below 200 V the drift-time
+spread explodes. Working point within 0.5 ns of the 2D optimum.</p>
+</section>
+
+<section class="slide"><span class="tag opt">OPTIONAL — timing</span>
+<h2>σ vs mesh voltage — both scan campaigns</h2>
+<div class="cols">
+<img src="figs/timing_vs_mesh.png" alt="timing vs mesh">
+<img src="figs/timing_vs_mesh_bothruns.png" alt="timing vs mesh both">
+</div>
+<p class="msg"><b>Message:</b> monotonic improvement, no plateau by the
+ceiling — argues for headroom above 450 V. The post-swap scan reproduces
+MID/OUT and shows the new P2_IN tracking them.</p>
+</section>
+
+<section class="slide"><span class="tag opt">OPTIONAL — detector story</span>
+<h2>Two P2_IN chambers, one beam</h2>
+<img src="figs/eff_p2in_swap.png" alt="P2_IN swap">
+<p class="msg"><b>Message:</b> the CERN bulk chamber declined and was
+swapped mid-campaign for a metallic-mesh Micromegas — commissioned from
+zero to a full efficiency curve within one morning, reaching 93 % at 450 V.
+A nice operational-maturity story.</p>
+</section>
+
+<section class="slide"><span class="tag opt">OPTIONAL — VMM</span>
+<h2>VMM electronics config scan</h2>
+<img src="figs/vmm_config_scan.png" alt="config scan">
+<p class="msg"><b>Message:</b> the dual-readout campaign's electronics
+deliverable: efficiency and coincidence width vs VMM gain × peaking time —
+best at gain 4.5 mV/fC, 100–200 ns peaking. Direct input to the P2
+front-end choice.</p>
+</section>
+
+<section class="slide"><span class="tag opt">OPTIONAL — gas</span>
+<h2>The drift-velocity handle, gas A vs gas B</h2>
+<img src="figs/vmm_drift_gasAB.png" alt="drift latency">
+<p class="msg"><b>Message:</b> mean hit latency vs drift voltage: the
+CF<sub>4</sub> mixture arrives ~30 ns earlier at low field, low-field
+excess 73→42 ns — drift measurably faster, as designed. (Honest caveat:
+the two gas-A scans two days apart also differ — open item.)</p>
+</section>
+
+<section class="slide"><span class="tag opt">OPTIONAL — stability</span>
+<h2>Spark rates and HV health across the campaign</h2>
+<div class="cols">
+<img src="figs/spark_summary.png" alt="sparks" style="max-height:330px">
+<div>
+<table>
+<tr><th>period</th><th class="in">IN</th><th class="mid">MID</th><th class="out">OUT</th></tr>
+<tr><td>July (gas A) [sparks/h]</td><td>0.3</td><td>0.2</td><td><b>1.3</b></td></tr>
+<tr><td>VMM, gas A</td><td><b>1.6</b></td><td>0.5</td><td>0.1</td></tr>
+<tr><td>VMM, gas B</td><td><b>1.4</b></td><td>0.2</td><td>0.3</td></tr>
+</table>
+<p class="msg"><b>Message:</b> P2_OUT was the July offender (up to 11 %
+dead-time) and conditioned quiet; the fresh P2_IN chamber conditions at
+~1.5/h; and — the CF<sub>4</sub> worry — <b>no spark penalty visible on the
+new gas</b> in its 11 hours. Zero HV trips after 25 Jul.</p>
+</div></div>
+</section>
+
+<section class="slide"><span class="tag opt">OPTIONAL — methods</span>
+<h2>Three efficiency methods, one detector</h2>
+<img src="figs/eff_methods_comparison.png" alt="methods">
+<p class="msg"><b>Message:</b> absolute-tracker, tag-and-probe and a
+clustering-free raw-stream check agree on the turn-on — the efficiency is a
+property of the detector, not of one analysis.</p>
+</section>
+
+<section class="slide"><span class="tag bkup">BACKUP — caveat</span>
+<h2>Why DREAM and VMM efficiencies must not share an axis</h2>
+<img src="figs/vmm_vs_dream_caveat.png" alt="DREAM vs VMM">
+<p class="msg"><b>Message:</b> the VMM number counts every trigger while
+only c4–c6 carry hybrids (and P2_IN sat below turn-on) — comparable
+quantities are the turn-on shape, cluster size and hit maps. The per-pad
+acceptance-restricted efficiency is the known missing step; tonight's
+per-capture stores make its backfill cheap.</p>
+</section>
+
+<section class="slide"><span class="tag bkup">BACKUP — stability</span>
+<h2>The 27 Jul reference run: levels moved</h2>
+<img src="figs/eff_vs_time_eff_nominal_1.png" alt="eff nominal drift">
+<p class="msg"><b>Message (for questions):</b> two days after the headline
+run the levels sit 3–5 pp lower and re-ordered, and the CERN P2_IN visibly
+declines through its final morning. Candidates: charging history, beam
+steering, drift 700→750. This is why the talk quotes the 25 Jul high-stat
+numbers.</p>
+</section>
+
+<section class="slide"><span class="tag bkup">BACKUP — QA</span>
+<h2>Data-quality register</h2>
+<ul style="font-size:1.05em">
+<li>7 decoder-hang FEU files (eff_nominal 10/14/15, drift2_11, drift_700) —
+raw intact, re-decode queued for when a DREAM decoder is available.</li>
+<li>VMM gas-B drift data = 2 points (run_59 captured nothing; run_62
+stopped after 2 of 6; run_61 drift half unusable).</li>
+<li>Open anomaly: two identical gas-A VMM drift scans 2 days apart differ
+~30 % in apparent drift speed — check T/P/flow logs.</li>
+<li>Chunked sub-runs (up to 57 % of events in later chunks) — all tonight's
+analyses sum chunks.</li>
+<li>136 wrong gas labels fixed on EOS; run_59+ relabel pending
+confirmation.</li>
+</ul>
+<p class="msg"><b>Message:</b> the dataset is understood file-by-file —
+holes are enumerated, not discovered later.</p>
+</section>
+
+<section class="slide"><span class="tag bkup">BACKUP — outlook</span>
+<h2>Outlook / next-campaign shopping list</h2>
+<ul style="font-size:1.05em">
+<li><b>Gas:</b> one DREAM waveform run on
+Ar/CF<sub>4</sub>/iC<sub>4</sub>H<sub>10</sub> 88/10/2 to confirm the
+predicted ≈13.5 ns (gas term 8.8→3.3 ns, working point +16 V).</li>
+<li><b>Electronics:</b> attack the 13 ns non-gas floor (walk/shaping);
+VMM time calibration runs to break the 22.5 ns BCID quantisation.</li>
+<li><b>VMM per-pad efficiency</b> backfill from tonight's capture stores →
+true DREAM/VMM like-for-like.</li>
+<li><b>Hardware:</b> P2_IN connector 11/14 check; P2_OUT gain
+calibration; drift ceiling &gt; 900 V for the transparency turnover;
+P2_IN at 445–450 V.</li>
+<li><b>Untouched data:</b> MX17 "Detector E" on both gases; mesh scans down
+to 330 V for gain-model anchoring.</li>
+</ul>
+</section>
+
+<div class="foot">MPGD26 options deck — generated 16 Aug 2026 from the EOS
+analysis products · companion: <a href="index.html">full report</a></div>
+</body>
+</html>
