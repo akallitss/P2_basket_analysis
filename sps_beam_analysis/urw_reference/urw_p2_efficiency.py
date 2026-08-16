@@ -397,6 +397,9 @@ def run_station(cfg, det, sub_run, tracks, dz, files, args, veto, t_min):
 
     hit = pd.DataFrame({'eventId': tr['eventId'].to_numpy()[fid],
                         'ex': ex[fid], 'ey': ey[fid],
+                        # track time, so efficiency can be binned within the
+                        # sub-run (charging-up vs rate, taskplan T1)
+                        't_ns': tr['t_ns'].to_numpy()[fid],
                         # the same tracks in the uRWELL's own frame, so a
                         # feature can be attributed to the reference or to the
                         # probe: a uRWELL artefact sits at a fixed (ux, uy) for
@@ -433,6 +436,31 @@ def run_station(cfg, det, sub_run, tracks, dz, files, args, veto, t_min):
           '  '.join(f'{r:g}:{e:.4f}' for r, e in scan) +
           f'   -> accidental slope {slope * 10:.4f} per 10 mm')
 
+    # -- efficiency vs time within the sub-run (charging-up / rate, T1) ------ #
+    # Equal-population time bins would hide a beam-off gap, so bins are equal
+    # in TIME across the span actually covered by fiducial tracks.
+    eff_vs_time = []
+    if getattr(args, 'time_bins', 0) and n > 0:
+        ts = hit['t_ns'].to_numpy() / 1e9
+        t_lo, t_hi = float(np.min(ts)), float(np.max(ts))
+        if t_hi > t_lo:
+            edges = np.linspace(t_lo, t_hi, int(args.time_bins) + 1)
+            ib = np.clip(np.digitize(ts, edges) - 1, 0, int(args.time_bins) - 1)
+            fnd = hit['found'].to_numpy()
+            for b in range(int(args.time_bins)):
+                m = ib == b
+                nb = int(m.sum())
+                if nb == 0:
+                    continue
+                kb = int(fnd[m].sum())
+                blo, bhi = clopper_pearson(kb, nb)
+                eff_vs_time.append(dict(
+                    t_lo_s=float(edges[b]), t_hi_s=float(edges[b + 1]),
+                    t_mid_s=float(0.5 * (edges[b] + edges[b + 1])),
+                    k=kb, n=nb, eff=kb / nb, lo=blo, hi=bhi))
+            print('      eff vs time: ' + '  '.join(
+                f'{r["t_mid_s"]:.0f}s:{r["eff"]:.4f}' for r in eff_vs_time))
+
     summary = dict(
         station=det.name, z_mm=det.z, feu=det.feus[0],
         n_tracks=n0, n_after_recorded=n_rec, n_after_settle=n_settle,
@@ -448,6 +476,8 @@ def run_station(cfg, det, sub_run, tracks, dz, files, args, veto, t_min):
                         accidental_per_10mm=float(slope * 10)),
         settle_t_min_s=float(t_min),
         spark_intervals=int(len(veto.intervals)) if veto is not None else 0)
+    if eff_vs_time:
+        summary['efficiency_vs_time'] = eff_vs_time
     return summary, j[core], hit
 
 
@@ -573,6 +603,9 @@ def main():
                     help='skip a station with fewer matched tracks than this')
     ap.add_argument('--no-veto-sparks', action='store_true')
     ap.add_argument('--out', default='out_eff')
+    ap.add_argument('--time-bins', type=int, default=0,
+                    help='bin the efficiency in N equal time bins within each '
+                         'sub-run (charging-up vs rate); 0 = off')
     args = ap.parse_args()
 
     run_dir = os.path.join(args.data_root, args.run)
