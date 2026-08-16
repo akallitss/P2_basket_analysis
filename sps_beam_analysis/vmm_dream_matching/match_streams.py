@@ -239,6 +239,26 @@ def robust_linear(x, y, ok, n_iter=5, clip=5.0):
     return a, b, sel
 
 
+def write_no_vmm_record(args, reason):
+    """A summary for a sub_run the VMM side never recorded, so that the
+    campaign table has a row for every DREAM sub_run rather than a silent
+    gap."""
+    eid, td = load_dream_triggers(args.run, args.sub)
+    summary = dict(
+        run=args.run, sub=args.sub, vmm_source="none", note=reason,
+        trigger_vmm=None, trigger_ch=None,
+        n_vmm_trig_hits=0, n_vmm_triggers=0, n_dream_events=int(len(td)),
+        n_matched=0, match_frac_dream=0.0,
+        vmm_unmatched=0, vmm_unmatched_frac=0.0,
+        clock_ratio_a=None, drift_ppm=None, offset_seed_ns=0.0,
+        lock_sigma=0.0, residual_rms_ns=None, residual_med_ns=None,
+        n_spills=0, spills=[])
+    os.makedirs(args.out, exist_ok=True)
+    with open(f"{args.out}/match_{args.run}_{args.sub}.json", "w") as f:
+        json.dump(summary, f, indent=1)
+    print(f"no VMM triggers ({reason}) -- recorded as such")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run"); ap.add_argument("sub")
@@ -249,11 +269,21 @@ def main():
                     help="pre-extracted trigger times (extract_vmm_triggers)")
     ap.add_argument("--vmm-source", choices=["auto", "store", "pcapng"],
                     default="auto")
+    ap.add_argument("--allow-empty", action="store_true",
+                    help="when the VMM side has no triggers at all, record "
+                         "that as the result instead of failing (some "
+                         "sub_runs have 272-byte empty captures)")
     args = ap.parse_args()
 
     print(f"[vmm] loading triggers {args.run}/{args.sub}")
-    tv, n_raw, vmm_source, chan = load_vmm_triggers(
-        args.run, args.sub, args.vmm_npz, args.vmm_source)
+    try:
+        tv, n_raw, vmm_source, chan = load_vmm_triggers(
+            args.run, args.sub, args.vmm_npz, args.vmm_source)
+    except SystemExit as e:
+        if not args.allow_empty:
+            raise
+        write_no_vmm_record(args, str(e))
+        return
     print(f"  {n_raw} trigger hits on vmm {chan[0]} ch {chan[1]} -> "
           f"{len(tv)} dedup'd triggers [{vmm_source}], "
           f"span {(tv[-1]-tv[0])/1e9:.1f} s")
