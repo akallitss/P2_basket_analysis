@@ -21,7 +21,8 @@ import os
 import subprocess
 import tempfile
 
-FIELDS = ["run", "sub", "vmm_source", "n_dream_events", "n_vmm_triggers",
+FIELDS = ["run", "sub", "vmm_source", "trigger_vmm", "trigger_ch",
+          "n_dream_events", "n_vmm_triggers",
           "n_matched", "match_frac_dream", "vmm_unmatched_frac", "drift_ppm",
           "offset_s", "residual_rms_ns", "residual_med_ns", "n_spills",
           "lock_sigma", "status"]
@@ -71,6 +72,8 @@ def rows_from(directory):
         rows.append({
             "run": d["run"], "sub": d["sub"],
             "vmm_source": d.get("vmm_source", "?"),
+            "trigger_vmm": d.get("trigger_vmm", 0),
+            "trigger_ch": d.get("trigger_ch", 44),
             "n_dream_events": d["n_dream_events"],
             "n_vmm_triggers": d["n_vmm_triggers"],
             "n_matched": d["n_matched"],
@@ -120,13 +123,14 @@ def main():
                 (f"{r[k]:.6g}" if isinstance(r[k], float) else str(r[k]))
                 for k in FIELDS) + "\n")
 
-    hdr = (f"| run | sub_run | src | DREAM ev | VMM trig | matched | "
-           f"VMM spare | rms ns | drift ppm | spills | status |")
-    sep = "|" + "---|" * 11
+    hdr = (f"| run | sub_run | src | trig ch | DREAM ev | VMM trig | "
+           f"matched | VMM spare | rms ns | drift ppm | spills | status |")
+    sep = "|" + "---|" * 12
     lines = [hdr, sep]
     for r in rows:
         lines.append(
             f"| {r['run']} | {r['sub']} | {r['vmm_source'][:5]} | "
+            f"{r['trigger_vmm']}:{r['trigger_ch']} | "
             f"{r['n_dream_events']} | {r['n_vmm_triggers']} | "
             f"{r['match_frac_dream']*100:.1f}% | "
             f"{r['vmm_unmatched_frac']*100:.1f}% | "
