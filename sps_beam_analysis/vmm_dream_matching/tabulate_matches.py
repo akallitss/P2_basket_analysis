@@ -23,8 +23,9 @@ import subprocess
 import tempfile
 
 FIELDS = ["run", "sub", "vmm_source", "trigger_vmm", "trigger_ch",
-          "n_dream_events", "n_vmm_triggers",
-          "n_matched", "match_frac_dream", "vmm_unmatched_frac", "drift_ppm",
+          "n_dream_events", "n_dream_covered", "n_vmm_triggers",
+          "n_matched", "match_frac_dream", "match_frac_covered",
+          "vmm_unmatched_frac", "drift_ppm",
           "offset_s", "residual_rms_ns", "residual_med_ns", "n_spills",
           "lock_sigma", "status"]
 
@@ -39,7 +40,12 @@ def run_key(r):
 def status_of(d):
     if d.get("vmm_source") == "none":
         return "NO-VMM"
-    f = d.get("match_frac_dream", 0.0)
+    # judge the matching on the DREAM events the VMM was recording at all:
+    # the two DAQs are not stopped together, and a VMM stream that ends early
+    # is a coverage fact, not a matching failure
+    f = d.get("match_frac_covered")
+    if f is None:
+        f = d.get("match_frac_dream", 0.0)
     rms = d.get("residual_rms_ns") or 1e9
     if f >= 0.90 and rms < 50:
         return "OK"
@@ -78,9 +84,11 @@ def rows_from(directory):
             "trigger_vmm": d.get("trigger_vmm"),
             "trigger_ch": d.get("trigger_ch"),
             "n_dream_events": d["n_dream_events"],
+            "n_dream_covered": d.get("n_dream_covered"),
             "n_vmm_triggers": d["n_vmm_triggers"],
             "n_matched": d["n_matched"],
             "match_frac_dream": d["match_frac_dream"],
+            "match_frac_covered": d.get("match_frac_covered"),
             "vmm_unmatched_frac": d["vmm_unmatched_frac"],
             "drift_ppm": d["drift_ppm"],
             "offset_s": d["offset_seed_ns"] / 1e9,
@@ -95,6 +103,17 @@ def rows_from(directory):
 
 def fmt(v, spec):
     return "" if v is None else format(v, spec)
+
+
+def pct(v, fallback=None):
+    v = fallback if v is None else v
+    return "" if v is None else f"{100*v:.1f}%"
+
+
+def cov(r):
+    if r["n_dream_covered"] is None or not r["n_dream_events"]:
+        return ""
+    return f"{100*r['n_dream_covered']/r['n_dream_events']:.1f}%"
 
 
 def chan(r):
@@ -132,16 +151,18 @@ def main():
                 (f"{r[k]:.6g}" if isinstance(r[k], float) else str(r[k]))
                 for k in FIELDS) + "\n")
 
-    hdr = (f"| run | sub_run | src | trig ch | DREAM ev | VMM trig | "
-           f"matched | VMM spare | rms ns | drift ppm | spills | status |")
-    sep = "|" + "---|" * 12
+    hdr = ("| run | sub_run | src | trig ch | DREAM ev | VMM trig | "
+           "in VMM window | matched (of window) | VMM spare | rms ns | "
+           "drift ppm | spills | status |")
+    sep = "|" + "---|" * 13
     lines = [hdr, sep]
     for r in rows:
         lines.append(
             f"| {r['run']} | {r['sub']} | {r['vmm_source'][:5]} | "
             f"{chan(r)} | "
             f"{r['n_dream_events']} | {r['n_vmm_triggers']} | "
-            f"{r['match_frac_dream']*100:.1f}% | "
+            f"{cov(r)} | "
+            f"{pct(r['match_frac_covered'], r['match_frac_dream'])} | "
             f"{r['vmm_unmatched_frac']*100:.1f}% | "
             f"{fmt(r['residual_rms_ns'], '.1f')} | "
             f"{fmt(r['drift_ppm'], '+.2f')} | {r['n_spills']} | "
@@ -157,9 +178,12 @@ def main():
     bad = [r for r in rows if r["status"] in ("FAIL", "NO-VMM")]
     ev = sum(r["n_dream_events"] for r in rows)
     mt = sum(r["n_matched"] for r in rows)
+    cv = sum(r["n_dream_covered"] or 0 for r in rows)
     print(f"\n{n} sub_runs: {len(ok)} OK, "
           f"{n - len(ok) - len(bad)} partial, {len(bad)} failed")
-    print(f"DREAM events {ev}, matched {mt} ({100*mt/ev:.2f}%)")
+    print(f"DREAM events {ev}, of which {cv} ({100*cv/ev:.1f}%) inside a VMM "
+          f"recording window; matched {mt} "
+          f"({100*mt/ev:.2f}% of all, {100*mt/max(cv,1):.2f}% of those)")
     if ok:
         import statistics as st
         print("median residual rms (OK) "
