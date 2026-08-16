@@ -57,12 +57,16 @@ whenever the default channel gives no usable lock.
 
 **`match_streams.py <run> <sub>`** — the matcher:
 
-1. *First lock.* Pair the densest DREAM spill against **every** VMM spill in
-   turn and keep the offset whose coincidence histogram spikes. Judging the
-   pairing by spill-edge proximity instead is not safe — the first "spill" of
-   a stream is often just the DAQ start, and that one bad point seeded run_57
-   31 s away from the truth (3% matched). Coincidence is decisive: the right
-   offset stands out at 100–300 σ.
+1. *First lock.* Take a dense DREAM spill, pair it against every VMM spill
+   within ±120 s in turn, and keep the offset whose coincidence histogram
+   spikes. Judging the pairing by spill-edge proximity instead is not safe —
+   the first "spill" of a stream is often just the DAQ start, and that one
+   bad point seeded run_57 31 s away from the truth (3% matched).
+   Coincidence is decisive: the right offset stands out at 113–606 σ.
+   Try the five densest spills in turn, because the *candidate* offsets still
+   come from VMM spill edges and edge detection misses a spill here and there
+   — run_39 has 143 VMM edges against DREAM's 146, and its densest spill had
+   no VMM edge to pair with.
 2. *Per-spill tracking.* Walk the spills in time order; each one re-locks the
    lag with a residual-histogram scan (±5 ms) centred on the previous spill's
    fit, then greedy one-to-one nearest matching and a robust linear refit at
