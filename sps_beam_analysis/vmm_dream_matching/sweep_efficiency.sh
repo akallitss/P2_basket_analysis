@@ -15,9 +15,11 @@
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
-BASE=/eos/experiment/ntof/data/x17/p2_sps_july
+# NB: not BASE -- the LCG setup.sh defines BASE, and sourcing it
+# after this line silently repointed URW_DET_DIR into /cvmfs.
+EOSBASE=/eos/experiment/ntof/data/x17/p2_sps_july
 EOS_URL=root://eospublic.cern.ch
-MATCH=$BASE/vmm/matching
+MATCH=$EOSBASE/vmm/matching
 OUT=$MATCH/efficiency
 LCG=/cvmfs/sft.cern.ch/lcg/views/LCG_110/x86_64-el9-gcc13-opt/setup.sh
 JOBS=4
@@ -34,6 +36,7 @@ while [ $# -gt 0 ]; do
         --force) FORCE=1; shift ;;
         --only) ONLY=$2; shift 2 ;;
         --min-frac) MIN_FRAC=$2; shift 2 ;;
+        --out-dir) OUT=$2; shift 2 ;;
         --extra) EXTRA=$2; shift 2 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
@@ -49,7 +52,7 @@ source "$LCG"
 set -u
 export PYTHONPATH=$CODE:${PYTHONPATH:-}
 export SACLAY_MM_DIR=${SACLAY_MM_DIR:-$CODE}
-export URW_DET_DIR=${URW_DET_DIR:-$BASE/config/detectors/}
+export URW_DET_DIR=${URW_DET_DIR:-$EOSBASE/config/detectors/}
 xrdfs "$EOS_URL" mkdir -p "$OUT" 2>/dev/null
 
 # --- work list: matched sub_runs -------------------------------------------
