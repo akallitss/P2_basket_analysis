@@ -285,6 +285,14 @@ def main():
     out_png = os.path.join(eff_dir, f'efficiency_map_sliding{suffix}.png')
     fig.savefig(out_png, dpi=150, bbox_inches='tight'); plt.close(fig)
 
+    # the grids themselves, so a re-styled single-panel version (slides, notes)
+    # can be drawn without paying for the kernel sweep again
+    np.savez_compressed(
+        os.path.join(eff_dir, f'efficiency_map_sliding{suffix}.npz'),
+        eff_within=eff_w, eff_any=eff_a, counts=cnt, extent=np.array(extent),
+        fp_x=fpx, fp_y=fpy, kernel_mm=args.kernel, r_mm=args.r,
+        min_rays=args.min_rays)
+
     summary = dict(det=cfg.DET_NAME, run=cfg.RUN, sub_run=cfg.SUB_RUN,
                    r_mm=args.r, kernel_mm=args.kernel, grid=args.grid,
                    n_rays=int(len(d)), n_rays_active=int(inact.sum()),
