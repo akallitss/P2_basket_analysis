@@ -54,13 +54,31 @@ import p2_sparks as ps
 import p2_io as p2io
 
 
-def find_subruns(cfg):
+# Sub_runs that are long runs at a working point, not scan steps. The 7-9 run
+# opens with `long_run_mesh_430V_drift_600V` (10 h) and the scan then starts at
+# the SAME 430 V with `scan_mesh_430V_drift_600V` (30 min). Both match
+# `mesh_(\d+)V`, so the scan came out with a doubled 430 V point -- two markers
+# at one HV, differing in exposure by 20x. Efficiency agreed (0.904 vs 0.904)
+# but mean amplitude did not (567 vs 404), so the doubling was visible as a
+# spurious jump at the top of the amplitude-vs-HV curve.
+EXCLUDE_SUBRUN = re.compile(r'long_run|final_run|initial_run')
+
+
+def find_subruns(cfg, exclude=EXCLUDE_SUBRUN):
     """Discover HV-scan sub_runs, ascending in mesh HV. Two naming schemes:
     the original `mesh_<NNN>V_drift_<MMM>V` (det1 7-2 scan) and the newer
-    `mesh_scan_<det_tag>_<mesh>_<drift>` (det3 7-16 scan)."""
+    `mesh_scan_<det_tag>_<mesh>_<drift>` (det3 7-16 scan).
+
+    Long/initial/final runs sharing a working point with a scan step are
+    excluded (see EXCLUDE_SUBRUN) -- they are a different exposure and a
+    different point in the run history, so they do not belong on the curve.
+    """
     run_dir = cfg.run_dir
     out = []
     for name in sorted(os.listdir(run_dir)):
+        if exclude is not None and exclude.search(name):
+            print(f'  [skip] {name}: long/initial/final run, not a scan step')
+            continue
         m = (re.search(r'mesh_(\d+)V', name)
              or re.search(rf'mesh_scan_{cfg.DET_TAG}_(\d+)_\d+', name))
         if not m:
@@ -119,7 +137,7 @@ def main():
                     choices=['linear', 'reverse', 'pairswap'])
     ap.add_argument('--r', type=float, default=None,
                     help='match radius [mm]; default = run-config MATCH_R.')
-    ap.add_argument('--active-r', type=float, default=30.0,
+    ap.add_argument('--active-r', type=float, default=None,
                     help='ray is in the active area if within this of a pad [mm].')
     ap.add_argument('--z', type=float, default=None,
                     help='M3 projection plane z [mm]; default = run-config '
@@ -139,6 +157,12 @@ def main():
     args = ap.parse_args()
 
     cfg = qa.get_config(args.run_key)
+    # --active-r unset -> per-run geometric value (pad half-diagonal).
+    # Was a hard-coded 30 mm here, which silently diluted every scan
+    # point relative to the long-run stages (06/12) after those moved
+    # to cfg.ACTIVE_R on 2026-08-11.
+    if args.active_r is None:
+        args.active_r = cfg.ACTIVE_R
     print(cfg)
     if args.r is None:
         args.r = cfg.MATCH_R

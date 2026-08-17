@@ -16,12 +16,14 @@ pass we build BOTH per-event estimators and keep the arrays:
 sigma_t = (p84.135 - p15.865)/2 (robust Gaussian core) -- the exact CSV number.
 
 Products (-> 16_drift_scan_efficiency/):
-  time_resolution_distribution_615V_gaussian.png   (3 points, leading)
+  time_resolution_distribution_<best>V_gaussian.png (3 points, leading)
   time_resolution_distribution_grid_all.png        (all 12 points, leading)
   time_resolution_estimator_comparison.png         (leading vs earliest)
 """
 
 import os
+import re
+import glob
 import argparse
 import numpy as np
 import matplotlib
@@ -33,9 +35,27 @@ import p2_mapping as pmap
 import p2_sparks as ps
 import p2_io as p2io
 
-MESH = 415.0
+MESH = None          # set in main() from the discovered sub_runs
 GAP_CM = 0.3
-DRIFTS = [415, 465, 515, 565, 615, 665, 715, 765, 815, 865, 915, 965]
+# Mesh voltage and the drift points are DISCOVERED from the sub_run names, not
+# hard-coded: det1's scan is `drift_scan_det1_<mesh>_<drift>` while det3/det4
+# share one run named `drift_scan_det4_<m>_<d>_det3_<m>_<d>`. Hard-coding det1's
+# list meant this plot only ever existed for det1.
+def discover_points(cfg, scan='drift'):
+    """[(sub_run, mesh, drift), ...] ascending in the scanned voltage."""
+    pat = re.compile(rf'{cfg.DET_TAG}_(\d+)_(\d+)')
+    out = []
+    for name in sorted(os.listdir(cfg.run_dir)):
+        if not name.startswith(f'{scan}_scan'):
+            continue
+        m = pat.search(name)
+        if not m:
+            continue
+        if not glob.glob(os.path.join(cfg.run_dir, name,
+                                      'combined_hits_root', '*.root')):
+            continue
+        out.append((name, int(m.group(1)), int(m.group(2))))
+    return sorted(out, key=lambda x: x[2])
 
 
 def per_event_times(cfg, ct, subrun, sig_amp=300.0, veto_sparks=True):
@@ -115,10 +135,20 @@ def _hist_gauss(ax, t, color, label_data, nsig=4.5, annotate=True):
 
 
 def fig_three(cfg, cache, out_dir):
-    """Original 3-point figure (turn-on / best / high field), leading."""
-    pts = [(465, 'turn-on', 'darkorange'),
-           (615, r'BEST (min $\sigma_t$)', 'indigo'),
-           (965, 'high field', 'crimson')]
+    """3-point figure: turn-on / best / high field, leading estimator.
+
+    The three points are CHOSEN from the data, not hard-coded: the best point
+    is the one with the smallest sigma_t, and turn-on / high-field are the
+    lowest and highest drift voltages present. Hard-coding det1's 465/615/965
+    made this crash with KeyError on every other detector.
+    """
+    have = sorted(cache)
+    best = min(have, key=lambda d: robust(cache[d]['leading'])[1])
+    lo = have[0] if have[0] != best else (have[1] if len(have) > 1 else have[0])
+    hi = have[-1] if have[-1] != best else (have[-2] if len(have) > 1 else have[-1])
+    pts = [(lo, 'turn-on', 'darkorange'),
+           (best, r'BEST (min $\sigma_t$)', 'indigo'),
+           (hi, 'high field', 'crimson')]
     fig, axes = plt.subplots(1, 3, figsize=(17, 5.2))
     for (dv, lbl, col), ax in zip(pts, axes):
         t = cache[dv]['leading']
@@ -134,21 +164,34 @@ def fig_three(cfg, cache, out_dir):
                  r'leading-pad time_of_max, $\sigma_t=(p_{84.1}-p_{15.9})/2$',
                  fontsize=11.5)
     fig.tight_layout(rect=[0, 0, 1, 0.93])
-    p = os.path.join(out_dir, 'time_resolution_distribution_615V_gaussian.png')
+    p = os.path.join(out_dir,
+                     f'time_resolution_distribution_{int(best)}V_gaussian.png')
     fig.savefig(p, dpi=200, bbox_inches='tight')
     plt.close(fig)
     print('Written:', p)
 
 
+def _best_point(cache):
+    """Drift point with the smallest sigma_t (cached per call site)."""
+    return min(sorted(cache), key=lambda d: robust(cache[d]['leading'])[1])
+
+
 def fig_grid(cfg, cache, out_dir):
-    """4x3 grid: every drift point, leading estimator, Gaussian overlay."""
-    fig, axes = plt.subplots(4, 3, figsize=(15, 16))
-    for dv, ax in zip(DRIFTS, axes.ravel()):
+    """Grid over every drift point that survived: leading estimator, Gaussian
+    overlay. The layout follows the number of points actually present -- det1
+    has 12, det3/det4 have 11, and low-statistics points may be dropped."""
+    pts = sorted(cache)
+    ncol = 3
+    nrow = int(np.ceil(len(pts) / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(15, 4 * nrow), squeeze=False)
+    for ax in axes.ravel()[len(pts):]:
+        ax.axis('off')
+    for dv, ax in zip(pts, axes.ravel()):
         t = cache[dv]['leading']
-        col = 'indigo' if dv == 615 else 'steelblue'
+        col = 'indigo' if dv == _best_point(cache) else 'steelblue'
         p50, sig = _hist_gauss(ax, t, col, 'data')
         e = (dv - MESH) / GAP_CM
-        star = '  ★' if dv == 615 else ''
+        star = '  ★' if dv == _best_point(cache) else ''
         ax.set_title(f'drift {dv} V  ({e:.0f} V/cm)  '
                      fr'$\sigma_t$={sig:.1f} ns{star}', fontsize=10)
         ax.set_xlabel('leading-pad time_of_max [ns]', fontsize=8)
@@ -167,8 +210,9 @@ def fig_grid(cfg, cache, out_dir):
 
 
 def fig_estimator(cfg, cache, out_dir):
-    """Leading-amplitude vs earliest-hit: sigma_t(drift) + core overlay @615V."""
-    e_ok = [d for d in DRIFTS if (d - MESH) / GAP_CM > 50]
+    """Leading-amplitude vs earliest-hit: sigma_t(drift) + core overlay at the
+    best (minimum-sigma) drift point of whichever detector is being processed."""
+    e_ok = [d for d in sorted(cache) if (d - MESH) / GAP_CM > 50]
     rows = []
     for dv in e_ok:
         _, sl, _, _ = robust(cache[dv]['leading'])
@@ -202,13 +246,15 @@ def fig_estimator(cfg, cache, out_dir):
                   '(teal numbers = earliest − leading, ns)', fontsize=10.5)
     # right: the two cores at the best point
     for est, col in (('leading', 'indigo'), ('earliest', 'teal')):
-        t = cache[615][est]
+        t = cache[_best_point(cache)][est]
         t = t - np.median(t)          # centre both at 0 to compare widths
         _hist_gauss(axR, t, col, est, annotate=False)
     axR.set_xlabel('time_of_max − median [ns]  (ref. trigger)')
     axR.set_ylabel('probability density')
     axR.legend(fontsize=9, loc='upper right')
-    axR.set_title('Core shape at the best point (drift 615 V, 667 V/cm)\n'
+    _b = _best_point(cache)
+    axR.set_title(f'Core shape at the best point (drift {_b:.0f} V, '
+                  f'{(_b - MESH) / GAP_CM:.0f} V/cm)\n'
                   'both centred at 0 to compare widths', fontsize=10.5)
     fig.suptitle(f'{cfg.DET_NAME} — leading-amplitude vs earliest-hit timing '
                  f'estimator  ({cfg.RUN})', fontsize=12)
@@ -234,15 +280,28 @@ def main():
                                   drop_connectors=cfg.DEAD_CONNECTORS)
     out_dir = cfg.out_dir('16_drift_scan_efficiency')
 
+    pts = discover_points(cfg)
+    if not pts:
+        print(f'!! no drift_scan sub_runs found for {cfg.DET_TAG} in {cfg.run_dir}')
+        return
+    global MESH
+    MESH = float(pts[0][1])
+    print(f'  {len(pts)} drift points for {cfg.DET_TAG}, mesh {MESH:.0f} V')
     cache = {}
-    for dv in DRIFTS:
-        subrun = f'drift_scan_det1_{int(MESH)}_{dv}'
+    for subrun, mv, dv in pts:
         cache[dv] = per_event_times(cfg, ct, subrun, sig_amp=args.sig_amp)
+        n = len(cache[dv]['leading'])
+        if n < 20:
+            print(f'drift {dv:>3} V  only {n} events -- skipped')
+            del cache[dv]
+            continue
         pl = robust(cache[dv]['leading'])[1]
         pe = robust(cache[dv]['earliest'])[1]
         print(f'drift {dv:>3} V  E={(dv-MESH)/GAP_CM:>5.0f} V/cm  '
-              f'N_lead={len(cache[dv]["leading"]):>4}  '
-              f'sig_lead={pl:>6.2f}  sig_early={pe:>6.2f} ns')
+              f'N_lead={n:>5}  sig_lead={pl:>7.2f}  sig_early={pe:>7.2f} ns')
+    if not cache:
+        print('!! no drift point had enough events')
+        return
 
     fig_three(cfg, cache, out_dir)
     fig_grid(cfg, cache, out_dir)

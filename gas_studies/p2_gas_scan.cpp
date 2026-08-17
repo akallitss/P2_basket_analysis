@@ -110,20 +110,27 @@ int main(int argc, char** argv) {
   out << "region,E_Vcm,vz_cm_ns,vz_err_pct,dl,dl_err,dt,dt_err,alpha_cm,eta_cm,"
          "alphatof_cm\n";
 
+  // --- drift region FIRST: low-field grid over the 3 mm gap (fast) ---------
+  // Deliberately before the amplification scan: these points cost ~15 s each,
+  // so the drift-velocity / diffusion answer (the timing-resolution driver) is
+  // on disk within a couple of minutes even if the slow Townsend scan below is
+  // still running. The grid is expressed as the mesh->drift HV difference dV
+  // actually dialled at the beam, dV = E * 3 mm; it brackets the present
+  // working point (mesh 410 / drift 610 -> dV = 200 V -> E = 667 V/cm).
+  const int ncoll_drift = 3;
+  const std::vector<double> driftDV = {30.,  60.,  100., 150., 200., 250.,
+                                       300., 400., 500., 600., 800.};
+  for (const double dv : driftDV) ScanPoint(gas, out, "drift", dv / kDDrift, ncoll_drift);
+
   // --- amplification region: scan by mesh voltage across the 150 um gap ----
   // High-field Townsend (steady-state method) is the slow part of Magboltz
   // (minutes/point), so keep the grid coarse: the gain curve is smooth and
-  // monotonic and analyze.py interpolates. Points bracket the 415 V working
-  // point and extend to 700 V so a lower-gain gas still has an equal-gain match.
+  // monotonic and analyze.py interpolates. Points bracket the 410 V working
+  // point and extend to 780 V so a heavily quenched CF4 mixture (which needs
+  // markedly more mesh voltage for the same gain) still has an equal-gain match.
   const int ncoll_amp = 2;  // x 1e7 collisions (Townsend needs statistics)
-  const std::vector<double> ampV = {350., 420., 490., 560., 630., 700.};
+  const std::vector<double> ampV = {350., 420., 490., 560., 630., 700., 780.};
   for (const double vmesh : ampV) ScanPoint(gas, out, "amp", vmesh / kDAmp, ncoll_amp);
-
-  // --- drift region: low-field grid over the 3 mm gap (fast) ---------------
-  const int ncoll_drift = 3;
-  const std::vector<double> driftE = {50.,  100., 200.,  300.,  400.,  600.,
-                                      800., 1000., 1500., 2000., 3000.};
-  for (const double e : driftE) ScanPoint(gas, out, "drift", e, ncoll_drift);
 
   std::cout << "done -> " << outfile << " (d_amp=" << kDAmp
             << " cm, d_drift=" << kDDrift << " cm)" << std::endl;

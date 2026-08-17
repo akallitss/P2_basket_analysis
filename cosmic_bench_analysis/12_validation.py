@@ -146,7 +146,8 @@ def main():
                     choices=['linear', 'reverse', 'pairswap'])
     ap.add_argument('--r', type=float, default=None,
                     help='match radius [mm]; default = run-config MATCH_R.')
-    ap.add_argument('--active-r', type=float, default=30.0)
+    ap.add_argument('--active-r', type=float, default=None,
+                    help='denominator radius [mm]; default = run config ACTIVE_R')
     ap.add_argument('--chi2-cut', type=float, default=qa.M3_CHI2_CUT)
     ap.add_argument('--fit-fiducial', type=float, default=300.0)
     ap.add_argument('--z', type=float, default=None,
@@ -160,7 +161,7 @@ def main():
     sfx = cfg.product_suffix(args.veto_sparks) + qa.chi2_tag(args.chi2_cut)
     z0 = args.z if args.z is not None else det_plane_z(cfg)
     R0 = args.r if args.r is not None else cfg.MATCH_R
-    AR0 = args.active_r
+    AR0 = args.active_r if args.active_r is not None else cfg.ACTIVE_R
     verdicts = []   # (test, status, message)
 
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
@@ -204,8 +205,19 @@ def main():
     # ---------------------------------------------------------------- Test 1 #
     R_scan = [8, 10, 12, 14, 16, 18, 20, 25, 30, 35, 40, 50, 60]
     eR = [eff_of(d, R, AR0)[0] for R in R_scan]
-    AR_scan = [15, 20, 25, 30, 35, 40, 50, 60]
+    # The scan must start well below the pad half-diagonal, or the plateau is
+    # simply off the left edge of the plot: it lives at 5-9 mm, while the old
+    # grid began at 15 mm and only ever showed the falling tail.
+    AR_scan = [4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30, 40, 50, 60]
     eAR = [eff_of(d, R0, ar)[0] for ar in AR_scan]
+    nAR = [eff_of(d, R0, ar)[2] for ar in AR_scan]
+
+    # Geometric anchor: the furthest a point inside the pad array can be from a
+    # pad centre is half the diagonal of the pitch. Beyond it you are adding
+    # off-array space where no hit is possible, so the curve must fall.
+    nnd, _ = cKDTree(pad_xy).query(pad_xy, k=2)
+    pad_pitch = float(np.median(nnd[:, 1]))
+    half_diag = pad_pitch / np.sqrt(2)
 
     # ideal Gaussian containment scaled to the R-plateau (uses core sigma)
     sig = float(np.hypot(core_sx, core_sy) / np.sqrt(2)) if np.isfinite(core_sx) else 10.0
@@ -220,12 +232,25 @@ def main():
                      f'eff rises {eff0:.1f}%→{eff_plateau:.1f}% from R={R0:g}→40 mm '
                      f'(+{r_gap:.1f} pt). The R={R0:g} mm cut geometry alone discards '
                      f'~{100*(1-contain0):.0f}% of genuine hits into the tail (σ≈{sig:.1f} mm).'))
-    ar_var = max(eAR[AR_scan.index(20):AR_scan.index(40)+1]) - \
-        min(eAR[AR_scan.index(20):AR_scan.index(40)+1])
+    # Ask the question the test is named after: is the SHIPPED active_r sitting
+    # on a plateau? The old form measured the spread over a fixed 20-40 mm
+    # window, which says nothing about the operating point once it moves out of
+    # that window -- it flagged even when the shipped value was on a perfectly
+    # flat stretch.
+    win = [(ar, e) for ar, e in zip(AR_scan, eAR) if abs(ar - AR0) <= 3.0]
+    if len(win) < 3:                      # AR0 outside the grid: widen once
+        win = [(ar, e) for ar, e in zip(AR_scan, eAR) if abs(ar - AR0) <= 6.0]
+    ar_var = (max(e for _, e in win) - min(e for _, e in win)) if win else float('nan')
+    lo, hi = (win[0][0], win[-1][0]) if win else (float('nan'), float('nan'))
+    off_array = AR0 > 1.5 * half_diag
     verdicts.append(('active-area plateau',
-                     'FLAG' if ar_var > 2 else 'PASS',
-                     f'eff varies {ar_var:.1f} pt over active_r 20–40 mm '
-                     f'(shipped {AR0:g} mm → {eff0:.1f}%).'))
+                     'FLAG' if (ar_var > 2 or off_array) else 'PASS',
+                     f'eff varies {ar_var:.1f} pt over active_r {lo:g}–{hi:g} mm '
+                     f'around the shipped {AR0:g} mm → {eff0:.1f}%. '
+                     f'Pad pitch {pad_pitch:.1f} mm → half-diagonal {half_diag:.1f} mm'
+                     + (f'; shipped value is {AR0/half_diag:.1f}x that, so the '
+                        'denominator includes off-array space.' if off_array
+                        else ' (shipped value is on-array).')))
 
     fig, axs = plt.subplots(1, 2, figsize=(13, 5))
     axs[0].plot(R_scan, eR, 'o-', color='steelblue', lw=2, label='measured eff(reco)')
@@ -237,11 +262,27 @@ def main():
     axs[0].set_xlabel('match radius R [mm]'); axs[0].set_ylabel('efficiency [%]')
     axs[0].set_title('eff vs match radius — is R on the plateau?')
     axs[0].grid(True, alpha=0.3); axs[0].legend(fontsize=8)
-    axs[1].plot(AR_scan, eAR, 's-', color='seagreen', lw=2)
+    axs[1].plot(AR_scan, eAR, 's-', color='seagreen', lw=2, label='measured eff(reco)')
     axs[1].axvline(AR0, color='crimson', ls=':', label=f'shipped active_r={AR0:g} mm')
+    axs[1].axvline(half_diag, color='purple', ls='-.', alpha=0.8,
+                   label=f'pad half-diagonal = {half_diag:.1f} mm\n'
+                         f'(pitch {pad_pitch:.1f} mm; beyond this = off-array)')
+    axs[1].axvspan(0, half_diag, color='purple', alpha=0.07)
+    axs[1].set_xscale('log')
+    axs[1].set_xticks([4, 6, 8, 10, 15, 20, 30, 60])
+    axs[1].get_xaxis().set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:g}'))
     axs[1].set_xlabel('active-area radius [mm]'); axs[1].set_ylabel('efficiency [%]')
     axs[1].set_title('eff vs active-area radius (denominator)')
-    axs[1].grid(True, alpha=0.3); axs[1].legend(fontsize=8)
+    axs[1].grid(True, alpha=0.3); axs[1].legend(fontsize=7, loc='lower left')
+    # Second axis: how many rays each radius admits. The denominator saturating
+    # at the half-diagonal is independent evidence that the plateau is the
+    # array edge and not a coincidence of the efficiency curve.
+    ax2 = axs[1].twinx()
+    ax2.plot(AR_scan, np.array(nAR) / 1e3, 'o--', color='grey', alpha=0.6, ms=3,
+             label='rays in denominator')
+    ax2.set_ylabel('N rays in active area [k]', color='grey')
+    ax2.tick_params(axis='y', colors='grey')
+    ax2.legend(fontsize=7, loc='upper right')
     fig.suptitle(f'{cfg.DET_NAME} — knob plateau tests  ({cfg.RUN})')
     fig.tight_layout()
     fig.savefig(f'{out}/validation_knob_plateau{sfx}.png', dpi=150, bbox_inches='tight')

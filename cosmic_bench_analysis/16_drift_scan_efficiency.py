@@ -280,7 +280,7 @@ def main():
                     choices=['linear', 'reverse', 'pairswap'])
     ap.add_argument('--r', type=float, default=None,
                     help='match radius [mm]; default = run-config MATCH_R.')
-    ap.add_argument('--active-r', type=float, default=30.0,
+    ap.add_argument('--active-r', type=float, default=None,
                     help='ray is in the active area if within this of a pad [mm].')
     ap.add_argument('--z', type=float, default=None,
                     help='M3 projection plane z [mm]; default = run-config '
@@ -322,6 +322,12 @@ def main():
     args = ap.parse_args()
 
     cfg = qa.get_config(args.run_key)
+    # --active-r unset -> per-run geometric value (pad half-diagonal).
+    # Was a hard-coded 30 mm here, which silently diluted every scan
+    # point relative to the long-run stages (06/12) after those moved
+    # to cfg.ACTIVE_R on 2026-08-11.
+    if args.active_r is None:
+        args.active_r = cfg.ACTIVE_R
     print(cfg)
     if args.min_amp is not None:
         cfg.MIN_AMP = float(args.min_amp)

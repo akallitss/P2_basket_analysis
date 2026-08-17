@@ -131,6 +131,11 @@ run 10_efficiency_map_sliding.py "${RUN_KEY}" --kernel 5 --grid 240 --min 10
 # -- 12 structural-bias validation (vetoed) ---------------------------------- #
 run 12_validation.py "${RUN_KEY}"
 
+# Surface timing map: per-pad peak time + resolution, and (--continuous) a
+# sliding map in the M3 reference frame. Must follow 06, whose ray_hit_miss
+# list the continuous mode joins against.
+run 19_timing_surface.py "${RUN_KEY}" --continuous
+
 echo ""
 echo "=================================================================="
 echo " Pipeline done for ${RUN_KEY}. Build the report with:"

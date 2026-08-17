@@ -71,6 +71,11 @@ def load(key):
         "dV": dV[dorder],
         "vd": vd[dorder],
         "E_drift": drift["E_Vcm"][dorder],
+        # longitudinal diffusion [cm^1/2] and drift-region attachment [1/cm];
+        # used by decide.py for the gas-limited timing floor and electron loss.
+        "dl": drift["dl"][dorder],
+        "dt": drift["dt"][dorder],
+        "eta_drift": drift["eta_cm"][dorder],
     }
 
 

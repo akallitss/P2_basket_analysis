@@ -46,8 +46,14 @@ import p2_mapping as pmap
 import p2_align as pa
 
 DET3_Z = 702.0
-MATCH_R = 40.0
-ACTIVE_R = 30.0
+# Radii come from the run registry so this stage cannot drift away from the
+# efficiency stages (06/10/11/12/16). ACTIVE_R was hard-coded to 30 mm here,
+# i.e. ~3.6x the pad half-diagonal, which put ~10 points of off-array space in
+# the denominator relative to every other stage. See _Config.ACTIVE_R and
+# Analysis/DET1_EFFICIENCY.md §3.
+_REF_CFG = qa.get_config('det3_final1')
+MATCH_R = _REF_CFG.MATCH_R
+ACTIVE_R = _REF_CFG.ACTIVE_R
 NOISY_PADS = (510,)
 
 MESH_RUN = 'p2_det3_mesh_scan_det4_initial_7-16-26'

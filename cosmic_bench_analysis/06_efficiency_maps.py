@@ -70,9 +70,11 @@ def main():
                     help='match radius [mm] for "within"; default = the run '
                          'config MATCH_R (20 unless overridden, e.g. 40 for '
                          'det2 from the 12_validation eff-vs-R plateau).')
-    ap.add_argument('--active-r', type=float, default=30.0,
+    ap.add_argument('--active-r', type=float, default=None,
                     help='a ray is "in active area" if within this of a transformed '
-                         'pad centre [mm] (default 30).')
+                         'pad centre [mm]. Default: the run config ACTIVE_R '
+                         '(8.4 mm = the pad half-diagonal, i.e. the furthest any '
+                         'point inside the array can be from a pad centre).')
     ap.add_argument('--chi2-cut', type=float, default=qa.M3_CHI2_CUT)
     ap.add_argument('--fit-fiducial', type=float, default=300.0,
                     help='|x_m3|,|y_m3| window used only to FIT the transform.')
@@ -93,6 +95,9 @@ def main():
     args = ap.parse_args()
 
     cfg = qa.get_config(args.run_key)
+    # --active-r unset -> the per-run geometric value (see _Config.ACTIVE_R)
+    if args.active_r is None:
+        args.active_r = cfg.ACTIVE_R
     print(cfg)
     out_dir = cfg.out_dir('06_efficiency')
     sfx = cfg.product_suffix(args.veto_sparks) + qa.chi2_tag(args.chi2_cut)

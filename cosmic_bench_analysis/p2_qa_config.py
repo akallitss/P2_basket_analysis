@@ -110,7 +110,7 @@ class _Config:
                  spark_guard_before=2.0, spark_guard_after=10.0,
                  burst_npads=20, det_tag=None, match_r=20.0, plane_z=None,
                  t_max_h=None, min_amp=0.0, out_tag=None, noisy_pads=(),
-                 hot_pad_ratio=5.0, t_min_h=None):
+                 hot_pad_ratio=5.0, t_min_h=None, active_r=8.4):
         self.KEY = key
         self.DATA_ROOT = data_root
         self.RUN = run
@@ -146,6 +146,28 @@ class _Config:
         # Track-hit match radius [mm] used by the efficiency stages (06/11/12).
         # Pick it on the plateau of 12_validation's eff-vs-R knob test.
         self.MATCH_R = float(match_r)
+        # Active-area radius [mm] -- the DENOMINATOR cut. A ray counts as an
+        # opportunity only if it lands within this of the nearest pad centre;
+        # further out it is neither a hit nor a miss.
+        #
+        # This is set by geometry, not tuned: the P2 pad pitch is 11.8 mm
+        # (pads 12.0 x 11.6), so the furthest any point INSIDE the array can be
+        # from a pad centre is the half-diagonal, 8.4 mm. Anything beyond that
+        # is off-array, where a hit is impossible, and only dilutes the
+        # efficiency.
+        #
+        # The default was 30 mm (a hard-coded argparse default in 06/12, never
+        # revisited) until 2026-08-11. On det1_long5 that admitted rays up to
+        # ~21 mm past the edge of the pad array and cost 10 points of
+        # efficiency: 93.4% at 8.4 mm vs 83.2% at 30 mm. The eff-vs-active_r
+        # scan is flat (93.3-93.8%) from 5-9 mm and then falls away steadily,
+        # so 8.4 sits on the plateau AND is the geometric anchor.
+        #
+        # Note the plateau also proves there is no inter-pad inefficiency:
+        # going 4 -> 9 mm grows the denominator 2.6x (40.8k -> 106.5k rays,
+        # i.e. adds precisely the tracks landing between pad centres) while
+        # the efficiency moves 0.2 pt.
+        self.ACTIVE_R = float(active_r)
         # Measured detector plane z [mm] (03_m3_alignment z-scan). When set it
         # overrides the run_config det_center z in det_plane_z() — the fitted
         # plane wins over the nominal one if they disagree.
@@ -460,7 +482,10 @@ RUNS = {
         det_name='P2_1',
         det_tag='det1',
         spark_channel='1:2',
-        dead_connectors=(1, 10),
+        # Connector 2 reads out nothing at the far plane (z~702, FEUs 6/7):
+        # 98-100% of its pads have zero hits in every 7-19 det1 run
+        # (verified 2026-08-12 on initial_run_det1_430_740). Same cabling as det1_long5.
+        dead_connectors=(1, 2, 10),
         match_r=40.0,               # far plane, like det2/det3 (z ~702)
         min_amp=0.0),
     # Mesh scan of the same run; sub_run is only the products dir, stage 16
@@ -472,7 +497,10 @@ RUNS = {
         det_name='P2_1',
         det_tag='det1',
         spark_channel='1:2',
-        dead_connectors=(1, 10),
+        # Connector 2 reads out nothing at the far plane (z~702, FEUs 6/7):
+        # 98-100% of its pads have zero hits in every 7-19 det1 run
+        # (verified 2026-08-12 on mesh_scan_det1_430_740). Same cabling as det1_long5.
+        dead_connectors=(1, 2, 10),
         match_r=40.0,
         min_amp=0.0),
 
@@ -500,7 +528,10 @@ RUNS = {
         det_name='P2_1',
         det_tag='det1',
         spark_channel='1:2',
-        dead_connectors=(1, 10),
+        # Connector 2 reads out nothing at the far plane (z~702, FEUs 6/7):
+        # 98-100% of its pads have zero hits in every 7-19 det1 run
+        # (verified 2026-08-12 on drift_scan_det1_415_615). Same cabling as det1_long5.
+        dead_connectors=(1, 2, 10),
         match_r=40.0,
         min_amp=0.0),
 
@@ -516,7 +547,16 @@ RUNS = {
         det_name='P2_1',
         det_tag='det1',
         spark_channel='1:2',
-        dead_connectors=(1, 10),
+        # Connector 2 added 2026-08-11: it reads out nothing. 101 of its 128
+        # pads have ZERO hits and its median occupancy is 0, while connectors
+        # 3-9 each have zero dead pads and a median of 464-706. The dead pads
+        # form one contiguous strip (cy 23-117 mm across the full cx range) --
+        # the grey band on the surface hitmap and the sharp dark region at
+        # reference X > 160 mm on the efficiency map. Leaving it in scored
+        # every track pointing at it as a miss and held the integrated
+        # efficiency at 81.6% while the live area runs ~95-100%.
+        # (det4_long2, same far plane and same FEUs 6/7, already lists it.)
+        dead_connectors=(1, 2, 10),
         match_r=40.0,
         min_amp=0.0),
 
@@ -622,6 +662,110 @@ RUNS = {
         # connectors 1 and 10 both disconnected during the HV scan
         dead_connectors=(1, 10)),
 }
+
+
+# --------------------------------------------------------------------------- #
+# Minimal-cuts profile  (export P2_MINIMAL_CUTS=1)
+# --------------------------------------------------------------------------- #
+# The per-run cuts above were tuned against the PRE-August-2026 reconstruction.
+# The mm_dream_reconstruction rebuild changed hit finding (matched-filter gate +
+# CNS on by default, 3-6x more hits), so those thresholds cannot be assumed to
+# carry over. This profile strips the tunable, data-quality cuts back to
+# "keep everything" for a first look at the reprocessed data; the plots then
+# tell us what each detector actually needs.
+#
+# RELAXED (set to keep-everything):
+#   MIN_AMP -> 0        amplitude floor: keep every hit
+#   NOISY_PADS -> ()    no hand-listed pad exclusions
+#   HOT_PAD_RATIO -> 0  disable the automatic hot-pad drop
+#   BURST_NPADS -> 0    disable the high-multiplicity burst veto
+#   T_MIN_H/T_MAX_H     open the analysis time window (full run)
+#
+# DELIBERATELY KEPT (not data-quality cuts):
+#   DEAD_CONNECTORS  physically disconnected channels. Keeping them in would
+#                    count tracks pointing at absent electronics as misses and
+#                    bias efficiency DOWN -- this is geometry, not a cut.
+#   MATCH_R          track-hit match radius; set per plane (20 mm near /
+#                    40 mm far) and scanned by 12_validation anyway.
+#   SPARK_*          the pipeline already produces vetoed AND un-vetoed
+#                    products, so the un-vetoed set is the minimal-cut view.
+#   M3_CHI2_CUT / M3_MIN_NCLUS  already the loose end of the useful range
+#                    (5.0 / 3); NClus>=3 is a correctness requirement, not a
+#                    quality cut -- a 2-point fit is exact and carries a
+#                    denormal chi2 that slips through any chi2 threshold.
+#
+# Configs with an OUT_TAG (windowed variants such as det1_long5_pre) are left
+# untouched: a time window IS their purpose, and stripping it would just
+# duplicate the parent run under a different name.
+MINIMAL_CUT_FIELDS = {
+    'MIN_AMP': 0.0,
+    'NOISY_PADS': (),
+    'HOT_PAD_RATIO': 0.0,
+    'BURST_NPADS': 0,
+    'T_MIN_H': None,
+    'T_MAX_H': None,
+}
+
+
+def apply_minimal_cuts(runs=None, keep=()) -> list:
+    """Relax the tunable data-quality cuts. Returns [(key, field, old, new)].
+
+    `keep` names fields to leave at their registered values, so the profile can
+    be walked back one cut at a time as the plots say which are needed. Set it
+    from the shell with P2_MINIMAL_EXCEPT=FIELD[,FIELD...], e.g.
+
+        P2_MINIMAL_CUTS=1 P2_MINIMAL_EXCEPT=HOT_PAD_RATIO
+
+    which keeps the automatic hot-pad drop (a handful of oscillating pads can
+    carry >50% of a run's hits and pin the charge-weighted centroid) while
+    leaving MIN_AMP at 0 so the genuine low-amplitude population recovered by
+    the 2026-08 reconstruction is kept.
+    """
+    keep = set(keep)
+    changed = []
+    for key, cfg in (runs or RUNS).items():
+        if cfg.OUT_TAG:                      # windowed variant: leave as-is
+            continue
+        for field, new in MINIMAL_CUT_FIELDS.items():
+            if field in keep:
+                continue
+            old = getattr(cfg, field)
+            if old != new:
+                changed.append((key, field, old, new))
+            setattr(cfg, field, new)
+    return changed
+
+
+MINIMAL_CUTS = bool(os.environ.get('P2_MINIMAL_CUTS'))
+MINIMAL_KEEP = tuple(f.strip() for f in
+                     os.environ.get('P2_MINIMAL_EXCEPT', '').split(',') if f.strip())
+if MINIMAL_CUTS:
+    MINIMAL_CUT_CHANGES = apply_minimal_cuts(keep=MINIMAL_KEEP)
+else:
+    MINIMAL_CUT_CHANGES = []
+
+# --------------------------------------------------------------------------- #
+# Hot-pad ratio override  (export P2_HOT_PAD_RATIO=3.0)
+# --------------------------------------------------------------------------- #
+# hot_pad_mask's own docstring notes that genuine pads stay within ~2-3x of the
+# median, so the shipped 5.0 is conservative. On det1 7-19 it left pads 703 and
+# 705 (4.3x and 4.9x median) unmasked -- just under threshold. They carry only
+# 1.0% of the hits, so they barely move the efficiency, but they set the linear
+# colour scale of the surface hitmap to ~5x the median and squash the real
+# structure into the bottom of the range.
+#
+# The occupancy distribution is cleanly bimodal here: 4.3-4.9x for the two bad
+# pads, then nothing above 2.2x. Any threshold in 2.5-4.0 separates them
+# identically, so 3.0 sits mid-gap and is robust to run-to-run fluctuation.
+#
+# Note 702 (already masked at 5.4x), 703 and 705 are neighbours -- a localised
+# cluster, not three independent pads.
+HOT_PAD_RATIO_OVERRIDE = os.environ.get('P2_HOT_PAD_RATIO')
+if HOT_PAD_RATIO_OVERRIDE:
+    _r = float(HOT_PAD_RATIO_OVERRIDE)
+    for _cfg in RUNS.values():
+        if not _cfg.OUT_TAG:
+            _cfg.HOT_PAD_RATIO = _r
 
 
 def get_config(key=None) -> _Config:
