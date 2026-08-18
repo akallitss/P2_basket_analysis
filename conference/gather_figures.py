@@ -149,6 +149,11 @@ MANIFEST = [
      '5b: the P2-only track vs the uRWELL reference - localises to the pad, cannot measure angle',
      'SACLAY/P2_basket_analysis/reports/mpgd26_sps_beam_2026-08/figs/'
      'p2_standalone_tracking.png'),
+    ('4_act3_beam', 0, 'NEW', 'p2_standalone_tracking_explained.png',
+     '5b, told as geometry: the beam cone inside one pad column, the pad-step '
+     'staircase, and the crossing point in the pad box',
+     'SACLAY/P2_basket_analysis/reports/mpgd26_sps_beam_2026-08/figs/'
+     'p2_standalone_tracking_explained.png'),
     ('4_act3_beam', 0, 'NEW', 'rate_performance.png',
      '5b.5: efficiency and fake-match rate vs beam load, within sub-runs',
      'SACLAY/P2_basket_analysis/reports/mpgd26_sps_beam_2026-08/figs/'
