@@ -20,6 +20,7 @@ Usage:  python3 make_talk_figs.py [-o OUTDIR]
 import argparse
 import json
 import os
+import sys
 
 import matplotlib
 matplotlib.use('Agg')
@@ -28,6 +29,10 @@ import numpy as np
 import pandas as pd
 
 # ---------------------------------------------------------------- paths ---- #
+# the bench pipeline owns the pad map and the insulation-mask pillars
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), 'cosmic_bench_analysis'))
+
 BENCH = ('/local/home/ak271430/Documents/PostDocSaclay/data/'
          'Cosmic_Bench/Analysis')
 BEAM = ('/media/ak271430/LaCie/Extras/Physics/Post-Doc-Saclay/data/'
@@ -63,9 +68,15 @@ BENCH_LABEL = {
             'cosmics, M3 tracks',
 }
 
+# Slide typography (2026-08-18): projected, not read at arm's length -- axis
+# labels large AND bold everywhere, matching sps_beam_analysis/mpgd26_figs/
+# p2style.py so the whole deck reads as one system.
 plt.rcParams.update({
-    'font.size': 12, 'axes.titlesize': 13, 'axes.labelsize': 12,
-    'legend.fontsize': 10.5, 'figure.facecolor': 'white',
+    'font.size': 13, 'axes.titlesize': 14, 'axes.labelsize': 16,
+    'axes.labelweight': 'bold', 'axes.titleweight': 'bold',
+    'xtick.labelsize': 13.5, 'ytick.labelsize': 13.5,
+    'legend.fontsize': 12, 'figure.facecolor': 'white',
+    'figure.titlesize': 15, 'figure.titleweight': 'bold',
     'axes.grid': True, 'grid.alpha': 0.3, 'axes.axisbelow': True,
 })
 
@@ -320,14 +331,87 @@ def fig_fe55_bench_beam(out):
 
 
 # =================================================================== 1d ==== #
+# ------------------------------------------------------- geometry helpers -- #
+def _board_to_bench():
+    """Similarity transform from the Gerber board frame (pad_cx/pad_cy, the
+    frame the beam per-pad maps live in) into the bench M3 reference frame
+    (the frame the bench efficiency map lives in).
+
+    The two pillar tables -- p2_mapping.load_pillars() in the board frame and
+    the pipeline's pillars_m3 CSV -- are the SAME 11,683 circles row for row,
+    so the map is over-determined by four orders of magnitude: fitting a full
+    affine to it closes to ~1e-13 mm and comes out a pure rotation (89.25 deg)
+    plus the alignment's 0.9743 scale, no reflection.  That is what lets the
+    beam map be drawn on top of the bench map instead of beside it.
+    """
+    import p2_qa_config as _qa
+    import p2_mapping as _pm
+    brd = _pm.load_pillars(_qa.MASK_GBR_PATH)
+    m3 = pd.read_csv(f'{BENCH}/det1/p2_det1_long_run_efficiency_7-19-26/'
+                     'long_run_det1_415_615/06_efficiency/'
+                     'pillars_m3_without_connectors_1_2_10_spark_vetoed.csv')
+    if not len(brd) or len(brd) != len(m3):
+        return None, None, None
+    A = np.column_stack([brd['x'], brd['y'], np.ones(len(brd))])
+    M, *_ = np.linalg.lstsq(A, np.column_stack([m3['x'], m3['y']]), rcond=None)
+    res = float(np.hypot(*(A @ M - np.column_stack([m3['x'], m3['y']])).T).max())
+
+    def xf(x, y):
+        v = np.column_stack([np.asarray(x, float), np.asarray(y, float),
+                             np.ones(np.size(x))]) @ M
+        return v[:, 0], v[:, 1]
+
+    scale = float(np.sqrt(abs(np.linalg.det(M[:2].T))))
+    return xf, scale, res
+
+
+def _pad_polys(xf=None):
+    """Every mapped pad as a real rectangle (Gerber tile geometry), optionally
+    carried into the bench frame.  Returns (channel_id array, (n,4,2) verts)."""
+    import p2_qa_config as _qa
+    import p2_mapping as _pm
+    m = _pm.load_pad_map(_qa.MAP_CSV_PATH)
+    a = np.radians(m['pad_angle'].to_numpy())
+    w, h = m['pad_w'].to_numpy(), m['pad_h'].to_numpy()
+    cx, cy = m['pad_cx'].to_numpy(), m['pad_cy'].to_numpy()
+    ca, sa = np.cos(a), np.sin(a)
+    verts = np.stack([np.stack([cx + dx * w * ca - dy * h * sa,
+                                cy + dx * w * sa + dy * h * ca], axis=1)
+                      for dx, dy in ((-.5, -.5), (.5, -.5), (.5, .5), (-.5, .5))],
+                     axis=1)
+    if xf is not None:
+        fx, fy = xf(verts[..., 0].ravel(), verts[..., 1].ravel())
+        verts = np.stack([fx, fy], axis=1).reshape(verts.shape)
+    return m.index.to_numpy(), verts
+
+
+def _big_pillars(ax, x, y, r, label=None, color='#d62728'):
+    from matplotlib.patches import Circle
+    first = True
+    for xi, yi, ri in zip(np.atleast_1d(x), np.atleast_1d(y), np.atleast_1d(r)):
+        ax.add_patch(Circle((xi, yi), ri, facecolor=color, edgecolor=color,
+                            zorder=6))
+        ax.add_patch(Circle((xi, yi), 9.0, facecolor='none', edgecolor=color,
+                            ls='--', lw=1.6, zorder=6,
+                            label=(label if first else None)))
+        first = False
+
+
 def fig_bench_beam_maps(out):
     """Wish-list 5a.4: the efficiency map on the bench beside the map on the
-    beam, same colour scale.  Two different chambers and two different probes
-    (18 h of cosmics through an M3 telescope vs 1.15 M SPS muons through the
-    uRWELLs), so the point is not the number -- it is that the same features
-    appear: a uniform bulk at the same level, the mesh support pillars in the
-    same places, and localised cold zones that the bench sees before a beam
-    ever does."""
+    beam -- same colour scale, and (since 2026-08-18) the same FRAME.
+
+    Two different probes on the same physical chamber (det1 = P2_MID): 18 h of
+    cosmics through an M3 telescope over the whole active area, vs 1.15 M SPS
+    muons through a beam spot that covers a fifth of it.  Drawing them in one
+    frame is the point of the figure -- it says which part of the left panel
+    the right panel is actually measuring, which the old side-by-side version,
+    with two unrelated axis ranges, could not.
+
+    Both panels are surfaces: the bench map is the 5 mm sliding window, the
+    beam map is every illuminated pad filled at its true Gerber outline.  The
+    five big mesh-support pillars are marked in both, in the same places.
+    """
     bench_npz = (f'{BENCH}/det1/p2_det1_long_run_efficiency_7-19-26/'
                  'long_run_det1_415_615/06_efficiency/'
                  'efficiency_map_sliding_without_connectors_1_2_10_'
@@ -335,49 +419,102 @@ def fig_bench_beam_maps(out):
     beam_glob = (f'{BEAM}/../P2_MID/highstat_eff_1/*/22_tag_probe_efficiency/'
                  'eff_map_P2_MID_beam_commissioning_00*.csv')
     import glob as _glob
+    from matplotlib.collections import PolyCollection
     beam_csv = sorted(_glob.glob(beam_glob))
     if not os.path.exists(bench_npz) or not beam_csv:
         print('  ! bench npz or beam map missing')
         return
 
     z = np.load(bench_npz, allow_pickle=True)
-    eff, counts = z['eff_within'], z['counts']
+    grid = np.where(z['counts'] >= int(z['min_rays']), z['eff_within'], np.nan)
     extent = z['extent']
-    grid = np.where(counts >= int(z['min_rays']), eff, np.nan)
 
     d = pd.read_csv(beam_csv[0])
-    d = d[(d['n_tag'] >= 2000) & np.isfinite(d['eff'])]   # as padmap_working_point
+    lit = d[(d['n_tag'] >= 2000) & np.isfinite(d['eff'])]
 
-    fig, axes = plt.subplots(1, 2, figsize=(14.6, 5.9))
+    xf, scale, res = _board_to_bench()
+    if xf is None:
+        print('  ! pillar correspondence unavailable — cannot co-register')
+        return
+    print(f'  board->bench frame: scale {scale:.4f}, closure {res:.2e} mm')
+
+    ids, verts = _pad_polys(xf)                      # all 1280 pads, bench frame
+    idx = {c: i for i, c in enumerate(ids)}
+    keep = [idx[c] for c in lit['channel_id'] if c in idx]
+    lit_verts = verts[keep]
+    lit_eff = lit['eff'].to_numpy()[[k in idx for k in lit['channel_id']]]
+
+    # the beam spot as one outline, for the bench panel
+    from scipy.spatial import ConvexHull
+    pts = lit_verts.reshape(-1, 2)
+    hull = pts[np.append(ConvexHull(pts).vertices, ConvexHull(pts).vertices[0])]
+
+    pil = pd.read_csv(f'{BENCH}/det1/p2_det1_long_run_efficiency_7-19-26/'
+                      'long_run_det1_415_615/06_efficiency/'
+                      'pillars_m3_without_connectors_1_2_10_spark_vetoed.csv')
+    big = pil[pil['big']]
+
+    fig, axes = plt.subplots(1, 2, figsize=(15.4, 7.4))
     vmin, vmax = 0.5, 1.0
+    lim_x = (float(extent[0]) - 6, float(extent[1]) + 6)
+    lim_y = (float(extent[2]) - 6, float(extent[3]) + 6)
 
+    # ---- left: the bench, whole active area ------------------------------ #
     im = axes[0].imshow(grid.T, origin='lower', extent=extent, cmap='viridis',
-                        vmin=vmin, vmax=vmax, aspect='equal')
-    axes[0].set_title('bench — det1, 18.3 h of cosmics, M3 tracks\n'
+                        vmin=vmin, vmax=vmax, aspect='equal', zorder=1)
+    axes[0].plot(hull[:, 0], hull[:, 1], color='#ffffff', lw=3.4, zorder=5)
+    axes[0].plot(hull[:, 0], hull[:, 1], color='#d62728', lw=2.0, ls='--',
+                 zorder=5, label='SPS beam spot (right panel)')
+    _big_pillars(axes[0], big['x'], big['y'], big['r'], label='big pillars (5)')
+    axes[0].set_title('BENCH — det1, 18.3 h of cosmics, M3 tracks\n'
                       'sliding 5 mm window, mesh 415 / drift 615 V\n'
-                      f'map median {np.nanmedian(grid):.3f}', fontsize=11)
-    axes[0].set_xlabel('x [mm]')
-    axes[0].set_ylabel('y [mm]')
+                      f'map median {np.nanmedian(grid):.3f} over the whole '
+                      'active area', fontsize=12.5)
 
-    axes[1].scatter(d['pad_cx'], d['pad_cy'], c=d['eff'], cmap='viridis',
-                    vmin=vmin, vmax=vmax, s=64, marker='s',
-                    edgecolors='#ffffff', linewidths=0.4)
-    axes[1].set_aspect('equal')
-    axes[1].set_title('beam — P2_MID, 1.15 M SPS muons, uRWELL tracks\n'
-                      'per pad, only pads with $\\geq$ 2000 tags\n'
-                      f'mesh 450 / drift 700 V, median {d["eff"].median():.3f}',
-                      fontsize=11)
-    axes[1].set_xlabel('pad x [mm]')
-    axes[1].set_ylabel('pad y [mm]')
+    # ---- right: the beam, same frame, same scale -------------------------- #
+    # three tiers, because they are three different things: the pad plane, the
+    # part of it the beam DAQ read out (connectors 3-6 = 512 pads), and the
+    # part the beam actually lit.
+    read = [idx[c] for c in d['channel_id'] if c in idx]
+    axes[1].add_collection(PolyCollection(
+        verts, facecolors='#f5f5f3', edgecolors='#e4e3df', linewidths=0.3,
+        zorder=1))
+    axes[1].add_collection(PolyCollection(
+        verts[read], facecolors='#e2e1dc', edgecolors='#c9c8c3',
+        linewidths=0.35, zorder=2,
+        label=f'read out at the beam ({len(read)} pads, connectors 3–6)'))
+    axes[1].add_collection(PolyCollection(
+        lit_verts, array=lit_eff, cmap='viridis', clim=(vmin, vmax),
+        edgecolors='face', linewidths=0.0, zorder=3))
+    axes[1].plot(hull[:, 0], hull[:, 1], color='#d62728', lw=2.0, ls='--',
+                 zorder=5, label=f'lit by the beam ({len(lit_verts)} pads, '
+                                 f'{100 * len(lit_verts) / len(read):.0f} % '
+                                 'of what was read out)')
+    _big_pillars(axes[1], big['x'], big['y'], big['r'], label='big pillars (5)')
+    axes[1].set_title('BEAM — P2_MID (the same chamber), 1.15 M SPS muons, '
+                      'uRWELL tracks\nper pad, only pads with $\\geq$ 2000 tags, '
+                      'on the full pad layout\n'
+                      f'mesh 450 / drift 700 V, median {lit["eff"].median():.3f} '
+                      'inside the spot', fontsize=12.5)
 
-    fig.colorbar(im, ax=axes, fraction=0.021, pad=0.02,
-                 label='efficiency')
-    fig.suptitle('The same map, made two ways — wish-list 5a.4\n'
-                 'different chambers, different probes, same features: '
-                 'uniform bulk, pillar shadows, and cold zones\n'
-                 'the bench sees the pillars as a 3.2 % no-hit floor; in the '
-                 'narrow beam spot they cost only 0.07 points',
-                 fontsize=12, y=1.16)
+    for ax in axes:
+        ax.set_aspect('equal')
+        ax.set_xlim(*lim_x); ax.set_ylim(*lim_y)
+        ax.set_xlabel('detector-plane x [mm]')
+        ax.legend(loc='lower left', fontsize=11.5, framealpha=0.92)
+        ax.grid(alpha=0.25)
+    axes[0].set_ylabel('detector-plane y [mm]')
+
+    cb = fig.colorbar(im, ax=axes, fraction=0.021, pad=0.02)
+    cb.set_label('efficiency', fontsize=16, fontweight='bold')
+    cb.ax.tick_params(labelsize=13)
+    fig.suptitle('The same chamber, two probes, one frame — wish-list 5a.4\n'
+                 f'the beam only ever lights the red patch '
+                 f'({100 * len(lit_verts) / len(verts):.0f} % of the pad '
+                 'plane); the bench measures all of it\n'
+                 'which is why the bench pays the pillars as a 3.2 % no-hit '
+                 'floor and the narrow spot only 0.07 points',
+                 fontsize=14.5, y=1.10)
     save(fig, out, 'bench_beam_maps')
 
 
