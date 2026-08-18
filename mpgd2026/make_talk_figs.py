@@ -44,6 +44,25 @@ C = {'P2_IN': '#1f77b4', 'P2_MID': '#ff7f0e', 'P2_OUT': '#2ca02c',
      'det4': '#ff7f0e'}
 SIZE = (9.2, 5.6)
 
+# Chamber identity across the two campaigns (hardware logbook, 26 + 28 Jul;
+# full table in sps_beam_analysis/chamber_history.py).  ALL FOUR Saclay
+# chambers travelled to H4.  P2_MID = det1 and P2_OUT = det3 for the whole
+# test, never touched; every swap happened at P2_IN -- det2 (22-23 Jul, ~20x
+# low signal from a drift HV contact), det4 (24-25 Jul, leaky drift frame),
+# det2 again (26-27 Jul, contact believed fixed), then the CERN-built chamber
+# from 28 Jul.
+BENCH_TO_STATION = {'det1': 'P2_MID', 'det3': 'P2_OUT'}
+BENCH_LABEL = {
+    'det1': 'bench det1 (= beam P2_MID) — cosmics, M3 tracks, '
+            'Ar/iC$_4$H$_{10}$ 95/5',
+    'det2': 'bench det2 (= beam P2_IN, 22–23 and 26–27 Jul) — cosmics, '
+            'M3 tracks',
+    'det3': 'bench det3 (= beam P2_OUT) — cosmics, M3 tracks, '
+            'Ar/iC$_4$H$_{10}$ 95/5',
+    'det4': 'bench det4 (= beam P2_IN, 24–25 Jul — leaky drift frame) — '
+            'cosmics, M3 tracks',
+}
+
 plt.rcParams.update({
     'font.size': 12, 'axes.titlesize': 13, 'axes.labelsize': 12,
     'legend.fontsize': 10.5, 'figure.facecolor': 'white',
@@ -62,8 +81,13 @@ def save(fig, out, name):
 # ==================================================================== 1 ==== #
 def fig_bench_beam_mesh(out):
     """eps vs mesh on the bench (cosmics/DREAM/M3) and on the beam
-    (muons/DREAM/uRWELL).  Different detectors and different gas -- the
-    claim is the SHAPE and the working point, never the same number."""
+    (muons/DREAM/uRWELL).
+
+    Chamber identity, from the 2026-07-28 logbook: the beam telescope ran
+    P2_MID = det1 and P2_OUT = det3 for the WHOLE test, and both are the same
+    physical chambers the cosmic bench characterised.  So bench det1 vs beam
+    P2_MID is a like-for-like pair; only the gas and the probe differ.  det2
+    (drawn here) went to the beam too, at P2_IN."""
     bench = {
         'det1': (f'{BENCH}/det1/p2_det1_long_run_mesh_scan_7-19-26/mesh_scan/'
                  '11_hv_scan_efficiency/'
@@ -81,7 +105,7 @@ def fig_bench_beam_mesh(out):
         d = pd.read_csv(path).sort_values('hv')
         ax.errorbar(d['hv'], d['eff_reco'], yerr=d['eff_reco_err'],
                     marker='s', ms=5, lw=1.6, ls='--', color=C[det],
-                    label=f'bench {det} — cosmics, M3 tracks, Ar/iC$_4$H$_{{10}}$ 95/5')
+                    label=BENCH_LABEL[det])
 
     b = pd.read_csv(f'{BEAM}/drift_mesh_scan_1/'
                     'urw_p2_efficiency_drift_mesh_scan_1.csv')
@@ -108,13 +132,253 @@ def fig_bench_beam_mesh(out):
     ax.set_ylabel('efficiency')
     ax.set_ylim(0.25, 1.02)
     ax.set_title('The bench predicted the beam — efficiency vs mesh voltage\n'
-                 'bench: cosmics + M3, Ar/iC$_4$H$_{10}$ 95/5   |   '
-                 'beam: SPS muons + uRWELL, Ar/CO$_2$/iC$_4$H$_{10}$ 93/5/2\n'
-                 'different chambers, different gas — the SHAPE and the '
-                 'working point transfer, the value does not',
-                 fontsize=11.5)
+                 'bench det1 IS the beam\'s P2_MID chamber: same hardware, '
+                 'cosmics + M3 vs SPS muons + uRWELL,\n'
+                 'Ar/iC$_4$H$_{10}$ 95/5 vs Ar/CO$_2$/iC$_4$H$_{10}$ 93/5/2 — '
+                 'the gas shifts the curve, the shape and the working point do '
+                 'not move', fontsize=11.5)
     ax.legend(loc='lower right', framealpha=0.95, fontsize=9.5)
     save(fig, out, 'bench_beam_mesh')
+
+
+# =================================================================== 1b ==== #
+def fig_bench_beam_drift(out):
+    """The transport half of WP-C, and the strongest form of it: bench det1 and
+    det3 are the very chambers that ran the beam as P2_MID and P2_OUT (logbook
+    26 + 28 Jul; neither station was touched during the test).  So all four
+    curves here are two chambers measured twice, in two labs, with two probes
+    and two gases.  The x axis has to be the drift FIELD rather than the
+    voltage, because the campaigns sit at different mesh settings (415/420 V on
+    the bench, 450 V on the beam) and the drift electrode reads mesh + gap in
+    both."""
+    GAP_CM = 0.3          # P2 drift gap, 3 mm (bench CSVs: dV/E = 0.3 cm)
+    bench = {
+        'det1': (f'{BENCH}/det1/p2_det1_drift_scan_7-19-26/drift_scan/'
+                 '16_drift_scan_efficiency/'
+                 'efficiency_vs_drift_without_connectors_1_2_10_spark_vetoed.csv'),
+        'det3': (f'{BENCH}/det3/p2_det3_det4_drift_scan_7-16-26/drift_scan/'
+                 '16_drift_scan_efficiency/'
+                 'efficiency_vs_drift_without_connectors_1_8_9_10_spark_vetoed.csv'),
+    }
+    fig, ax = plt.subplots(figsize=SIZE)
+
+    for det, path in bench.items():
+        if not os.path.exists(path):
+            print(f'  ! missing {path}')
+            continue
+        d = pd.read_csv(path).sort_values('drift')
+        e = (d['drift'] - d['mesh']) / GAP_CM
+        ax.errorbar(e, d['eff_reco'], yerr=d['eff_reco_err'],
+                    marker='s', ms=5, lw=1.6, ls='--', color=C[det],
+                    label=f'bench {det} (= beam {BENCH_TO_STATION[det]}) — '
+                          f'cosmics, M3 tracks, mesh '
+                          f'{int(d["mesh"].iloc[0])} V')
+
+    b = pd.read_csv(f'{BEAM}/drift_mesh_scan_1/'
+                    'urw_p2_efficiency_drift_mesh_scan_1.csv')
+    # the drift_* sub_runs hold mesh at 450 V; drift_450 is zero drift field
+    b = b[b['sub_run'].str.startswith('drift_')]
+    for st in ('P2_MID', 'P2_OUT'):          # P2_IN was parked at 430/630
+        s = b[b['station'] == st].sort_values('drift_hv')
+        if not len(s):
+            continue
+        e = (s['drift_hv'] - s['mesh_hv']) / GAP_CM
+        ax.errorbar(e, s['eff'], yerr=[s['eff'] - s['lo'], s['hi'] - s['eff']],
+                    marker='o', ms=5.5, lw=2.2, color=C[st],
+                    label=f'beam {st} — SPS muons, uRWELL tracks, mesh 450 V')
+
+    ax.axvspan(1000, 1167, color='#999', alpha=0.13, zorder=0)
+    ax.text(1083, 0.32, 'beam working point\n700 V drift / 450 V mesh\n'
+            '(833 V/cm) sits just below\nthe 750–800 V plateau',
+            fontsize=8.8, ha='center', va='center', color='#444')
+    ax.axhline(0.95, color='0.5', ls=':', lw=1.2)
+    ax.set_xlabel('drift field [V/cm]   (3 mm gap; electrode = mesh + gap V)')
+    ax.set_ylabel('efficiency')
+    ax.set_ylim(0.0, 1.02)
+    ax.set_title('The bench predicted the beam — the transport half\n'
+                 'TWO chambers measured twice: det1 = P2_MID and det3 = '
+                 'P2_OUT, on the Saclay bench and at H4\n'
+                 'sharp rise to ~0.9 by 170 V/cm, saturation by ~1000 V/cm, '
+                 'and the two campaigns agree to 2–4 points\nat the plateau '
+                 'despite different gas and different tracking',
+                 fontsize=11.5)
+    ax.legend(loc='lower right', framealpha=0.95, fontsize=9.5)
+    save(fig, out, 'bench_beam_drift')
+
+
+# =================================================================== 1c ==== #
+def fig_fe55_bench_beam(out):
+    """PARKED 2026-08-17 -- the chamber identity underneath it is contradictory.
+
+    The premise was: the 7-18-26 Fe55 scan measured the chamber that then ran as
+    P2_OUT.  That came from `p2_qa_config.py:624` ("det2 = P2_OUT ... det3 =
+    P2_MID"), which the 2026-07-28 logbook contradicts: the beam ran P2_MID =
+    det1 and P2_OUT = det3, and det2 never left Saclay (leaky drift frame).
+    Under the logbook the healthy Fe55 curve belongs to a chamber that never saw
+    the beam, and the dead one (det3) is the beam's P2_OUT -- which would need a
+    repair between 18 and 23 Jul to explain 96 % in the beam.  Not drawn until
+    the hardware record settles which chamber sat on the Fe55 bench that day.
+    Kept because the analysis is right once the label is; call it explicitly to
+    regenerate."""
+    fe = pd.read_csv(f'{BENCH}/det2/p2_fe55_det2_det3_mesh_scan_7-18-26/'
+                     'fe55_scan/18_fe55_spectra/fe55_gain_vs_hv_spark_vetoed.csv')
+    fe = fe[np.isfinite(fe['peak_adc']) & (~fe['near_floor'])].sort_values('hv')
+
+    fig, (ax, axr) = plt.subplots(1, 2, figsize=(15.0, 5.6),
+                                  gridspec_kw=dict(width_ratios=[1.35, 1],
+                                                   wspace=0.42))
+    ax.errorbar(fe['hv'], fe['peak_adc'], yerr=fe['peak_err'], marker='s',
+                ms=6, lw=1.8, ls='--', color='#7f4fc4',
+                label='bench: Fe$^{55}$ photopeak, DREAM self-trigger '
+                      '(18 Jul, Saclay)')
+    ax.set_yscale('log')
+    ax.set_ylabel('Fe$^{55}$ 5.9 keV photopeak [ADC]  $\\propto$ gas gain',
+                  color='#7f4fc4')
+    ax.tick_params(axis='y', labelcolor='#7f4fc4')
+
+    # gain e-folding: peak = A exp(V / V0)
+    sl, ic = np.polyfit(fe['hv'], np.log(fe['peak_adc']), 1)
+    v0 = 1.0 / sl
+    xs = np.linspace(fe['hv'].min() - 5, fe['hv'].max() + 5, 50)
+    ax.plot(xs, np.exp(ic + sl * xs), color='#7f4fc4', lw=1.0, alpha=0.5)
+    ax.text(0.03, 0.93, f'gain e-folds every {v0:.1f} V\n'
+                        f'(doubles every {v0 * np.log(2):.1f} V)',
+            transform=ax.transAxes, fontsize=10.5, color='#7f4fc4',
+            va='top', bbox=dict(fc='white', ec='#ddd',
+                                boxstyle='round,pad=0.3'))
+
+    ax2 = ax.twinx()
+    b = pd.read_csv(f'{BEAM}/drift_mesh_scan_1/'
+                    'urw_p2_efficiency_drift_mesh_scan_1.csv')
+    b = b[b['sub_run'].str.startswith(('meshscan', 'nominal'))]
+    s = b[b['station'] == 'P2_OUT'].sort_values('mesh_hv')
+    ax2.errorbar(s['mesh_hv'], s['eff'],
+                 yerr=[s['eff'] - s['lo'], s['hi'] - s['eff']],
+                 marker='o', ms=6, lw=2.4, color=C['P2_OUT'],
+                 label='beam: same chamber as P2_OUT, uRWELL-referenced '
+                       'efficiency (26 Jul, H4)')
+    low = f'{BEAM}/low_mesh_scan_1/urw_p2_efficiency_low_mesh_scan_1.csv'
+    if os.path.exists(low):
+        lo = pd.read_csv(low)
+        lo = lo[lo['station'] == 'P2_OUT'].sort_values('mesh_hv')
+        ax2.errorbar(lo['mesh_hv'], lo['eff'],
+                     yerr=[lo['eff'] - lo['lo'], lo['hi'] - lo['eff']],
+                     marker='o', ms=6, lw=2.4, ls=':', color=C['P2_OUT'],
+                     label='beam: low-mesh extension (low_mesh_scan_1)')
+    ax2.set_ylabel('absolute efficiency (uRWELL-referenced)',
+                   color=C['P2_OUT'])
+    ax2.tick_params(axis='y', labelcolor=C['P2_OUT'])
+    ax2.set_ylim(0, 1.03)
+    ax2.grid(False)
+
+    ax.set_xlabel('mesh voltage [V]')
+    ax.set_xlim(360, 455)
+    ax.set_title('(a) the two campaigns on one voltage axis', fontsize=11.5)
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, loc='lower right', fontsize=8.6,
+              framealpha=0.95)
+
+    # (b) eliminate the voltage: beam efficiency against the gain the bench
+    # measured at the same mesh setting.  Nothing is fitted across campaigns --
+    # the bench gain is interpolated in log space at each beam scan point.
+    beam = pd.concat([s, lo] if os.path.exists(low) else [s], ignore_index=True)
+    beam = beam.sort_values('mesh_hv')
+    ok = ((beam['mesh_hv'] >= fe['hv'].min()) &
+          (beam['mesh_hv'] <= fe['hv'].max()))
+    bb = beam[ok]
+    gain = np.exp(np.interp(bb['mesh_hv'], fe['hv'], np.log(fe['peak_adc'])))
+    axr.errorbar(gain, bb['eff'],
+                 yerr=[bb['eff'] - bb['lo'], bb['hi'] - bb['eff']],
+                 marker='o', ms=7, lw=2.2, color=C['P2_OUT'])
+    for g_, e_, v_ in zip(gain, bb['eff'], bb['mesh_hv']):
+        axr.annotate(f'{v_:.0f} V', xy=(g_, e_), xytext=(6, -10),
+                     textcoords='offset points', fontsize=8.5, color='#555')
+    axr.set_xscale('log')
+    axr.set_xlabel('gas gain the bench measured at that mesh setting\n'
+                   '[Fe$^{55}$ photopeak, ADC]')
+    axr.set_ylabel('beam efficiency (uRWELL-referenced)')
+    axr.set_ylim(0, 1.02)
+    axr.set_title('(b) the voltage divided out: efficiency vs gain',
+                  fontsize=11.5)
+    axr.text(0.04, 0.30,
+             f'over the range the Fe$^{{55}}$ fit reaches\n'
+             f'({bb.mesh_hv.min():.0f}–{bb.mesh_hv.max():.0f} V), gain '
+             f'$\\times${gain.max() / gain.min():.1f} takes the beam\n'
+             f'efficiency {bb.eff.iloc[0]:.2f} $\\rightarrow$ '
+             f'{bb.eff.iloc[-1]:.2f}. Below 380 V the photopeak\n'
+             'sits in the noise bulge and is not fitted.',
+             transform=axr.transAxes, fontsize=9.5, va='top', color='#444',
+             bbox=dict(fc='white', ec='#ddd', boxstyle='round,pad=0.3'))
+
+    fig.suptitle('The same chamber, on the bench and in the beam — '
+                 'P2_OUT (bulked 25 Jun)\n'
+                 'Fe$^{55}$ gain at Saclay on 18 Jul, SPS muons at H4 from '
+                 '23 Jul: the bench gain curve is the beam turn-on',
+                 fontsize=12.5, y=1.02)
+    save(fig, out, 'fe55_bench_beam_P2_OUT')
+
+
+# =================================================================== 1d ==== #
+def fig_bench_beam_maps(out):
+    """Wish-list 5a.4: the efficiency map on the bench beside the map on the
+    beam, same colour scale.  Two different chambers and two different probes
+    (18 h of cosmics through an M3 telescope vs 1.15 M SPS muons through the
+    uRWELLs), so the point is not the number -- it is that the same features
+    appear: a uniform bulk at the same level, the mesh support pillars in the
+    same places, and localised cold zones that the bench sees before a beam
+    ever does."""
+    bench_npz = (f'{BENCH}/det1/p2_det1_long_run_efficiency_7-19-26/'
+                 'long_run_det1_415_615/06_efficiency/'
+                 'efficiency_map_sliding_without_connectors_1_2_10_'
+                 'spark_vetoed.npz')
+    beam_glob = (f'{BEAM}/../P2_MID/highstat_eff_1/*/22_tag_probe_efficiency/'
+                 'eff_map_P2_MID_beam_commissioning_00*.csv')
+    import glob as _glob
+    beam_csv = sorted(_glob.glob(beam_glob))
+    if not os.path.exists(bench_npz) or not beam_csv:
+        print('  ! bench npz or beam map missing')
+        return
+
+    z = np.load(bench_npz, allow_pickle=True)
+    eff, counts = z['eff_within'], z['counts']
+    extent = z['extent']
+    grid = np.where(counts >= int(z['min_rays']), eff, np.nan)
+
+    d = pd.read_csv(beam_csv[0])
+    d = d[(d['n_tag'] >= 2000) & np.isfinite(d['eff'])]   # as padmap_working_point
+
+    fig, axes = plt.subplots(1, 2, figsize=(14.6, 5.9))
+    vmin, vmax = 0.5, 1.0
+
+    im = axes[0].imshow(grid.T, origin='lower', extent=extent, cmap='viridis',
+                        vmin=vmin, vmax=vmax, aspect='equal')
+    axes[0].set_title('bench — det1, 18.3 h of cosmics, M3 tracks\n'
+                      'sliding 5 mm window, mesh 415 / drift 615 V\n'
+                      f'map median {np.nanmedian(grid):.3f}', fontsize=11)
+    axes[0].set_xlabel('x [mm]')
+    axes[0].set_ylabel('y [mm]')
+
+    axes[1].scatter(d['pad_cx'], d['pad_cy'], c=d['eff'], cmap='viridis',
+                    vmin=vmin, vmax=vmax, s=64, marker='s',
+                    edgecolors='#ffffff', linewidths=0.4)
+    axes[1].set_aspect('equal')
+    axes[1].set_title('beam — P2_MID, 1.15 M SPS muons, uRWELL tracks\n'
+                      'per pad, only pads with $\\geq$ 2000 tags\n'
+                      f'mesh 450 / drift 700 V, median {d["eff"].median():.3f}',
+                      fontsize=11)
+    axes[1].set_xlabel('pad x [mm]')
+    axes[1].set_ylabel('pad y [mm]')
+
+    fig.colorbar(im, ax=axes, fraction=0.021, pad=0.02,
+                 label='efficiency')
+    fig.suptitle('The same map, made two ways — wish-list 5a.4\n'
+                 'different chambers, different probes, same features: '
+                 'uniform bulk, pillar shadows, and cold zones\n'
+                 'the bench sees the pillars as a 3.2 % no-hit floor; in the '
+                 'narrow beam spot they cost only 0.07 points',
+                 fontsize=12, y=1.16)
+    save(fig, out, 'bench_beam_maps')
 
 
 # ==================================================================== 2 ==== #
@@ -427,7 +691,9 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     print(f'writing to {a.out}')
-    for f in (fig_bench_beam_mesh, fig_dream_vs_vmm, fig_vmm_threshold,
+    for f in (fig_bench_beam_mesh, fig_bench_beam_drift,
+              fig_bench_beam_maps,        # fig_fe55_bench_beam: parked, see above
+              fig_dream_vs_vmm, fig_vmm_threshold,
               fig_snr_matrix, fig_timing_campaigns):
         try:
             f(a.out)
