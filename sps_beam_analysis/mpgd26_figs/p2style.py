@@ -37,19 +37,33 @@ GAS_SHORT = {GAS_A: 'Ar/CO₂/iso 93/5/2', GAS_B: 'Ar/CF₄/iso 88/10/2'}
 SEQ_CMAP = 'Blues'        # sequential magnitude (efficiency maps)
 SEQ_CMAP_T = 'Oranges'    # sequential magnitude (timing maps)
 
+# Slide typography (2026-08-18): these figures are projected, not read at
+# arm's length, so axis labels are large AND bold everywhere -- a grey
+# lightweight label is the first thing to disappear from the back of a room.
+# Labels take the full-strength text colour; only the tick numbers stay grey.
 plt.rcParams.update({
     'figure.facecolor': SURFACE, 'axes.facecolor': SURFACE,
     'savefig.facecolor': SURFACE, 'savefig.dpi': 150,
-    'text.color': TEXT, 'axes.labelcolor': TEXT2,
+    'text.color': TEXT, 'axes.labelcolor': TEXT,
     'xtick.color': TEXT2, 'ytick.color': TEXT2,
     'axes.edgecolor': GRID, 'axes.linewidth': 0.8,
     'axes.grid': True, 'grid.color': GRID, 'grid.linewidth': 0.6,
     'grid.alpha': 0.6, 'axes.axisbelow': True,
     'axes.spines.top': False, 'axes.spines.right': False,
-    'font.size': 11, 'axes.titlesize': 12, 'axes.titleweight': 'bold',
-    'legend.frameon': False, 'legend.fontsize': 9.5,
-    'lines.linewidth': 2.0, 'lines.markersize': 5.5,
+    'font.size': 13, 'axes.titlesize': 14.5, 'axes.titleweight': 'bold',
+    'axes.labelsize': 16, 'axes.labelweight': 'bold',
+    'xtick.labelsize': 13.5, 'ytick.labelsize': 13.5,
+    'legend.frameon': False, 'legend.fontsize': 12,
+    'figure.titlesize': 16, 'figure.titleweight': 'bold',
+    'lines.linewidth': 2.2, 'lines.markersize': 6.5,
 })
+
+
+def bold_cbar(cb, label, size=15):
+    """Colorbar labels follow the same rule as the axis labels."""
+    cb.set_label(label, fontsize=size, fontweight='bold', color=TEXT)
+    cb.ax.tick_params(labelsize=12.5)
+    return cb
 
 
 def direct_label(ax, x, y, text, color, dx=6, dy=0, fontsize=9.5):
