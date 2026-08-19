@@ -41,6 +41,10 @@ VMM = ('/local/home/ak271430/Documents/PostDocSaclay/P2_basket_analysis/'
        'sps_beam_analysis/vmm_dream_matching')
 NOV = ('/local/home/ak271430/Documents/PostDocSaclay/data/'
        'SPS_Beam_Test/VMM-alinx-data')
+WS = ('/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/'
+      'mpgd26_workspace')
+RD = f'{WS}/report_data'
+HVSET = f'{WS}/eos_inventory/hv_setpoints.csv'
 
 # Station / detector colours, kept identical to the pipeline figures so the
 # deck reads as one system.
@@ -518,6 +522,241 @@ def fig_bench_beam_maps(out):
     save(fig, out, 'bench_beam_maps')
 
 
+# =================================================================== 1e ==== #
+# The extensive bench<->beam comparison: every chamber, both campaigns.
+#
+# Five chambers went through the two campaigns and not one of them was measured
+# both ways in every axis, so the honest figure shows the gaps as well as the
+# overlaps:
+#
+#            bench mesh   bench drift   beam mesh   beam drift
+#   det1        yes          yes           yes         yes
+#   det2        yes           -            yes*         -      (* tag-probe)
+#   det3        yes          yes           yes         yes
+#   det4         -           yes           yes          -      (P2_IN parked)
+#   det5         -            -            yes          -      (CERN-built)
+#
+# Beam efficiencies are uRWELL-referenced wherever that product exists; det2's
+# beam curve comes from 2-of-3 tag-and-probe, which the method-comparison
+# figure shows agrees with the uRWELL reference to 1-2 points.
+# --------------------------------------------------------------------------- #
+CHAMBER_C = {'det1': '#1f77b4', 'det2': '#2ca02c', 'det3': '#d62728',
+             'det4': '#ff7f0e', 'det5': '#7d3ac1'}
+CHAMBERS = ['det1', 'det2', 'det3', 'det4', 'det5']
+BENCH_MESH_KEY = {'det1': 'det1_meshscan1', 'det2': 'det2_hvscan1',
+                  'det3': 'det3_meshscan1'}
+BENCH_DRIFT_KEY = {'det1': 'det1_driftscan2', 'det3': 'det3_driftscan1',
+                   'det4': 'det4_driftscan1'}
+BEAM_STATION = {'det1': 'P2_MID', 'det2': 'P2_IN', 'det3': 'P2_OUT',
+                'det4': 'P2_IN', 'det5': 'P2_IN'}
+# caveats that belong on the series, not in a caption nobody reads
+BENCH_NOTE = {'det3': ' (scan stopped at 420 V, below the plateau)',
+              'det2': ' (scan starts at 395 V)'}
+BEAM_RUN = {'det1': 'drift_mesh_scan_1', 'det3': 'drift_mesh_scan_1',
+            'det4': 'drift_mesh_scan_1', 'det5': 'p2in_hvrange_1',
+            'det2': 'drift_mesh_2d_2'}
+
+
+def _ch():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), 'sps_beam_analysis'))
+    import chamber_history as ch
+    return ch
+
+
+def _bench_scan(key, stage, stem):
+    import glob as _g
+    import p2_qa_config as _qa
+    try:
+        c = _qa.get_config(key)
+    except Exception:
+        return None
+    f = [q for q in sorted(_g.glob(os.path.join(c.OUT_BASE, stage,
+                                                f'{stem}*spark_vetoed.csv')))
+         if 'last' not in os.path.basename(q)]
+    return pd.read_csv(f[-1]) if f else None
+
+
+def bench_mesh(det):
+    k = BENCH_MESH_KEY.get(det)
+    d = _bench_scan(k, '11_hv_scan_efficiency', 'efficiency_vs_hv') if k else None
+    return None if d is None else d.sort_values('hv')
+
+
+def bench_drift(det):
+    k = BENCH_DRIFT_KEY.get(det)
+    d = (_bench_scan(k, '16_drift_scan_efficiency', 'efficiency_vs_drift')
+         if k else None)
+    return None if d is None else d.sort_values('drift')
+
+
+def _urw(run):
+    p = f'{BEAM}/{run}/urw_p2_efficiency_{run}.csv'
+    return pd.read_csv(p) if os.path.exists(p) else pd.DataFrame()
+
+
+def beam_mesh(det):
+    """Beam eps(mesh) for one chamber -> (frame, method, drift gap)."""
+    stn = BEAM_STATION[det]
+    if det in ('det1', 'det3'):
+        f = _urw('drift_mesh_scan_1')
+        parts = [f[(f.station == stn) & f.sub_run.str.startswith('meshscan')]] \
+            if len(f) else []
+        low = _urw('low_mesh_scan_1')
+        if len(low):
+            parts.append(low[low.station == stn])
+        g = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+        return g.sort_values('mesh_hv'), 'uRWELL-referenced', '200 V'
+    if det == 'det4':
+        f = _urw('drift_mesh_scan_1')
+        g = f[(f.station == stn) & f.sub_run.str.startswith('meshscan')] \
+            if len(f) else pd.DataFrame()
+        return (g.sort_values('mesh_hv') if len(g) else g,
+                'uRWELL-referenced', '200 V')
+    if det == 'det5':
+        parts = [f[f.station == stn] for f in
+                 (_urw('p2in_hvrange_1'), _urw('p2in_hvrange_2')) if len(f)]
+        g = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+        return (g.sort_values('mesh_hv') if len(g) else g,
+                'uRWELL-referenced', '300 V')
+    if det == 'det2':
+        # tag-and-probe, drift_mesh_2d_2 sliced at the same 200 V drift gap the
+        # uRWELL mesh scan used, so the two curves are directly comparable
+        tp = pd.read_csv(f'{RD}/dream_tag_probe.csv')
+        hv = pd.read_csv(HVSET)
+        h = hv[(hv.run == 'drift_mesh_2d_2') & (hv.det == stn)].copy()
+        h['gap'] = h.drift - h.mesh_or_resist
+        keep = set(h.loc[h.gap == 200, 'sub_run'])
+        g = tp[(tp.run == 'drift_mesh_2d_2') & (tp.probe == stn) & tp.vetoed
+               & tp.sub_run.isin(keep)].copy()
+        g = g.rename(columns={'hv': 'mesh_hv', 'eff_lo': 'lo', 'eff_hi': 'hi'})
+        g = g[np.isfinite(g.mesh_hv) & np.isfinite(g.eff)]
+        return g.sort_values('mesh_hv'), 'tag-and-probe (2-of-3)', '200 V'
+    return pd.DataFrame(), '', ''
+
+
+def beam_drift(det):
+    """Beam eps(drift). Only MID/OUT were scanned -- P2_IN sat parked."""
+    stn = BEAM_STATION[det]
+    if det not in ('det1', 'det3'):
+        return pd.DataFrame()
+    f = _urw('drift_mesh_scan_1')
+    if not len(f):
+        return pd.DataFrame()
+    g = f[(f.station == stn) & f.sub_run.str.startswith('drift_')]
+    return g.sort_values('drift_hv')
+
+
+def fig_bench_beam_all(out):
+    """One overlay panel with everything, plus a per-chamber grid as backup."""
+    ch = _ch()
+
+    for axis, xlab, fname in (
+            ('mesh', 'mesh voltage [V]', 'bench_beam_mesh_all'),
+            ('drift', 'drift voltage [V]', 'bench_beam_drift_all')):
+        fig, ax = plt.subplots(figsize=(13.8, 6.8))
+        n_b = n_m = 0
+        for det in CHAMBERS:
+            col = CHAMBER_C[det]
+            b = bench_mesh(det) if axis == 'mesh' else bench_drift(det)
+            if b is not None and len(b):
+                x = b['hv'] if axis == 'mesh' else b['drift']
+                ax.errorbar(x, b['eff_reco'], yerr=b.get('eff_reco_err'),
+                            marker='s', ms=6, mfc='white', mew=1.8, lw=1.8,
+                            ls='--', color=col, capsize=2,
+                            label=f'{det} — cosmic bench{BENCH_NOTE.get(det, "")}')
+                n_b += 1
+            if axis == 'mesh':
+                g, meth, gap = beam_mesh(det)
+            else:
+                g, meth, gap = beam_drift(det), 'uRWELL-referenced', ''
+            xk = 'mesh_hv' if axis == 'mesh' else 'drift_hv'
+            if len(g):
+                lab = ch.label(BEAM_STATION[det], BEAM_RUN[det],
+                               window=(BEAM_STATION[det] == 'P2_IN'))
+                extra = '' if meth.startswith('uRWELL') else f', {meth}'
+                ax.errorbar(g[xk], g['eff'],
+                            yerr=[g['eff'] - g['lo'], g['hi'] - g['eff']],
+                            marker='o', ms=6.5, lw=2.4, color=col, capsize=2,
+                            label=f'{det} — SPS beam, {lab}{extra}')
+                n_m += 1
+        ax.set_xlabel(xlab)
+        ax.set_ylabel('efficiency')
+        ax.set_ylim(0, 1.03)
+        ax.axhline(0.95, color='0.6', ls=':', lw=1.2)
+        ax.grid(alpha=.3)
+        ax.legend(loc='center left', bbox_to_anchor=(1.01, 0.5),
+                  fontsize=11.5, framealpha=.95)
+        ax.set_title(
+            f'Every chamber, both campaigns — efficiency vs {axis} voltage\n'
+            'open squares + dashed = cosmic bench (M3 tracks, '
+            'Ar/iC$_4$H$_{10}$ 95/5)\n'
+            'filled circles + solid = SPS beam '
+            '(Ar/CO$_2$/iC$_4$H$_{10}$ 93/5/2) — the gas shifts the curve '
+            'along the voltage axis, the shape does not move', fontsize=12)
+        save(fig, out, fname)
+        print(f'    {axis}: {n_b} bench series, {n_m} beam series')
+
+    fig, axes = plt.subplots(2, 5, figsize=(24.0, 10.0), sharey=True)
+    for j, det in enumerate(CHAMBERS):
+        col = CHAMBER_C[det]
+        for i, axis in enumerate(('mesh', 'drift')):
+            ax = axes[i, j]
+            b = bench_mesh(det) if axis == 'mesh' else bench_drift(det)
+            if axis == 'mesh':
+                g, meth, gap = beam_mesh(det)
+            else:
+                g, meth = beam_drift(det), 'uRWELL-referenced'
+            xk = 'mesh_hv' if axis == 'mesh' else 'drift_hv'
+            have = []
+            if b is not None and len(b):
+                x = b['hv'] if axis == 'mesh' else b['drift']
+                ax.errorbar(x, b['eff_reco'], yerr=b.get('eff_reco_err'),
+                            marker='s', ms=5, mfc='white', mew=1.6, lw=1.6,
+                            ls='--', color=col, capsize=2, label='cosmic bench')
+                have.append('bench')
+            if len(g):
+                ax.errorbar(g[xk], g['eff'],
+                            yerr=[g['eff'] - g['lo'], g['hi'] - g['eff']],
+                            marker='o', ms=5.5, lw=2.0, color=col, capsize=2,
+                            label='SPS beam')
+                have.append('beam')
+            if not have:
+                ax.text(.5, .5, 'not measured\non either setup',
+                        transform=ax.transAxes, ha='center', va='center',
+                        fontsize=14, color='0.45', style='italic')
+            else:
+                miss = {'bench', 'beam'} - set(have)
+                if miss:
+                    # as a legend entry, not free text -- free text lands on
+                    # top of whichever curve happens to be there
+                    why = ('no bench scan for this chamber' if 'bench' in miss
+                           else 'P2_IN parked, never scanned' if axis == 'drift'
+                           else 'no beam scan')
+                    ax.plot([], [], ' ', label=why)
+                ax.legend(loc='upper left', fontsize=10.5, handlelength=1.6,
+                          labelspacing=.3)
+            ax.set_ylim(0, 1.03)
+            ax.axhline(0.95, color='0.6', ls=':', lw=1.1)
+            ax.grid(alpha=.3)
+            ax.set_xlabel(f'{axis} voltage [V]')
+            if i == 0:
+                stn = BEAM_STATION[det]
+                extra = ('' if det in ('det1', 'det3')
+                         else f'\n{ch.P2IN_WINDOW.get(det, "")}')
+                ax.set_title(f'{det}   (beam station {stn}){extra}', color=col,
+                             fontsize=14.5)
+    axes[0, 0].set_ylabel('efficiency')
+    axes[1, 0].set_ylabel('efficiency')
+    fig.suptitle('Bench and beam, chamber by chamber — top row vs mesh, '
+                 'bottom row vs drift\n'
+                 'P2_MID = det1 and P2_OUT = det3 all campaign; P2_IN held '
+                 'det2 (22–23 and 26–27 Jul), det4 (24–26 Jul) and '
+                 'det5 = the CERN-built chamber (from 28 Jul)',
+                 fontsize=15, y=1.01)
+    save(fig, out, 'bench_beam_grid')
+
+
 # ==================================================================== 2 ==== #
 def _eff_table():
     d = pd.read_csv(f'{VMM}/efficiency_table.csv')
@@ -829,7 +1068,7 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     print(f'writing to {a.out}')
     for f in (fig_bench_beam_mesh, fig_bench_beam_drift,
-              fig_bench_beam_maps,        # fig_fe55_bench_beam: parked, see above
+              fig_bench_beam_all, fig_bench_beam_maps,        # fig_fe55_bench_beam: parked, see above
               fig_dream_vs_vmm, fig_vmm_threshold,
               fig_snr_matrix, fig_timing_campaigns):
         try:
