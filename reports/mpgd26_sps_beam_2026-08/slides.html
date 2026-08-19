@@ -349,7 +349,10 @@ holes are enumerated, not discovered later.</p>
 Ar/CF<sub>4</sub>/iC<sub>4</sub>H<sub>10</sub> 88/10/2 to confirm the
 predicted ≈13.5 ns (gas term 8.8→3.3 ns, working point +16 V).</li>
 <li><b>Electronics:</b> attack the 13 ns non-gas floor (walk/shaping);
-VMM time calibration runs to break the 22.5 ns BCID quantisation.</li>
+VMM timing: <b>not</b> BCID-limited (corrected 19 Aug) — the TDC fine time is
+already applied and quantisation alone is only 22.5/&radic;12 = 6.5 ns. The
+largest removable term is the trigger channel itself, 33.4 ns; reference to the
+DREAM trigger timestamp through the stream matching (10.4 ns rms) instead.</li>
 <li><b>VMM per-pad efficiency</b> backfill from tonight's capture stores →
 true DREAM/VMM like-for-like.</li>
 <li><b>Hardware:</b> P2_IN connector 11/14 check; P2_OUT gain
