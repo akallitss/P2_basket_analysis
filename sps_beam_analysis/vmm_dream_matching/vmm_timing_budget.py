@@ -50,6 +50,7 @@ STATIONS = {'P2_IN': range(2, 8), 'P2_MID': range(8, 14),
             'P2_OUT': range(14, 20)}
 TRG_VMM, TRG_CH = 0, 44
 WIN, CORE = 400.0, 120.0
+MR = 0.0                # hot-channel rate veto, set from the CLI in main()
 MAX_PAIRS_PER_MARKER = 200_000     # skip pathological markers, bounds memory
 
 
@@ -68,20 +69,44 @@ def times(c, use_fine=True):
     return t
 
 
+def hot_mask(c, max_rate_hz):
+    """Absolute-rate hot-channel veto, the same rule the efficiency uses.
+
+    A ratio-to-chip-median rule deletes beam on any chip whose threshold has
+    been raised (EFFICIENCY_AUTOPSY.md); an absolute cut has two decades of
+    clear air between a beam pad (few kHz) and a pathological channel (1e5 Hz).
+    """
+    if max_rate_hz <= 0:
+        return None
+    srs = c['srs_timestamp'].astype(np.float64)
+    lo, hi = np.quantile(srs, [0.001, 0.999])
+    live_s = max((hi - lo) * CLOCK * 1e-9, 1e-3)
+    key = c['vmm'].astype(np.int64) * 64 + c['ch'].astype(np.int64)
+    u, n = np.unique(key, return_counts=True)
+    hot = u[(n / live_s) > max_rate_hz]
+    return np.isin(key, hot) if hot.size else None
+
+
 def picker(c, name):
     if name == 'TRIG':
         return (c['vmm'] == TRG_VMM) & (c['ch'] == TRG_CH)
     return np.isin(c['vmm'], np.fromiter(STATIONS[name], int))
 
 
-def pair(caps, a, b, use_fine=True, want=()):
+def pair(caps, a, b, use_fine=True, want=(), max_rate_hz=0.0):
     """Nearest-in-time partner for every `a` hit, within one marker interval."""
     need = ['vmm', 'ch', 'bcid', 'tdc', 'srs_timestamp'] + list(want)
     out = {k: [] for k in ('dt',) + tuple(want)}
     for cap in caps:
-        c = load(cap, need)
+        try:
+            c = load(cap, need)
+        except FileNotFoundError:
+            return None
         t = times(c, use_fine)
         ia, ib = picker(c, a), picker(c, b)
+        hot = hot_mask(c, max_rate_hz)
+        if hot is not None:
+            ia = ia & ~hot
         order = np.argsort(c['srs_timestamp'], kind='stable')
         srs = c['srs_timestamp'][order]
         bounds = np.flatnonzero(np.diff(srs)) + 1
@@ -113,19 +138,55 @@ def rms(x):
     return float(np.sqrt(np.mean((x - np.mean(x)) ** 2)))
 
 
+def core_sigma(x, win=CORE, nbins=120):
+    """Gaussian-on-flat-background sigma -- the estimator the campaign fits.
+
+    The rms above includes the tails, so it sits well above this; the two must
+    never be mixed inside one decomposition.
+    """
+    if x.size < 2000:
+        return float('nan')
+    m = float(np.median(x))
+    h, e = np.histogram(x, bins=nbins, range=(m - win, m + win))
+    ctr = 0.5 * (e[:-1] + e[1:])
+    bg0 = float(np.median(h[np.abs(ctr - m) > win * 0.75]))
+    k = int((h - bg0).argmax())
+    a0, mu0 = float(h[k] - bg0), float(ctr[k])
+    w = (h - bg0).clip(0)
+    s0 = float(np.sqrt(np.average((ctr - mu0) ** 2, weights=w))) if w.sum() \
+        else 20.0
+    try:
+        from scipy.optimize import curve_fit
+
+        def f(x_, a, mu, sg, bg):
+            return a * np.exp(-0.5 * ((x_ - mu) / sg) ** 2) + bg
+
+        p_, _ = curve_fit(f, ctr, h, p0=[a0, mu0, s0, bg0],
+                          sigma=np.sqrt(np.maximum(h, 1)), maxfev=20000)
+        return abs(float(p_[2]))
+    except Exception:
+        return float('nan')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--store', default=STORE)
     ap.add_argument('--captures', type=int, default=6)
+    ap.add_argument('--max-rate-khz', type=float, default=20.0,
+                    help='drop channels above this absolute rate; 0 disables')
     a = ap.parse_args()
     caps = sorted(glob.glob(os.path.join(a.store, '*')))[:a.captures]
-    print(f'{len(caps)} captures from {a.store}\n')
+    caps = [c for c in caps if os.path.isdir(c)]
+    global MR
+    MR = a.max_rate_khz * 1e3
+    print(f'{len(caps)} captures from {a.store}'
+          f'   (hot-channel veto at {a.max_rate_khz:g} kHz)\n')
 
     print('== 1. what the TDC fine time is worth ==')
     for st in STATIONS:
         line = f'   {st:8s}'
         for fine, lbl in ((False, 'BCID only'), (True, 'BCID+TDC')):
-            r = pair(caps, st, 'TRIG', use_fine=fine)
+            r = pair(caps, st, 'TRIG', use_fine=fine, max_rate_hz=MR)
             line += f'   {lbl} {rms(r["dt"]):5.1f} ns' if r else f'   {lbl}  --'
         print(line)
     print('   -> the clock is not the limit: quantisation alone is '
@@ -133,8 +194,12 @@ def main():
 
     print('== 2. per-channel t0 and time walk ==')
     for st in STATIONS:
-        r = pair(caps, st, 'TRIG', want=('adc', 'vmm', 'ch'))
-        if r is None or r['dt'].size < 5000:
+        r = pair(caps, st, 'TRIG', want=('adc', 'vmm', 'ch'),
+                 max_rate_hz=MR)
+        if r is None:
+            print(f'   {st:8s} skipped -- no adc column in this store')
+            continue
+        if r['dt'].size < 5000:
             continue
         d = r['dt']
         base = rms(d)
@@ -157,25 +222,34 @@ def main():
     print()
 
     print('== 3. how much of it is the trigger channel ==')
-    s = {}
+    print(f'   {"pair":26s} {"rms":>8s} {"core fit":>9s}')
+    S = {}
     for x, y in (('P2_MID', 'TRIG'), ('P2_OUT', 'TRIG'), ('P2_IN', 'TRIG'),
                  ('P2_MID', 'P2_OUT')):
-        r = pair(caps, x, y)
-        s[(x, y)] = rms(r['dt']) if r is not None and r['dt'].size > 1000 \
-            else float('nan')
-        print(f'   sigma({x:6s} - {y:6s}) = {s[(x, y)]:5.1f} ns')
-    t2 = 0.5 * (s[('P2_MID', 'TRIG')] ** 2 + s[('P2_OUT', 'TRIG')] ** 2
-                - s[('P2_MID', 'P2_OUT')] ** 2)
-    if t2 > 0:
-        print(f'\n   trigger channel      {np.sqrt(t2):5.1f} ns')
+        r = pair(caps, x, y, max_rate_hz=MR)
+        if r is None or r['dt'].size <= 1000:
+            S[(x, y)] = (float('nan'), float('nan'))
+        else:
+            S[(x, y)] = (rms(r['dt']), core_sigma(r['dt']))
+        print(f'   sigma({x:6s} - {y:6s}) = {S[(x, y)][0]:8.1f} '
+              f'{S[(x, y)][1]:9.1f} ns')
+
+    for i, name in ((0, 'rms'), (1, 'core fit')):
+        s = {k: v[i] for k, v in S.items()}
+        t2 = 0.5 * (s[('P2_MID', 'TRIG')] ** 2 + s[('P2_OUT', 'TRIG')] ** 2
+                    - s[('P2_MID', 'P2_OUT')] ** 2)
+        if not np.isfinite(t2) or t2 <= 0:
+            continue
+        print(f'\n   --- solved with the {name} estimator ---')
+        print(f'   trigger channel      {np.sqrt(t2):5.1f} ns')
         for st in ('P2_MID', 'P2_OUT'):
             v = s[(st, 'TRIG')] ** 2 - t2
             print(f'   {st} intrinsic     {np.sqrt(v):5.1f} ns' if v > 0
                   else f'   {st} intrinsic    unphysical')
-        print('\n   -> the trigger channel is a scintillator read through a VMM '
-              'discriminator.\n      Referencing to the DREAM trigger timestamp '
-              'instead (stream matching,\n      10.4 ns residual rms) replaces '
-              'it -- see README.md.')
+    print('\n   -> the trigger channel is a scintillator read through a VMM '
+          'discriminator.\n      Referencing to the DREAM trigger timestamp '
+          'instead (stream matching,\n      10.4 ns residual rms) replaces '
+          'it -- see README.md.')
 
 
 if __name__ == '__main__':
