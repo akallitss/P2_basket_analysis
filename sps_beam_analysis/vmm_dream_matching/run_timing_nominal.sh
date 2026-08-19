@@ -1,54 +1,62 @@
 #!/usr/bin/env bash
-# Redo the timing budget at the nominal working point, and fit the dt peak at
-# each detector's best-timing point per gas.
+# Timing budget at the nominal working point + the dt peak fits per detector
+# per gas.  RUN THIS ON LXPLUS -- there is no xrdcp and no EOS mount on the
+# laptop, and the CERN principal is `akallits`, not the local username.
 #
-# Needs a Kerberos ticket:   kinit akallits@CERN.CH
-# Run it on lxplus, or locally once the sub_runs below are staged.
+#   ssh lxplus            # the ssh config alias; keeps a 1-day control master
+#   ./run_timing_nominal.sh
 #
-# The four working points come from vmm_timing_by_subrun.csv, taking the
-# smallest sigma among sub_runs that still have a real signal (efficiency
-# > 0.30).  Without that cut the "best" points are dead detectors: mesh 350 V
-# gives sigma 4.8 ns at zero efficiency, which is below the 6.5 ns
-# quantisation floor and is not a coincidence at all.
+# Two things this has to work around, both learned the hard way:
+#
+#  * lxplus's default python3 has no pandas, which vmm_decode needs, so an LCG
+#    view is sourced below.
+#  * MOST sub_runs were reduced with --drop-columns and keep only
+#    counts/meta/scalars, and the ENTIRE gas-B period (run_61 onward) has no
+#    hits_store at all.  Only these keep full columns: run_32/33/34/35/36,
+#    38, 40-43, 49-52, 56.  Everything else has to be decoded from pcapng,
+#    which is what decode_to_store.py is for (~12 s per capture).
+#
+# Working points, chosen from vmm_timing_by_subrun.csv by smallest sigma among
+# sub_runs that still have a real signal (efficiency > 0.30).  Without that cut
+# the "best" points are dead detectors: mesh 350 V gives sigma 4.8 ns at zero
+# efficiency, below the 6.5 ns quantisation floor, so not a coincidence at all.
 set -euo pipefail
 
-EOS=/eos/experiment/ntof/data/x17/p2_sps_july/vmm/runs
-WORK=${TMPDIR:-/tmp}/vmm_timing
-OUT=$(cd "$(dirname "$0")" && pwd)
-FIGS=$OUT/../../mpgd2026/figs
+source /cvmfs/sft.cern.ch/lcg/views/LCG_105/x86_64-el9-gcc13-opt/setup.sh
+
+E=/eos/experiment/ntof/data/x17/p2_sps_july/vmm/runs
+HERE=$(cd "$(dirname "$0")" && pwd)
+WORK=${TMPDIR:-/tmp}/$(whoami)/vmmtiming
 mkdir -p "$WORK"
+cd "$WORK"
 
-# run/sub_run                              tag           label
-POINTS=(
-  "run_48/cfg_gain4.5_peaktime200_opt|midA|P2_MID best, gas A - mesh 450 / drift 750, gain 4.5, peak 200 ns"
-  "run_66/cfg_gain4.5_peaktime200_opt|midB|P2_MID + P2_OUT best, gas B - mesh 450 / drift 750, gain 4.5, peak 200 ns"
-  "run_57/driftscan_gap400V|outA|P2_OUT best, gas A - mesh 450 / drift 850, gain 3.0, peak 200 ns"
-  "run_36/operating_00|nomA|nominal working point, gas A - mesh 450 / drift 750, gain 3.0, peak 200 ns"
-)
+# --- gas B has no column store: rebuild it from the raw captures ----------- #
+if [ ! -f "$WORK/store_gasB/.done" ]; then
+  python3 "$HERE/decode_to_store.py" \
+      "$E/run_66/cfg_gain4.5_peaktime200_opt/raw_daq_data" \
+      "$WORK/store_gasB" --captures 12
+  touch "$WORK/store_gasB/.done"
+fi
 
-for p in "${POINTS[@]}"; do
-  IFS='|' read -r sub tag label <<<"$p"
-  dst=$WORK/$tag
-  if [ ! -d "$dst" ]; then
-    echo "staging $sub -> $dst"
-    mkdir -p "$dst"
-    # hits_store holds the reduced column store; fall back to the raw captures
-    xrdcp -r --silent "root://eosuser.cern.ch/$EOS/$sub/hits_store" "$dst" \
-      || cp -r "$EOS/$sub/hits_store/." "$dst/"
-  fi
-  echo "== $tag: $label"
-  python3 "$OUT/vmm_timing_peaks.py" --store "$dst" --tag "$tag" \
-      --captures 24 --label "$label"
-done
+# --- the dt peaks ---------------------------------------------------------- #
+python3 "$HERE/vmm_timing_peaks.py" --store "$E/run_36/operating_00/hits_store" \
+    --tag nomA --captures 24 \
+    --label "gas A - run_36/operating_00, mesh 450 / drift 750, gain 3.0, peak 200 ns"
 
-echo
-echo "== timing budget at the nominal working point =="
-python3 "$OUT/vmm_timing_budget.py" --store "$WORK/nomA" --captures 12 \
-    | tee "$OUT/TIMING_BUDGET_nominal.txt"
+python3 "$HERE/vmm_timing_peaks.py" --store "$E/run_35/driftscan_gap400V/hits_store" \
+    --tag outA --captures 16 \
+    --label "gas A - run_35/driftscan_gap400V, mesh 450 / drift 850, gain 3.0, peak 200 ns"
+
+python3 "$HERE/vmm_timing_peaks.py" --store "$WORK/store_gasB" \
+    --tag gasB --captures 12 \
+    --label "gas B - run_66/cfg_gain4.5_peaktime200_opt, mesh 450 / drift 750, gain 4.5, peak 200 ns"
+
+# --- the budget, at the nominal point, both estimators --------------------- #
+python3 "$HERE/vmm_timing_budget.py" --store "$E/run_36/operating_00/hits_store" \
+    --captures 10 | tee "$WORK/TIMING_BUDGET_nominal.txt"
 
 echo
-python3 "$OUT/../../mpgd2026/make_timing_peaks_fig.py" \
-    "$OUT/timing_peaks_midA.npz" "$OUT/timing_peaks_midB.npz" \
-    --col-labels "gas A  Ar/CO2/iC4H10 93/5/2" "gas B  Ar/CF4/iC4H10 88/10/2" \
-    --stations P2_MID P2_OUT -o "$FIGS" --name vmm_timing_peaks
-echo "figures in $FIGS"
+echo "npz + budget in $WORK ; copy them back and run"
+echo "  python3 mpgd2026/make_timing_peaks_fig.py timing_peaks_nomA.npz timing_peaks_gasB.npz \\"
+echo "      --col-labels 'gas A  Ar/CO2/iC4H10 93/5/2' 'gas B  Ar/CF4/iC4H10 88/10/2' \\"
+echo "      --stations P2_MID P2_OUT -o mpgd2026/figs --name vmm_timing_peaks"
