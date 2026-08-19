@@ -98,14 +98,13 @@ def main():
             draw(ax, z, m, st)
             if i == 0:
                 ax.set_title(cols[j], fontsize=11.5)
-            if i == nr - 1:
-                ax.set_xlabel('t(station) - t(trigger), BCID phase [ns]')
             if j == 0:
                 ax.set_ylabel(f'{st}' + NL + 'pairs per bin')
     for j, m in enumerate(metas):
-        axes[-1][j].text(0.02, 0.03, m.get('label', ''),
-                         transform=axes[-1][j].transAxes, fontsize=8.2,
-                         color='#666', style='italic', va='bottom')
+        axes[-1][j].set_xlabel(
+            't(station) - t(trigger), BCID phase [ns]' + NL
+            + m.get('label', ''), fontsize=11.5)
+        axes[-1][j].xaxis.label.set_multialignment('center')
     fig.suptitle(a.title, fontsize=13.5)
     for ext in ('png', 'pdf'):
         fig.savefig(os.path.join(a.out, f'{a.name}.{ext}'), dpi=170,

@@ -203,40 +203,129 @@ Figure `mpgd2026/figs/vmm_timing_peaks_validation.png` is that check, and shows
 what the distributions look like: P2_MID a clean Gaussian on a flat pedestal at
 peak/bg 19, P2_OUT broad and visibly non-Gaussian at that low drift field.
 
-## Still to run -- needs a Kerberos ticket
+## RUN 2026-08-19 on lxplus: the nominal budget and the peak fits
 
-**EOS was not reachable on 2026-08-19**: the ticket expired 17 Aug 05:56 and the
-renewable window had lapsed (`kinit -R` returns "Ticket expired while renewing"),
-so a fresh password login is needed. Everything below is written and validated,
-and runs unattended once that is done:
+### The budget at the nominal working point
 
-```bash
-kinit akallits@CERN.CH
-./run_timing_nominal.sh
-```
+`run_36/operating_00`, mesh 450 / drift 750, gas A, gain 3.0, peak 200 ns.
+**Both estimators are reported now**, because mixing them was the tension the
+previous version flagged:
 
-It stages four sub_runs from `/eos/.../vmm/runs/`, produces
-`timing_peaks_{midA,midB,outA,nomA}.npz`, re-runs the timing budget at the
-**nominal** working point into `TIMING_BUDGET_nominal.txt`, and draws
-`mpgd2026/figs/vmm_timing_peaks.png`.
+| pair | rms in +-120 ns | Gaussian core fit |
+|---|---|---|
+| P2_MID - trigger | 32.0 | 24.2 ns |
+| P2_OUT - trigger | 39.1 | 31.3 ns |
+| P2_MID - P2_OUT  | 36.8 | 29.8 ns |
 
-**What to expect from the nominal budget, and what would change the story.**
-The existing budget is from run_33 at drift 600 on the bench gas, where the
-drift term is large: trigger 33.4 ns against P2_MID's 26.6 ns intrinsic. At
-drift 750 the campaign fit gives 22 ns *total* for P2_MID -- already below the
-33.4 ns trigger term measured at low field. Those cannot both be right, so one
-of two things is true, and the run settles it:
+**The tension is resolved: it was the estimator.** The rms sits ~30 % above the
+core fit, which is why the low-field rms decomposition (trigger 33.4 ns) looked
+larger than the campaign's fitted 22 ns. Solved with the core fit -- the same
+estimator `vmm_efficiency.py` uses, so directly comparable with every sigma
+quoted anywhere:
 
-* the trigger term is **smaller** at the nominal point than at run_33 (the
-  trigger channel's own walk depends on its pulse height, which is not the same
-  run), or
-* the rms-inside-+-120 ns estimator used for the budget sits well above the
-  fitted core sigma, and the two must be compared like for like.
+| | gas A (run_36, gain 3.0) | gas B (run_66, gain 4.5) |
+|---|---|---|
+| **trigger channel** | **18.4 ns** | **16.4 ns** |
+| P2_MID intrinsic | 15.6 ns | **12.2 ns** |
+| P2_OUT intrinsic | 25.4 ns | 24.7 ns |
 
-The budget script should therefore be re-run **and** compared against a core-
-sigma estimator on the same sample before the 33.4 ns number goes on a slide.
-It is currently in `TIMING.md` and in the deck as the headline of the timing
-outlook; if the nominal run does not reproduce it, that claim comes back out.
+**The conclusion survives at the nominal point, with smaller numbers: the
+trigger channel (18.4 ns) is still larger than the chamber it is measuring
+(15.6 ns).**
+
+Three things fall out of the gas-B column, and they are mutually consistent:
+
+* **The trigger term drops 18.4 -> 16.4 ns** between the two runs. That is not
+  a gas effect -- the trigger is a scintillator. It is the *gain*: run_66 runs
+  the chip at 4.5 mV/fC against run_36's 3.0, and hybrid 0 carries the trigger,
+  so its own pulse is 1.5x larger against the same discriminator and walks
+  less. The threshold story reaches even the trigger.
+* **P2_MID's own resolution improves 15.6 -> 12.2 ns on the CF4 mixture** --
+  a 22 % gain, much larger than the raw sigma suggests (22.0 -> 18.4 ns),
+  because the trigger term dilutes it. **This is the number to quote for the
+  chamber: 12.2 ns, comfortably inside the 20 ns P2 goal.**
+* **P2_OUT is unchanged by the gas** (25.4 -> 24.7 ns), which is consistent
+  with its timing being limited by something else -- and with its sigma still
+  improving out to drift 850 where P2_MID has plateaued.
+
+**Projection.** Replacing the VMM trigger channel with the DREAM trigger
+timestamp through the stream matching (10.4 ns residual rms) gives
+sqrt(15.6^2 + 10.4^2) = **18.7 ns** measured on gas A and
+sqrt(12.2^2 + 10.4^2) = **16.0 ns** on gas B, without touching the detector.
+
+The TDC and t0/walk findings are unchanged at nominal: toggling the fine time
+moves the rms by ~1 ns (P2_MID 33.2 -> 32.0), and per-channel t0 plus slewing
+take 32.0 -> 30.3 ns, a 5 % gain, with a channel t0 spread of 10.8 ns rms and
+16 ns of walk across the ADC deciles.
+
+### The dt distributions, per detector per gas
+
+`timing_peaks_{nomA,outA,gasB}.npz`, drawn in
+`mpgd2026/figs/vmm_timing_peaks.png`:
+
+| working point | P2_MID | P2_OUT | P2_IN |
+|---|---|---|---|
+| gas A, 450/750 (`run_36/operating_00`) | **22.00** | 26.60 | 44.96 ns |
+| gas A, 450/**850** (`run_35/driftscan_gap400V`) | 22.25 | **24.19** | 36.35 ns |
+| gas B, 450/750 (`run_66`, gain 4.5) | **18.41** | **25.01** | 42.22 ns |
+
+These reproduce the campaign's stored fits essentially exactly -- P2_MID gas A
+22.00 against the table's 22.004, gas B 18.41 against 18.86 -- which is the
+validation that the reimplementation is the same measurement.
+
+**One artefact worth knowing about.** The first gas-B fit gave a peak/background
+of 1.8 where gas A gave 32. That was not physics: `run_66` has **two screaming
+channels on P2_MID (VMM 9 channels 49 and 56, 42 % of the station's hits each)**
+and the raw decode keeps them, while the stored gas-A columns had already been
+reduced. Applying the same absolute-rate veto the efficiency analysis uses
+(`--max-rate-khz 20`) restores peak/bg to 27.8 and leaves sigma essentially
+unmoved (18.31 -> 18.41) -- the peak was robust, the background was not. All
+numbers above are masked.
+
+**A feature the Gaussian does not describe:** P2_OUT has a right-hand shoulder
+at roughly +200 to +280 ns in both gases, visible in the figure. It is not in
+P2_MID. It is unexplained -- late drift electrons or a second population -- and
+it means P2_OUT's sigma is a core width, not a full description of its response.
+
+### What had to be worked around
+
+* **lxplus's default python3 has no pandas**, which `vmm_decode` imports;
+  the LCG_105 view provides numpy/pandas/scipy.
+* **Most sub_runs were reduced with `--drop-columns`** and keep only
+  counts/meta/scalars. Full hit columns exist only for run_32/33/34/35/36, 38,
+  40-43, 49-52, 56 -- and **the entire gas-B period has no `hits_store` at
+  all**. `decode_to_store.py` rebuilds the five columns the coincidence needs
+  straight from the pcapng at ~12 s per capture.
+* Because of that, two substitutes were used, both at the same configuration
+  and HV as the intended sub_run: `run_36/operating_00` for P2_MID gas A
+  (sigma 22.00 against run_48's 21.7) and `run_35/driftscan_gap400V` for
+  P2_OUT gas A at drift 850 (24.19 against run_57's 23.46).
+* `run_66`'s store has no `adc` column, so the walk section is skipped there
+  rather than crashing.
+
+### And, while EOS was open: V3 and V5 closed
+
+The chip config files are on EOS next to each run. **V3 is confirmed
+outright:** `diff` between `run_47/..._deflt.txt` and `run_48/..._opt.txt`
+gives **72 differing lines, all 72 of them `Field sdt`** -- commented out in
+`_deflt`, active in `_opt`. Nothing else differs: not gain, not peaking time,
+not latency. The controlled experiment is airtight.
+
+**V5 too:** run_46's P2_OUT chips are all at `sdt` 224 and run_48's at 230
+(one at 265), exactly as the autopsy read them -- so 0.854 vs 0.822 is a
+threshold step in the right direction, not an unexplained reproducibility term.
+
+## Still open
+
+* **The P2_OUT right-hand shoulder** (+200 to +280 ns, both gases). Unexplained.
+  Until it is, P2_OUT's sigma is a core width only.
+* **A DREAM-referenced VMM time** -- the projection above (18.7 ns gas A,
+  16.0 gas B) is arithmetic, not a measurement. `match_streams.py` already
+  provides the timestamps; wiring them in as the reference is the work.
+* **Per-channel t0 and walk on gas B** -- `decode_to_store.py` keeps five
+  columns and `adc` is not one of them. Add it if the 5 % is wanted there too.
+* **run_48 and run_57 themselves**, rather than the substitutes, if the exact
+  best-timing sub_runs matter: both need a pcapng decode.
 
 ## Reproducing
 

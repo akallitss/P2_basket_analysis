@@ -33,14 +33,18 @@ BY_HV = ('/local/home/ak271430/Documents/PostDocSaclay/P2_basket_analysis/'
 GAS_A, GAS_B = 'Ar/CO2/Iso 93/5/2', 'Ar/CF4/Iso 88/10/2'
 C = {'P2_IN': '#1f77b4', 'P2_MID': '#ff7f0e', 'P2_OUT': '#2ca02c'}
 
-# vmm_timing_budget.py on run_33/driftscan_gap150V, 6 captures.
-# rms inside +-120 ns of the peak, NOT the fitted core sigma -- so these are
-# the decomposition, not absolutes.
-BUDGET = {'measured P2_MID vs trigger': 42.7,
-          'trigger channel': 33.4,
-          'P2_MID intrinsic': 26.6,
-          'per-channel t0 spread': 12.9,
+# vmm_timing_budget.py at the NOMINAL working point (run_36/operating_00,
+# mesh 450 / drift 750, gas A), solved with the Gaussian core-fit estimator --
+# the same one vmm_efficiency.py fits, so these are directly comparable with
+# every sigma quoted elsewhere. The rms-inside-+-120 ns estimator gives the
+# same ordering but sits ~30 % higher; the two must never be mixed.
+BUDGET = {'measured P2_MID vs trigger': 24.2,
+          'trigger channel': 18.4,
+          'P2_MID intrinsic': 15.6,
+          'per-channel t0 spread': 10.8,
           'BCID quantisation': 22.5 / np.sqrt(12)}
+# same solve on gas B (run_66): trigger 16.4, P2_MID 12.2, P2_OUT 24.7 ns.
+PROJECTED = np.sqrt(15.6 ** 2 + 10.4 ** 2)   # DREAM timestamp in place of it
 
 plt.rcParams.update({
     'font.size': 12, 'axes.titlesize': 13, 'axes.labelsize': 12,
@@ -97,18 +101,23 @@ def panel_budget(ax):
     vals = [BUDGET[k.replace(chr(10), ' ')] for k in order]
     ax.barh(y, vals, color=cols, height=0.62)
     for yi, v in zip(y, vals):
-        ax.text(v + 1.0, yi, f'{v:.1f} ns', va='center', fontsize=10.5,
+        ax.text(v + 0.5, yi, f'{v:.1f} ns', va='center', fontsize=10.5,
                 fontweight='bold')
     ax.set_yticks(y)
     ax.set_yticklabels(order)
-    ax.set_xlim(0, 52)
+    ax.axvline(PROJECTED, color='#1f77b4', ls='--', lw=2.0)
+    ax.text(PROJECTED + 0.5, 2.5,
+            f'with a DREAM-referenced timestamp{NL}'
+            f'instead: {PROJECTED:.1f} ns',
+            color='#1f77b4', fontsize=9.2, va='center')
+    ax.set_xlim(0, 30)
     ax.set_xlabel('rms contribution [ns]')
     ax.set_title('(b) what the width is made of' + NL
-                 + 'the clock is not the limit; the trigger channel is the '
-                   'largest removable term', fontsize=11.3)
+                 + 'the clock is not the limit; the trigger channel is larger '
+                   'than the chamber', fontsize=11.3)
     ax.grid(axis='y', alpha=0)
-    ax.text(0.97, 0.06, 'rms inside +-120 ns on run_33 (low drift field,'
-            + NL + 'bench gas) -- the decomposition, not an absolute',
+    ax.text(0.97, 0.06, 'Gaussian core fit, run_36/operating_00,'
+            + NL + 'mesh 450 / drift 750, gas A',
             transform=ax.transAxes, ha='right', va='bottom',
             fontsize=8.2, color='#666', style='italic',
             bbox=dict(fc='white', ec='#ccc', boxstyle='round,pad=0.3'))
