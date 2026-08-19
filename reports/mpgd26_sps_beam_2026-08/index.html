@@ -436,14 +436,18 @@ sideband-subtracted) now live at
 </table></div>
 <figure>
 <img src="figs/vmm_vs_dream_caveat.png" alt="DREAM vs VMM">
-<figcaption><b>Never put these on one axis as numbers:</b> DREAM efficiency
-is per-track over the illuminated pads; the VMM number counts <i>every</i>
-trigger while only connectors c4–c6 (of ~10) carry VMM hybrids, and P2_IN
-additionally sat below its turn-on. The VMM turn-on <i>shape</i>, its
-cluster size (1.11–1.18 pads vs DREAM 1.05–1.08) and its hit maps are the
-honest like-for-like comparisons. The per-pad acceptance-restricted VMM
-efficiency (taskplan T3) is the remaining step — the pad map and in-time
-selection exist; tonight's per-capture stores make the backfill cheap.
+<figcaption><b>Superseded 17 Aug.</b> This figure was made when the VMM
+number was a whole-station scalar over every trigger while only connectors
+c4–c6 (of ~10) carried VMM hybrids — a different denominator from DREAM's
+per-track efficiency over the illuminated pads, which is why the two could
+not share an axis. The per-pad acceptance-restricted VMM efficiency has
+since been derived against the same uRWELL tracks, fiducial and probe radius
+as the DREAM campaign over 78 sub-runs, so the comparison is now direct.
+<b>One claim from this caption is withdrawn:</b> the cluster-size comparison
+(1.11–1.18 pads vs DREAM 1.05–1.08) is <i>not</i> like-for-like — DREAM
+builds a charge-weighted leading cluster, while the VMM efficiency code
+deliberately does not cluster at all and counts any pad within the probe
+radius. Do not quote it until the VMM side is reclustered the same way.
 </figcaption></figure>
 <h3>9.2 The electronics config scan</h3>
 <figure>
