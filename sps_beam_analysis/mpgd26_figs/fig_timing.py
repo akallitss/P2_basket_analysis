@@ -7,6 +7,8 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import p2style as st
 import matplotlib.pyplot as plt
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import chamber_history as ch
 
 from paths import S, A, URW, RD, OUT  # noqa: E402
 DETS = ['P2_IN', 'P2_MID', 'P2_OUT']
@@ -23,7 +25,8 @@ for det in DETS:
     ok = np.isfinite(mv) & np.isfinite(sg)
     o = np.argsort(mv[ok].to_numpy())
     x, y = mv[ok].to_numpy()[o], sg[ok].to_numpy()[o]
-    ax.plot(x, y, color=st.DET_COLOR[det], marker='o', lw=2, label=det)
+    ax.plot(x, y, color=st.DET_COLOR[det], marker='o', lw=2,
+            label=ch.label(det, 'drift_mesh_scan_1'))
     st.direct_label(ax, x[-1], y[-1], det, st.DET_COLOR[det], dy=DY[det])
 ax.axhline(20, color=st.C_RED, lw=1.2, ls=':')
 ax.annotate('P2 goal: 20 ns', xy=(0.02, 20), xycoords=('axes fraction', 'data'),
@@ -47,7 +50,8 @@ for det in ['P2_MID', 'P2_OUT']:
     ok = np.isfinite(dv) & np.isfinite(sg) & (dv > mv)   # drop zero-field point
     o = np.argsort(dv[ok].to_numpy())
     x, y = dv[ok].to_numpy()[o], sg[ok].to_numpy()[o]
-    ax.plot(x, y, color=st.DET_COLOR[det], marker='o', lw=2, label=det)
+    ax.plot(x, y, color=st.DET_COLOR[det], marker='o', lw=2,
+            label=ch.label(det, 'drift_mesh_scan_1'))
     st.direct_label(ax, x[-1], y[-1], det, st.DET_COLOR[det], dy=DY[det])
 ax.axhline(20, color=st.C_RED, lw=1.2, ls=':')
 ax.set_xlabel('drift voltage [V] (mesh 450 V)')
@@ -118,7 +122,9 @@ for ax, det in zip(axes, DETS):
                 ax.text(xx, yy, f'{v:.0f}', ha='center', va='center',
                         fontsize=7.2,
                         color='white' if v > 40 else st.TEXT)
-    ax.set_title(det, color=st.DET_COLOR[det])
+    ax.set_title(ch.label(det, run2d if 'run2d' in dir() else
+                          'drift_mesh_scan_1'),
+                 color=st.DET_COLOR[det])
     ax.set_xlabel('mesh voltage [V]')
     ax.grid(False)
 axes[0].set_ylabel('drift $-$ mesh voltage [V]')
@@ -148,7 +154,9 @@ for ax, det in zip(axes, DETS):
                 label=f'{gap:.0f} V')
     ax.axhline(20, color=st.C_RED, lw=1.2, ls=':')
     ax.set_ylim(12, 70)          # P2_IN below 370 V runs to 180 ns, off scale
-    ax.set_title(det, color=st.DET_COLOR[det])
+    ax.set_title(ch.label(det, run2d if 'run2d' in dir() else
+                          'drift_mesh_scan_1'),
+                 color=st.DET_COLOR[det])
     ax.set_xlabel('mesh voltage [V]')
 axes[0].set_ylabel('single-station $\\sigma$ [ns]')
 axes[0].annotate('P2 goal: 20 ns', xy=(0.03, 20), xycoords=('axes fraction', 'data'),
@@ -189,7 +197,9 @@ for ax, det in zip(axes, DETS):
     ax.axhline(20, color=st.C_RED, lw=1.2, ls=':')
     ax.axvline(250, color=st.GRID, lw=1.4, ls='--')
     ax.set_ylim(12, 46)
-    ax.set_title(det, color=st.DET_COLOR[det])
+    ax.set_title(ch.label(det, run2d if 'run2d' in dir() else
+                          'drift_mesh_scan_1'),
+                 color=st.DET_COLOR[det])
     ax.set_xlabel('drift $-$ mesh voltage [V]')
     # the physical axis: 3 mm gap, so 150 V = 500 V/cm
     top = ax.secondary_xaxis('top', functions=(lambda v: v / 0.3,
@@ -303,3 +313,59 @@ st.finish(fig, f'{OUT}/timing_ladder.png')
 print('pair-derived single-station sigma (ns):',
       {k: v['sigma_single_ns'] for k, v in pair.items()})
 print('done')
+
+
+# ------------------------------------ T8: the two mesh-scan campaigns at once
+# Replaces the scratch-tree `timing_vs_mesh_bothruns.png` (2026-08-19), whose
+# legend called the 25 Jul curve "CERN bulk P2_IN era" -- on 25 Jul the P2_IN
+# station held det4; the CERN-built chamber (det5) only arrived on 28 Jul.  It
+# also plotted the 28 Jul 2D scan against mesh alone, so P2_IN grew a stack of
+# duplicate points at 440 V.
+#
+# What the figure is actually for: P2_MID (det1) and P2_OUT (det3) are the SAME
+# chambers in both campaigns, so their pairs of curves are a reproducibility
+# check three days apart -- and against that yardstick the P2_IN pair is a
+# genuine chamber-to-chamber comparison, det4 vs det5.
+CAMPAIGNS = [
+    ('drift_mesh_scan_1', None, '25 Jul', '-', 'o', 1.0),
+    ('p2_mesh_drift_eff_1', 300, '28 Jul', '--', '^', 0.85),
+]
+
+fig, ax = plt.subplots(figsize=(10.4, 6.4))
+for run, gap, when, ls, mk, alpha in CAMPAIGNS:
+    g0 = tm[(tm.run == run) & (tm.axis == 'mesh')].copy()
+    if not len(g0):
+        continue
+    for det in DETS:
+        mv = g0[f'mesh_v_{det}'].astype(float)
+        sg = g0[f'{det}_sigma'].astype(float)
+        dv = g0[f'drift_v_{det}'].astype(float)
+        ok = np.isfinite(mv) & np.isfinite(sg)
+        if gap is not None:                       # a 2D scan: take one gap
+            ok &= np.isclose(dv - mv, gap)
+        if not ok.any():
+            continue
+        o = np.argsort(mv[ok].to_numpy())
+        x, y = mv[ok].to_numpy()[o], sg[ok].to_numpy()[o]
+        ax.plot(x, y, color=st.DET_COLOR[det], marker=mk, ls=ls, lw=2.1,
+                ms=6, alpha=alpha,
+                label=f'{ch.label(det, run)} — {when}')
+ax.axhline(20, color=st.C_RED, lw=1.4, ls=':')
+ax.annotate('P2 goal: 20 ns', xy=(0.02, 20), xycoords=('axes fraction', 'data'),
+            xytext=(0, 6), textcoords='offset points', fontsize=12,
+            color=st.C_RED, fontweight='bold')
+# the lowest det5 points are below turn-on (a few % efficient) and reach
+# 190 ns; letting them set the scale flattens everything that matters
+ax.set_ylim(14, 48)
+ax.text(0.015, 0.965, 'det5 below turn-on runs off scale: 193 ns at 345 V',
+        transform=ax.transAxes, fontsize=11, color=st.TEXT2, va='top')
+ax.set_xlabel('mesh voltage [V]')
+ax.set_ylabel('single-station time resolution $\\sigma$ [ns]')
+ax.legend(loc='upper right', fontsize=11, ncol=2, columnspacing=1.0)
+ax.set_title('Timing vs mesh HV, both mesh-scan campaigns\n'
+             'P2_MID (det1) and P2_OUT (det3) are the same chambers on both '
+             'dates — their pairs are a reproducibility check;\n'
+             'only P2_IN changed hardware, det4 (25 Jul) to det5 = the '
+             'CERN-built chamber (28 Jul)', fontsize=12)
+st.finish(fig, f'{OUT}/timing_vs_mesh_bothruns.png')
+print('wrote', f'{OUT}/timing_vs_mesh_bothruns.png')
