@@ -187,7 +187,12 @@ overlap. **They must never appear on the same axis as they stand.**
   HV — cluster size (VMM 1.11–1.18 vs DREAM 1.05–1.08 pads), ADC/MPV spectra, timing σ, hit maps
   side by side. Still a real slide, and it makes the honest point that VMM timing is
   calibration-limited.
-- Two things to state rather than fix: VMM σ is pinned at the 22.5 ns BCID quantisation for want
+- **Corrected 2026-08-19 (`vmm_dream_matching/TIMING.md`):** VMM σ is *not* BCID-limited. The
+  TDC fine time is already applied and toggling it changes σ by <1 ns; quantisation alone is
+  22.5/√12 = 6.5 ns. The largest removable term is the **trigger channel itself** — a scintillator
+  read through a VMM discriminator — at 33.4 ns against P2_MID's 26.6 ns intrinsic. Referencing to
+  the DREAM trigger timestamp via the stream matching (10.4 ns rms) is the real improvement.
+- Superseded, kept for the record: VMM σ is pinned at the 22.5 ns BCID quantisation for want
   of time-calibration runs (`qa_config.py: 'calibration': None`); and P2_IN reads low because of
   **gain** (mesh 440 V vs 450 V, still on the steep turn-on), not mapping — a reviewer will
   otherwise read it as a broken station.
