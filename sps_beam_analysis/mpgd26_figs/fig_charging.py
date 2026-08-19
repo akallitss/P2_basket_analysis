@@ -7,6 +7,8 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import p2style as st
 import matplotlib.pyplot as plt
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import chamber_history as ch
 import matplotlib.dates as mdates
 
 from paths import S, A, URW, RD, OUT  # noqa: E402
@@ -34,7 +36,7 @@ t0 = hv.groupby(['run', 'sub_run'])['time'].min().to_dict()
 
 for run in sorted(tb.run.unique()):
     g0 = tb[tb.run == run]
-    fig, ax = plt.subplots(figsize=(11.5, 5.0))
+    fig, ax = plt.subplots(figsize=(12.6, 5.6))
     for det in DETS:
         g = g0[g0.det == det]
         if not len(g):
@@ -51,13 +53,15 @@ for run in sorted(tb.run.unique()):
                         color=st.DET_COLOR[det], marker='o', ms=3.5, lw=1.4,
                         capsize=0, alpha=0.9)
         # one legend entry per det
-        ax.plot([], [], color=st.DET_COLOR[det], marker='o', lw=1.4, label=det)
+        ax.plot([], [], color=st.DET_COLOR[det], marker='o', lw=1.4,
+                label=ch.label(det, run, window=(det == 'P2_IN')))
     ax.legend(loc='lower left', ncol=3)
-    ax.set_ylabel('absolute efficiency (uRWELL-referenced)')
+    ax.set_ylabel('absolute efficiency')
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
     day = t0.get((run, sorted(g0.sub_run.unique())[0]))
     ax.set_xlabel(f'time of day, {day:%d %b %Y}' if day is not None else 'time')
     ax.set_title(f'Efficiency vs time within sub-runs — {run} '
-                 f'(2-min bins, constant HV)')
+                 f'(2-min bins, constant HV)\n'
+                 + ', '.join(ch.label(d, run) for d in DETS))
     st.finish(fig, f'{OUT}/eff_vs_time_{run}.png')
 print('done')

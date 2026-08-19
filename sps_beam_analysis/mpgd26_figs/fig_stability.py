@@ -7,6 +7,8 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import p2style as st
 import matplotlib.pyplot as plt
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import chamber_history as ch
 import matplotlib.dates as mdates
 
 from paths import S, A, URW, RD, OUT  # noqa: E402
@@ -27,7 +29,8 @@ for det in DETS:
     tt = t.copy()
     ax1.plot(np.insert(tt, brk + 1, tt[brk] + np.timedelta64(1, 'm')),
              np.insert(v2, brk + 1, np.nan),
-             color=st.DET_COLOR[det], lw=1.2, label=f'{det} mesh')
+             color=st.DET_COLOR[det], lw=1.2,
+             label=f'{ch.label_any(det)} mesh')
 ax1.set_ylabel('mesh voltage readback [V]')
 ax1.set_ylim(0, 480)
 ax1.legend(loc='lower left', fontsize=9, ncol=3)
@@ -123,7 +126,7 @@ for det in DETS:
     g = u[u.station == det].set_index('sub_run').reindex(order)
     ax.errorbar(x, g.eff, yerr=[g.eff - g.lo, g.hi - g.eff],
                 color=st.DET_COLOR[det], marker='o', lw=2, capsize=2.5,
-                label=det)
+                label=ch.label(det, 'highstat_eff_1'))
     st.direct_label(ax, x[-1], g.eff.iloc[-1], det, st.DET_COLOR[det])
 ax.axvspan(4.5, 5.5, color=st.GRID, alpha=0.4, lw=0)
 ax.annotate('after 2.5 h pause,\nrate 4.6→3.2 kHz', xy=(5, 0.9445),

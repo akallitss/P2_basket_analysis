@@ -7,6 +7,8 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import p2style as st
 import matplotlib.pyplot as plt
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import chamber_history as ch
 
 from paths import S, A, URW, RD, OUT  # noqa: E402
 DETS = ['P2_IN', 'P2_MID', 'P2_OUT']
@@ -30,7 +32,7 @@ for ax, det in zip(axes, DETS):
                     ls=ls, marker=mk, capsize=2.5, lw=2,
                     alpha=1.0 if gas == st.GAS_A else 0.75,
                     label=f'{st.GAS_SHORT[gas]}  [{lab}]')
-    ax.set_title(det, color=st.DET_COLOR[det])
+    ax.set_title(ch.label(det, 'run_32'), color=st.DET_COLOR[det])
     ax.set_xlabel('mesh voltage [V]')
     ax.set_ylim(-0.02, 0.75)
 axes[0].set_ylabel('trigger-referenced efficiency\n(whole station, c4–c6 instrumented)')

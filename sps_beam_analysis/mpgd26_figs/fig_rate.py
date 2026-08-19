@@ -111,7 +111,7 @@ def main():
     ax.plot([], [], '-', color=st.DET_COLOR['P2_MID'], label='P2_MID fits')
     ax.plot([], [], '-', color=st.DET_COLOR['P2_OUT'], label='P2_OUT fits')
     ax.set_xlabel('uRWELL track rate in the time bin [Hz]')
-    ax.set_ylabel('absolute efficiency (uRWELL-referenced)')
+    ax.set_ylabel('absolute efficiency')
     ax.set_title('Each line is one sub-run\n(the offsets between runs are '
                  'not a rate effect)', fontsize=11)
     ax.legend(loc='lower right', fontsize=8)
@@ -144,10 +144,11 @@ def main():
             for run, gg in g.groupby('run'):
                 ax2.plot(gg.rate_hz, gg.accidental_per_10mm * 100, '^', ms=5,
                          alpha=0.8,
-                         label=f'P2_IN = {ch.chamber("P2_IN", run)} ({run})')
+                         label=f'{ch.label("P2_IN", run)}  [{run}]')
         else:
             ax2.plot(g.rate_hz, g.accidental_per_10mm * 100, 'o', ms=5.5,
-                     color=st.DET_COLOR[det], label=det)
+                     color=st.DET_COLOR[det],
+                     label=ch.label_any(det))
     ax2.set_xlabel('mean uRWELL track rate in the sub-run [Hz]')
     ax2.set_ylabel('accidental match per 10 mm probe [%]')
     ax2.set_title('Fake-match background\n0.05–0.11 % over the whole campaign',
