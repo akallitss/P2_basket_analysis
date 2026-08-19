@@ -768,7 +768,15 @@ def fig_dream_vs_vmm(out):
     """The like-for-like plot: both readouts on the same three detectors,
     the same uRWELL tracks, the same cuts.  This is only legitimate because
     the VMM efficiency was re-derived against that reference (Aug 2026)."""
-    dream = {'P2_IN': 0.9649, 'P2_MID': 0.9706, 'P2_OUT': 0.9604}
+    # DREAM reference at run_46's OWN working point (mesh 450 / drift 750),
+    # not at highstat_eff_1's drift 700.  Band = min..max over every
+    # uRWELL-referenced DREAM measurement at that point, 25 and 28 Jul; see
+    # vmm_dream_matching/COMPARISON_CLAIMS.md task V2.  P2_IN's reference is
+    # the 28 Jul chamber, i.e. the one run_46 actually read -- the 25 Jul
+    # 0.965 belongs to the chamber that was swapped out on 27 Jul.
+    dream_band = {'P2_IN': (0.9426, 0.9426), 'P2_MID': (0.9097, 0.9681),
+                  'P2_OUT': (0.9546, 0.9718)}
+    dream = {k: 0.5 * (v[0] + v[1]) for k, v in dream_band.items()}
     d = _eff_table()
 
     def row(run, sub):
@@ -781,7 +789,7 @@ def fig_dream_vs_vmm(out):
 
     # ---- left: the like-for-like comparison, station by station -------- #
     series = [
-        ('DREAM (25 Jul, highstat_eff_1)', dream, '#111111', 'o'),
+        ('DREAM, same working point (25 + 28 Jul)', dream, '#111111', 'o'),
         ('VMM, best config of the campaign\n(run_46: gain 4.5 mV/fC, 200 ns)',
          row('run_46', 'cfg_gain4.5_peaktime200'), '#2ca02c', 's'),
         ('VMM, same config file with the per-chip\nthreshold lines removed '
@@ -793,15 +801,28 @@ def fig_dream_vs_vmm(out):
     for lbl, vals, col, mk in series:
         y = [vals[s] for s in sts]
         ax.plot(x, y, marker=mk, ms=11, lw=2.2, color=col, label=lbl)
-        for xi, yi in zip(x, y):
-            if np.isfinite(yi):
-                ax.annotate(f'{yi:.3f}', (xi, yi), textcoords='offset points',
-                            xytext=(0, 13), ha='center', fontsize=10.5,
-                            color=col, fontweight='bold')
+        is_dream = lbl.startswith('DREAM')
+        for xi, yi, st in zip(x, y, sts):
+            if not np.isfinite(yi):
+                continue
+            if is_dream:
+                blo, bhi = dream_band[st]
+                txt = (f'{blo:.3f}' if bhi - blo < 0.005
+                       else f'{blo:.3f}-{bhi:.3f}')
+            else:
+                txt = f'{yi:.3f}'
+            ax.annotate(txt, (xi, yi), textcoords='offset points',
+                        xytext=(0, 13), ha='center', fontsize=10.5,
+                        color=col, fontweight='bold')
 
-    ax.axhspan(0.95, 0.975, color='#111111', alpha=0.07, zorder=0)
-    ax.text(-0.42, 0.962, 'DREAM band', fontsize=9, color='#555',
-            va='center')
+    for xi, st in enumerate(sts):
+        blo, bhi = dream_band[st]
+        ax.add_patch(plt.Rectangle((xi - 0.30, blo), 0.60,
+                                   max(bhi - blo, 0.004),
+                                   color='#111111', alpha=0.16, zorder=1))
+    ax.text(-0.42, 0.02, 'grey band = spread of every DREAM measurement\n'
+            'at that same mesh 450 / drift 750', fontsize=8.4, color='#555',
+            ha='left', va='bottom')
     ax.annotate('the best individual VMM pads of P2_OUT\n'
                 'already read 0.962 / 0.957 / 0.954',
                 xy=(2.0, 0.854), xytext=(0.75, 0.72), fontsize=9.8,
@@ -809,8 +830,10 @@ def fig_dream_vs_vmm(out):
                 arrowprops=dict(arrowstyle='->', color='#555', lw=1.3),
                 bbox=dict(fc='#f4faf4', ec='#8bbf8b',
                           boxstyle='round,pad=0.4'))
-    ax.text(0.0, 0.235, 'P2_IN: lower bound only\n(raised thresholds +\n'
-            'suspect pad map)', fontsize=8.4, color='#7a3030', ha='center',
+    ax.axvspan(-0.45, 0.45, color='#999999', alpha=0.13, zorder=0)
+    ax.text(0.0, 0.30, 'P2_IN: LOWER BOUND, not a\nmeasurement of the '
+            'chamber\n(3 of 6 chips at raised thresholds,\nchannel map under '
+            'revision)', fontsize=8.4, color='#7a3030', ha='center',
             va='bottom')
     ax.set_xticks(x)
     ax.set_xticklabels([f'{s}\nz = {z} mm' for s, z in
@@ -843,9 +866,11 @@ def fig_dream_vs_vmm(out):
             ax2.plot(xs, ys, marker=mk, ms=8, lw=2.0, ls=ls, color=C[st],
                      label=f'{st}, gain {gain} mV/fC')
     for st in ('P2_MID', 'P2_OUT'):
+        ax2.axhspan(*dream_band[st], color=C[st], alpha=0.12, zorder=0)
         ax2.axhline(dream[st], color=C[st], ls=':', lw=1.6, alpha=0.8)
         dy = 0.022 if st == 'P2_MID' else -0.030
-        ax2.text(24, dream[st] + dy, f'DREAM {st} = {dream[st]:.3f}',
+        ax2.text(24, dream[st] + dy, f'DREAM {st} = '
+                 f'{dream_band[st][0]:.3f}-{dream_band[st][1]:.3f}',
                  fontsize=9, color=C[st],
                  va='bottom' if dy > 0 else 'top', ha='left')
     ax2.set_xscale('log')
