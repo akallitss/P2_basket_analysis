@@ -144,6 +144,100 @@ field on the *bench* gas (Ar/iC₄H₁₀ 95/5), which is a worst case for the d
 term. **Repeat at the nominal working point when EOS is reachable** — the
 trigger term should be unchanged, but the intrinsic terms will drop.
 
+
+## Best-timing working point per detector per gas (2026-08-19)
+
+From `vmm_timing_by_subrun.csv` (median over captures, >=8 captures, contrast
+>=8), scanning **every** chip configuration and HV point of the campaign.
+
+**The selection needs an efficiency requirement, and this is not a detail.**
+Sorted on sigma alone the "best" points are all mesh 350-400 V with efficiency
+0.000 and sigma 4.8-8.8 ns -- *below the 6.5 ns quantisation floor*, so they
+cannot be a real coincidence. They are dead-detector runs where the fit latches
+onto a narrow accidental structure. Requiring a real signal (efficiency > 0.30):
+
+| station | gas | best sigma | gain | peaking | mesh / drift | sub_run |
+|---|---|---|---|---|---|---|
+| P2_MID | A | **21.7 ns** | 4.5 | 200 ns | 450 / 750 | `run_48/cfg_gain4.5_peaktime200_opt` |
+| P2_MID | B | **18.9 ns** | 4.5 | 200 ns | 450 / 750 | `run_66/cfg_gain4.5_peaktime200_opt` |
+| P2_OUT | A | **23.5 ns** | 3.0 | 200 ns | 450 / **850** | `run_57/driftscan_gap400V` |
+| P2_OUT | B | **24.4 ns** | 4.5 | 200 ns | 450 / 750 | `run_66/cfg_gain4.5_peaktime200_opt` |
+
+Two things worth saying out loud:
+
+* **`run_66` is the best-timing point for both stations on gas B**, so one
+  sub_run gives the whole gas-B column.
+* **P2_OUT's best timing is at drift 850, not 750** -- it is still improving
+  where P2_MID has plateaued. Its own drift optimum has not been reached.
+
+### Shorter shaping does NOT improve the timing
+
+At the nominal point on gas A, sweeping the peaking time:
+
+| peaking [ns] | P2_MID sigma | P2_MID eff | P2_OUT sigma | P2_OUT eff |
+|---|---|---|---|---|
+| 25 | 28.9 | 0.216 | 35.3 | 0.334 |
+| 50 | 23.7 | 0.362 | 34.7 | 0.568 |
+| 100 | 22.1 | 0.560 | 29.0 | 0.656 |
+| 200 | 22.8 | 0.375 | 28.3 | 0.603 |
+
+Timing gets *worse* towards short shaping, which is backwards for a shaper and
+is the threshold story again: at short peaking the pulse is smaller relative to
+a fixed discriminator, so more of the sample sits on the slow part of the
+leading edge and time-walks. There is no timing-versus-efficiency trade-off to
+optimise here -- 100-200 ns wins on both axes.
+
+## The fit machinery, and how it was validated
+
+`vmm_timing_peaks.py` rebuilds the coincidence from hit columns and fits a
+Gaussian on a flat background (the flat term is the ~18-fold BCID ambiguity,
+which the campaign subtracts by sideband). It is a reimplementation, so it was
+checked against the campaign fit on the one sub_run available locally:
+
+| | this fit | campaign `scalars.json` |
+|---|---|---|
+| P2_MID, run_33 drift 600 | 37.3 ns | 37.6 ns |
+| P2_OUT, run_33 drift 600 | 86.0 ns | 90.2 ns |
+
+Figure `mpgd2026/figs/vmm_timing_peaks_validation.png` is that check, and shows
+what the distributions look like: P2_MID a clean Gaussian on a flat pedestal at
+peak/bg 19, P2_OUT broad and visibly non-Gaussian at that low drift field.
+
+## Still to run -- needs a Kerberos ticket
+
+**EOS was not reachable on 2026-08-19**: the ticket expired 17 Aug 05:56 and the
+renewable window had lapsed (`kinit -R` returns "Ticket expired while renewing"),
+so a fresh password login is needed. Everything below is written and validated,
+and runs unattended once that is done:
+
+```bash
+kinit akallits@CERN.CH
+./run_timing_nominal.sh
+```
+
+It stages four sub_runs from `/eos/.../vmm/runs/`, produces
+`timing_peaks_{midA,midB,outA,nomA}.npz`, re-runs the timing budget at the
+**nominal** working point into `TIMING_BUDGET_nominal.txt`, and draws
+`mpgd2026/figs/vmm_timing_peaks.png`.
+
+**What to expect from the nominal budget, and what would change the story.**
+The existing budget is from run_33 at drift 600 on the bench gas, where the
+drift term is large: trigger 33.4 ns against P2_MID's 26.6 ns intrinsic. At
+drift 750 the campaign fit gives 22 ns *total* for P2_MID -- already below the
+33.4 ns trigger term measured at low field. Those cannot both be right, so one
+of two things is true, and the run settles it:
+
+* the trigger term is **smaller** at the nominal point than at run_33 (the
+  trigger channel's own walk depends on its pulse height, which is not the same
+  run), or
+* the rms-inside-+-120 ns estimator used for the budget sits well above the
+  fitted core sigma, and the two must be compared like for like.
+
+The budget script should therefore be re-run **and** compared against a core-
+sigma estimator on the same sample before the 33.4 ns number goes on a slide.
+It is currently in `TIMING.md` and in the deck as the headline of the timing
+outlook; if the nominal run does not reproduce it, that claim comes back out.
+
 ## Reproducing
 
 ```bash
