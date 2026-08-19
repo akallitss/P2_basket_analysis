@@ -59,7 +59,24 @@ def gauss_bg(x, a, mu, sigma, bg):
     return a * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + bg
 
 
-def dt_of(store, station, captures, win, trg_vmm, trg_ch):
+def hot_channels(c, max_rate_hz):
+    """Channels above an absolute rate, which is the only rule that survives.
+
+    Flagging at N x the chip's own median occupancy deletes beam: on a chip
+    whose threshold has been raised the noise disappears, the median collapses
+    and the illuminated pads stand 30-50x above it (EFFICIENCY_AUTOPSY.md).
+    A 12 x 12 mm pad in this beam takes a few kHz and the pathological channels
+    sit at 1e5 Hz, so an absolute cut has two decades of clear air.
+    """
+    srs = c['srs_timestamp'].astype(np.float64)
+    lo, hi = np.quantile(srs, [0.001, 0.999])     # quantiles: a few hits read 0
+    live_s = max((hi - lo) * CLOCK * 1e-9, 1e-3)
+    key = c['vmm'].astype(np.int64) * 64 + c['ch'].astype(np.int64)
+    u, n = np.unique(key, return_counts=True)
+    return set(u[(n / live_s) > max_rate_hz].tolist()), live_s
+
+
+def dt_of(store, station, captures, win, trg_vmm, trg_ch, max_rate_hz=0.0):
     """dt for every station hit against its nearest trigger in the same marker."""
     caps = sorted(glob.glob(os.path.join(store, '*')))
     caps = [c for c in caps if os.path.isdir(c)][:captures]
@@ -75,6 +92,11 @@ def dt_of(store, station, captures, win, trg_vmm, trg_ch):
              + CLOCK - c['tdc'].astype(np.float64) * TAC_NS / TDC_RANGE)
         is_t = (c['vmm'] == trg_vmm) & (c['ch'] == trg_ch)
         is_d = np.isin(c['vmm'], vmms)
+        if max_rate_hz > 0:
+            hot, _ = hot_channels(c, max_rate_hz)
+            if hot:
+                key = c['vmm'].astype(np.int64) * 64 + c['ch'].astype(np.int64)
+                is_d &= ~np.isin(key, list(hot))
         order = np.argsort(c['srs_timestamp'], kind='stable')
         srs = c['srs_timestamp'][order]
         bounds = np.flatnonzero(np.diff(srs)) + 1
@@ -138,13 +160,19 @@ def main():
     ap.add_argument('--trigger-vmm', type=int, default=TRG_VMM)
     ap.add_argument('--trigger-ch', type=int, default=TRG_CH)
     ap.add_argument('--label', default='', help='free text stored with the fits')
+    ap.add_argument('--max-rate-khz', type=float, default=20.0,
+                    help='drop station channels above this absolute rate; '
+                         '0 disables. A beam pad takes a few kHz, the '
+                         'pathological channels 100+.')
     a = ap.parse_args()
 
     res, meta = {}, dict(tag=a.tag, store=a.store, label=a.label,
-                         win=a.win, nbins=a.nbins, captures=a.captures)
+                         win=a.win, nbins=a.nbins, captures=a.captures,
+                         max_rate_khz=a.max_rate_khz)
     for st in STATIONS:
         dt = dt_of(a.store, st, a.captures, a.win,
-                   a.trigger_vmm, a.trigger_ch)
+                   a.trigger_vmm, a.trigger_ch,
+                   max_rate_hz=a.max_rate_khz * 1e3)
         f = fit_peak(dt, a.win, a.nbins)
         res[f'{st}_counts'] = f['counts']
         res[f'{st}_edges'] = f['edges']
