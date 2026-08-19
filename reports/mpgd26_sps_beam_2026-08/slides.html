@@ -215,7 +215,7 @@ corrected on EOS.</p>
 <td>12</td><td>best station</td></tr>
 <tr><td class="out">P2_OUT</td><td>96.0 %</td><td>≈94.6 %</td><td>18.4</td>
 <td>69</td><td>works; uniform gain deficit + sparky</td></tr>
-<tr><td>VMM readout (c4–c6)</td><td colspan="2">turn-on shape ✓, cluster 1.11–1.18 pads</td>
+<tr><td>VMM readout (c4–c6)</td><td colspan="2">turn-on shape ✓ (cluster size withdrawn — not like-for-like)</td>
 <td>BCID 22.5</td><td>—</td><td>—</td><td>needs per-pad denominator (path known)</td></tr>
 </table>
 <p class="msg"><b>Message:</b> a P2-geometry telescope measured absolutely:
@@ -296,13 +296,22 @@ property of the detector, not of one analysis.</p>
 </section>
 
 <section class="slide"><span class="tag bkup">BACKUP — caveat</span>
-<h2>Why DREAM and VMM efficiencies must not share an axis</h2>
+<h2>Putting DREAM and VMM on one axis: what had to be fixed first</h2>
 <img src="figs/vmm_vs_dream_caveat.png" alt="DREAM vs VMM">
-<p class="msg"><b>Message:</b> the VMM number counts every trigger while
-only c4–c6 carry hybrids (and P2_IN sat below turn-on) — comparable
-quantities are the turn-on shape, cluster size and hit maps. The per-pad
-acceptance-restricted efficiency is the known missing step; tonight's
-per-capture stores make its backfill cheap.</p>
+<p class="msg"><b>SUPERSEDED 17 Aug — kept for the history.</b> This slide
+used to say the two efficiencies must never share an axis, because the VMM
+number was a whole-station scalar over every trigger while only c4–c6 carry
+hybrids. That denominator mismatch is <b>fixed</b>: the VMM efficiency has
+been re-derived against the same uRWELL tracks, the same fiducial and the
+same probe radius as the DREAM campaign, over 78 sub-runs, so the two are
+now directly comparable — see the DREAM-vs-VMM slide.</p>
+<p class="msg">Three caveats that <i>do</i> survive, and are carried on the
+comparison itself: the DREAM reference must be taken at the VMM run's own
+<b>drift voltage</b> (750 V, not highstat_eff_1's 700 V); <b>P2_IN</b> is a
+lower bound, and its DREAM reference is the 28 Jul chamber, since the
+original was swapped out on 27 Jul; and the <b>cluster-size</b> comparison
+is still <i>not</i> like-for-like — the VMM efficiency code deliberately does
+not cluster — so it has been dropped rather than quoted.</p>
 </section>
 
 <section class="slide"><span class="tag bkup">BACKUP — stability</span>
