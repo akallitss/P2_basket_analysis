@@ -69,7 +69,8 @@ DREAM_BAND = (0.9546, 0.9655)
 DREAM_C, VMM_C = '#111111', '#2ca02c'
 
 plt.rcParams.update({
-    'font.size': 12, 'axes.titlesize': 13, 'axes.labelsize': 12,
+    'xtick.labelsize': 16, 'ytick.labelsize': 16,
+    'font.size': 14, 'axes.titlesize': 14, 'axes.labelsize': 17,
     'legend.fontsize': 10, 'figure.facecolor': 'white',
     'axes.grid': True, 'grid.alpha': 0.3, 'axes.axisbelow': True,
 })
@@ -84,14 +85,20 @@ def dream_spectrum():
     return c, e, float(d['row']['mpv_adc']), int(d['row']['n_events'])
 
 
-def panel_a(ax, vmm_hist):
+def panel_a(ax, vmm_hist, label='(a) '):
     c, e, mpv, n = dream_spectrum()
     ctr = 0.5 * (e[:-1] + e[1:])
     x = ctr / mpv                                   # normalise to own MPV
     y = c / c.sum() / (np.diff(e) / mpv)            # density per MPV unit
     ymax = y.max()
 
-    lo, p05 = VMM['lowest'] / VMM['mpv'], VMM['p05'] / VMM['mpv']
+    vmpv_ref = VMM['mpv']
+    if vmm_hist is not None:
+        _m = np.load(vmm_hist)
+        if 'meta' in _m.files:
+            vmpv_ref = float(json.loads(str(_m['meta']))
+                             .get('mpv_adc_dnl_robust') or VMM['mpv'])
+    lo, p05 = VMM['lowest'] / vmpv_ref, VMM['p05'] / vmpv_ref
 
     # the part of the spectrum the discriminator removes, under everything else
     ax.axvspan(0, lo, color='#d62728', alpha=0.13, zorder=0)
@@ -101,14 +108,35 @@ def panel_a(ax, vmm_hist):
     ax.step(x, y, where='mid', color=DREAM_C, lw=2.2, zorder=3,
             label=f'DREAM, cluster charge ({n / 1e6:.2f} M clusters)')
 
+    # How much of the DREAM Landau sits below where the VMM starts recording.
+    # This is the cut-off stated as a number rather than left to the eye.
+    frac_lost = float(c[x < lo].sum() / c.sum())
+
     note = ''
     if vmm_hist is not None:
         z = np.load(vmm_hist)
         vc, ve = np.asarray(z['counts'], float), np.asarray(z['edges'], float)
-        vx = 0.5 * (ve[:-1] + ve[1:]) / VMM['mpv']
-        vy = vc / vc.sum() / (np.diff(ve) / VMM['mpv'])
+        # The npz is stored at the VMM's native unit-ADC resolution, which is
+        # right for the file and far too fine to draw: 1024 bins of 715k
+        # entries is a hedge of spikes. Rebin for display only -- the MPV the
+        # axis is normalised by stays the unit-bin one.
+        vm = json.loads(str(z['meta'])) if 'meta' in z.files else {}
+        # Rebin by the DNL period, not by a display-pretty factor: the VMM ADC
+        # over-populates every 16th code by 2-3x, and any binning that is not a
+        # multiple of 16 leaves that comb standing in the drawn spectrum.
+        k = int(vm.get('dnl_period') or 16)
+        n = (len(vc) // k) * k
+        vc = vc[:n].reshape(-1, k).sum(axis=1)
+        ve = ve[:n + 1:k]
+        # and normalise by the DNL-robust peak -- the unit-bin mode is a comb
+        # tooth (128 for P2_OUT), not the Landau peak (104).
+        vmpv = float(vm.get('mpv_adc_dnl_robust') or VMM['mpv'])
+        vx = 0.5 * (ve[:-1] + ve[1:]) / vmpv
+        vy = vc / vc.sum() / (np.diff(ve) / vmpv)
         ax.step(vx, vy, where='mid', color=VMM_C, lw=2.2, zorder=3,
                 label='VMM3a, per-pad ADC (run_46)')
+        # both curves must fit: the VMM peak is taller than the DREAM one
+        ymax = max(ymax, float(vy[(vx > 0.2) & (vx < 3.0)].max()))
     else:
         note = ('VMM drawn as its measured low edge only;' + NL
                 + 'the full histogram needs the autopsy sample from EOS')
@@ -117,17 +145,20 @@ def panel_a(ax, vmm_hist):
     ax.axvline(p05, color=VMM_C, ls='--', lw=1.6, zorder=4)
     ax.axvline(1.0, color=DREAM_C, ls=':', lw=1.4, zorder=4)
 
-    ax.annotate('lowest pulse the VMM' + NL + f'ever recorded: {lo:.2f} x MPV',
+    ax.annotate('lowest pulse the VMM' + NL + f'ever recorded: {lo:.2f} x MPV'
+                + NL + f'({frac_lost:.0%} of DREAM lies below)',
                 xy=(lo, ymax * 0.55), xytext=(1.30, ymax * 0.84),
                 fontsize=10, color=VMM_C, ha='left',
                 arrowprops=dict(arrowstyle='->', color=VMM_C, lw=1.4),
                 bbox=dict(fc='#f4faf4', ec='#8bbf8b',
                           boxstyle='round,pad=0.35'))
     ax.annotate('VMM 5th percentile' + NL + f'{p05:.2f} x MPV',
-                xy=(p05, ymax * 0.22), xytext=(1.30, ymax * 0.38),
+                xy=(p05, ymax * 0.10), xytext=(2.18, ymax * 0.62),
                 fontsize=9.5, color=VMM_C, ha='left',
                 arrowprops=dict(arrowstyle='->', color=VMM_C, lw=1.2))
-    ax.text(lo / 2, ymax * 0.11, 'removed by the' + NL + 'discriminator',
+    # Short enough to sit inside the shaded band in the two-panel layout;
+    # the number itself rides on the low-edge annotation, which has room.
+    ax.text(lo / 2, ymax * 0.62, 'removed by the' + NL + 'discriminator',
             fontsize=9.5, color='#7a2020', ha='center', va='center',
             fontweight='bold')
     ax.text(1.03, ymax * 1.15, 'MPV', color=DREAM_C, fontsize=9.5, va='top')
@@ -141,7 +172,7 @@ def panel_a(ax, vmm_hist):
     ax.set_ylim(0, ymax * 1.20)
     ax.set_xlabel("pulse height / that readout's own Landau MPV")
     ax.set_ylabel('normalised density')
-    ax.set_title('(a) P2_OUT, mesh 450 / drift 750, same gas' + NL
+    ax.set_title(label + 'P2_OUT, mesh 450 / drift 750, same gas' + NL
                  + 'the VMM window opens while the spectrum is still climbing',
                  fontsize=11.5)
     ax.legend(loc='upper right', framealpha=0.96)
@@ -191,6 +222,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('-o', '--out', default='figs')
     ap.add_argument('--vmm-hist', default=None)
+    ap.add_argument('--overlay', action='store_true',
+                    help='also write adc_overlay_dream_vmm.{png,pdf}: panel '
+                         '(a) alone, at slide size')
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
 
@@ -205,6 +239,18 @@ def main():
                     bbox_inches='tight', facecolor='white')
     plt.close(fig)
     print(f'  [adc_threshold_cost] -> {a.out}')
+
+    if a.overlay:
+        fig2, ax = plt.subplots(figsize=(10.6, 6.6))
+        panel_a(ax, a.vmm_hist, label='')
+        fig2.suptitle('DREAM and VMM3a pulse height on the same chamber — '
+                      'where the discriminator cuts', fontsize=13.5, y=0.98)
+        fig2.tight_layout()
+        for ext in ('png', 'pdf'):
+            fig2.savefig(os.path.join(a.out, f'adc_overlay_dream_vmm.{ext}'),
+                         dpi=170, bbox_inches='tight', facecolor='white')
+        plt.close(fig2)
+        print(f'  [adc_overlay_dream_vmm] -> {a.out}')
 
 
 if __name__ == '__main__':
