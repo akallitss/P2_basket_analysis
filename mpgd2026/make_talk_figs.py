@@ -552,6 +552,19 @@ BEAM_STATION = {'det1': 'P2_MID', 'det2': 'P2_IN', 'det3': 'P2_OUT',
 # caveats that belong on the series, not in a caption nobody reads
 BENCH_NOTE = {'det3': ' (scan stopped at 420 V, below the plateau)',
               'det2': ' (scan starts at 395 V)'}
+
+# Bench series dropped from the combined overlays, per axis. Both are scans of
+# a chamber that was dying while it was being scanned, so the curve measures
+# the failure and not the chamber -- and on an axis shared with four healthy
+# chambers a reader has no way to see that. Each is kept in the per-chamber
+# grid and in its own autopsy, where the context travels with it.
+#
+#   det3 mesh  -- the scan stopped at 420 V, below the plateau, during the
+#                 drift-foil HV decoupling that killed it (reports/
+#                 det_lifetime_autopsy_2026-07)
+#   det4 drift -- flat at ~0.05 across the whole range; det4 never worked on
+#                 the bench, so the line carries no turn-on at all
+BENCH_DROP = {'mesh': {'det3'}, 'drift': {'det4'}}
 BEAM_RUN = {'det1': 'drift_mesh_scan_1', 'det3': 'drift_mesh_scan_1',
             'det4': 'drift_mesh_scan_1', 'det5': 'p2in_hvrange_1',
             'det2': 'drift_mesh_2d_2'}
@@ -654,15 +667,20 @@ def fig_bench_beam_all(out):
     for axis, xlab, fname in (
             ('mesh', 'mesh voltage [V]', 'bench_beam_mesh_all'),
             ('drift', 'drift voltage [V]', 'bench_beam_drift_all')):
-        fig, ax = plt.subplots(figsize=(13.8, 6.8))
+        # Squarer than the old 13.8x6.8: the legend now lives inside the
+        # axes, so the width that used to be reserved for it beside the plot
+        # goes back to the data.
+        fig, ax = plt.subplots(figsize=(12.4, 8.4))
         n_b = n_m = 0
         for det in CHAMBERS:
             col = CHAMBER_C[det]
             b = bench_mesh(det) if axis == 'mesh' else bench_drift(det)
+            if det in BENCH_DROP[axis]:
+                b = None                       # see BENCH_DROP
             if b is not None and len(b):
                 x = b['hv'] if axis == 'mesh' else b['drift']
                 ax.errorbar(x, b['eff_reco'], yerr=b.get('eff_reco_err'),
-                            marker='s', ms=6, mfc='white', mew=1.8, lw=1.8,
+                            marker='s', ms=7, mfc='white', mew=2.0, lw=2.0,
                             ls='--', color=col, capsize=2,
                             label=f'{det} — cosmic bench{BENCH_NOTE.get(det, "")}')
                 n_b += 1
@@ -677,23 +695,38 @@ def fig_bench_beam_all(out):
                 extra = '' if meth.startswith('uRWELL') else f', {meth}'
                 ax.errorbar(g[xk], g['eff'],
                             yerr=[g['eff'] - g['lo'], g['hi'] - g['eff']],
-                            marker='o', ms=6.5, lw=2.4, color=col, capsize=2,
+                            marker='o', ms=7.5, lw=2.8, color=col, capsize=2,
                             label=f'{det} — SPS beam, {lab}{extra}')
                 n_m += 1
-        ax.set_xlabel(xlab)
-        ax.set_ylabel('efficiency')
-        ax.set_ylim(0, 1.03)
-        ax.axhline(0.95, color='0.6', ls=':', lw=1.2)
+        ax.set_xlabel(xlab, fontsize=19)
+        ax.set_ylabel('efficiency', fontsize=19)
+        # Headroom so the legend clears the plateau: these curves all top out
+        # near 0.95, and a legend sitting at 1.0 covers exactly the part of the
+        # figure the audience is being asked to look at. Scaled to the number
+        # of entries -- a constant sized for the mesh panel's seven leaves the
+        # drift panel's four floating over a dead band.
+        n_ent = n_b + n_m
+        ax.set_ylim(0, 1.06 + 0.082 * n_ent)
+        ax.set_yticks(np.arange(0, 1.01, 0.2))
+        ax.tick_params(labelsize=17)
+        ax.axhline(0.95, color='0.6', ls=':', lw=1.4)
         ax.grid(alpha=.3)
-        ax.legend(loc='center left', bbox_to_anchor=(1.01, 0.5),
-                  fontsize=11.5, framealpha=.95)
+        # The marker convention rides as the legend title rather than as a
+        # second box: two floating boxes cannot both be placed safely on a
+        # figure whose free space changes with the data.
+        ax.legend(loc='upper left', fontsize=13, framealpha=.96,
+                  ncol=1, handlelength=2.2, labelspacing=.32,
+                  borderpad=.7, fancybox=False,
+                  title='open squares + dashed = cosmic bench '
+                        '(M3 tracks, Ar/iC$_4$H$_{10}$ 95/5)\n'
+                        'filled circles + solid = SPS beam '
+                        '(Ar/CO$_2$/iC$_4$H$_{10}$ 93/5/2)',
+                  title_fontsize=12.5)
         ax.set_title(
             f'Every chamber, both campaigns — efficiency vs {axis} voltage\n'
-            'open squares + dashed = cosmic bench (M3 tracks, '
-            'Ar/iC$_4$H$_{10}$ 95/5)\n'
-            'filled circles + solid = SPS beam '
-            '(Ar/CO$_2$/iC$_4$H$_{10}$ 93/5/2) — the gas shifts the curve '
-            'along the voltage axis, the shape does not move', fontsize=12)
+            'the gas shifts the curve along the voltage axis, '
+            'the shape does not move',
+            fontsize=16.5, fontweight='bold')
         save(fig, out, fname)
         print(f'    {axis}: {n_b} bench series, {n_m} beam series')
 
