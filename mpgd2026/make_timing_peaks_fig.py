@@ -21,6 +21,7 @@ Usage
 import argparse
 import json
 import os
+import textwrap
 
 import matplotlib
 matplotlib.use('Agg')
@@ -31,7 +32,8 @@ C = {'P2_IN': '#1f77b4', 'P2_MID': '#ff7f0e', 'P2_OUT': '#2ca02c'}
 NL = chr(10)
 
 plt.rcParams.update({
-    'font.size': 11.5, 'axes.titlesize': 12, 'axes.labelsize': 11.5,
+    'xtick.labelsize': 16, 'ytick.labelsize': 16,
+    'font.size': 14, 'axes.titlesize': 13.5, 'axes.labelsize': 17,
     'legend.fontsize': 9.5, 'figure.facecolor': 'white',
     'axes.grid': True, 'grid.alpha': 0.3, 'axes.axisbelow': True,
 })
@@ -77,7 +79,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('npz', nargs='+')
     ap.add_argument('--col-labels', nargs='*', default=None)
-    ap.add_argument('--stations', nargs='*', default=['P2_MID', 'P2_OUT'])
+    ap.add_argument('--stations', nargs='*',
+                default=['P2_IN', 'P2_MID', 'P2_OUT'])
     ap.add_argument('-o', '--out', default='figs')
     ap.add_argument('--name', default='vmm_timing_peaks')
     ap.add_argument('--title', default='VMM3a coincidence time, at each '
@@ -101,9 +104,13 @@ def main():
             if j == 0:
                 ax.set_ylabel(f'{st}' + NL + 'pairs per bin')
     for j, m in enumerate(metas):
+        # The condition string is longer than a column is wide, and a centred
+        # xlabel that overflows the last column runs off the right of the
+        # figure -- tight bbox does not rescue it.  Wrap it instead.
+        cond = NL.join(textwrap.wrap(m.get('label', ''), 62))
         axes[-1][j].set_xlabel(
-            't(station) - t(trigger), BCID phase [ns]' + NL
-            + m.get('label', ''), fontsize=11.5)
+            't(station) - t(trigger), BCID phase [ns]' + NL + cond,
+            fontsize=11)
         axes[-1][j].xaxis.label.set_multialignment('center')
     fig.suptitle(a.title, fontsize=13.5)
     for ext in ('png', 'pdf'):
