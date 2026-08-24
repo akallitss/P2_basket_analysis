@@ -46,6 +46,8 @@ MANIFEST = [
      'SACLAY/data/SPS_Beam_Test/VMM-alinx-data/results/Full_detector_model_class_from_gerber.png'),
     ('2_act1_nov2025', 8, 'CORE', 'snr_matrix.png', 'Nov 2025: the VMM3a shaping optimum',
      'SACLAY/P2_basket_analysis/mpgd2026/figs/snr_matrix.png'),
+    ('3_act2_bench', 10, 'CORE', 'cosmic_bench_schematic.png', 'The Saclay cosmic bench: a vertical tower with its own telescope',
+     'SACLAY/data/Cosmic_Bench/Analysis/conference/cosmic_bench_schematic.png'),
     ('3_act2_bench', 11, 'CORE', '01_det1_efficiency_map.png', 'Bench efficiency, and where the missing few percent actually is',
      'SACLAY/data/Cosmic_Bench/Analysis/conference/01_det1_efficiency_map.png'),
     ('3_act2_bench', 11, 'CORE', '11_pillar_accounting.png', 'Bench efficiency, and where the missing few percent actually is',
