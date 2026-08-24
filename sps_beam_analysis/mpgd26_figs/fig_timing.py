@@ -205,7 +205,7 @@ for ax, det in zip(axes, DETS):
     top = ax.secondary_xaxis('top', functions=(lambda v: v / 0.3,
                                                lambda e: e * 0.3))
     top.set_xlabel('drift field [V/cm]', fontsize=9.5)
-    top.tick_params(labelsize=8.5)
+    top.tick_params(labelsize=11)
 axes[0].set_ylabel('single-station $\\sigma$ [ns]')
 axes[0].annotate('P2 goal: 20 ns', xy=(0.03, 20), xycoords=('axes fraction', 'data'),
                  xytext=(0, 4), textcoords='offset points', fontsize=9,

@@ -33,7 +33,8 @@ CHIP = 'p2b-config-cern-ext_gain3.0_peaktime200.txt'
 C = {'P2_IN': '#1f77b4', 'P2_MID': '#ff7f0e', 'P2_OUT': '#2ca02c'}
 
 plt.rcParams.update({
-    'font.size': 12, 'axes.titlesize': 13, 'axes.labelsize': 12,
+    'font.size': 14, 'axes.titlesize': 14, 'axes.labelsize': 17,
+    'xtick.labelsize': 16, 'ytick.labelsize': 16,
     'legend.fontsize': 10, 'figure.facecolor': 'white',
     'axes.grid': True, 'grid.alpha': 0.3, 'axes.axisbelow': True,
 })

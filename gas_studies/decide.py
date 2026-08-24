@@ -45,6 +45,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+import matplotlib as _mpl
+# Slide typography, matched to the rest of the MPGD26 figure set.
+_mpl.rcParams.update({
+    'font.size': 13, 'axes.titlesize': 14, 'axes.labelsize': 17,
+    'xtick.labelsize': 16, 'ytick.labelsize': 16, 'legend.fontsize': 12,
+})
+
+
 import gases as G
 from analyze import load, ln_gain_at, invert_gain, RESULTS, FIGS, COLORS
 

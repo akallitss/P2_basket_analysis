@@ -36,6 +36,15 @@ matplotlib.use('Agg')
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
+import matplotlib as _mpl
+# Slide typography, matched to mpgd26_figs/p2style.py and the cosmic-bench
+# conference figures: these are projected, not read at arm's length.
+_mpl.rcParams.update({
+    'font.size': 13, 'axes.titlesize': 14, 'axes.labelsize': 17,
+    'xtick.labelsize': 16, 'ytick.labelsize': 16, 'legend.fontsize': 12,
+})
+
 import matplotlib.dates as mdates
 import uproot
 import awkward as ak

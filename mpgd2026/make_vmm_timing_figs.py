@@ -47,7 +47,8 @@ BUDGET = {'measured P2_MID vs trigger': 24.2,
 PROJECTED = np.sqrt(15.6 ** 2 + 10.4 ** 2)   # DREAM timestamp in place of it
 
 plt.rcParams.update({
-    'font.size': 12, 'axes.titlesize': 13, 'axes.labelsize': 12,
+    'font.size': 14, 'axes.titlesize': 14, 'axes.labelsize': 17,
+    'xtick.labelsize': 16, 'ytick.labelsize': 16,
     'legend.fontsize': 9.5, 'figure.facecolor': 'white',
     'axes.grid': True, 'grid.alpha': 0.3, 'axes.axisbelow': True,
 })

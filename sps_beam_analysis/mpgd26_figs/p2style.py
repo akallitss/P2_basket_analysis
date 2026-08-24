@@ -51,8 +51,11 @@ plt.rcParams.update({
     'grid.alpha': 0.6, 'axes.axisbelow': True,
     'axes.spines.top': False, 'axes.spines.right': False,
     'font.size': 13, 'axes.titlesize': 14.5, 'axes.titleweight': 'bold',
-    'axes.labelsize': 16, 'axes.labelweight': 'bold',
-    'xtick.labelsize': 13.5, 'ytick.labelsize': 13.5,
+    'axes.labelsize': 17, 'axes.labelweight': 'bold',
+    # 2026-08-21: tick numbers raised 13.5 -> 16 to match the
+    # cosmic-bench conference figures, which were already at 17.
+    # A deck with three different tick sizes reads as three decks.
+    'xtick.labelsize': 16, 'ytick.labelsize': 16,
     'legend.frameon': False, 'legend.fontsize': 12,
     'figure.titlesize': 16, 'figure.titleweight': 'bold',
     'lines.linewidth': 2.2, 'lines.markersize': 6.5,
@@ -62,7 +65,7 @@ plt.rcParams.update({
 def bold_cbar(cb, label, size=15):
     """Colorbar labels follow the same rule as the axis labels."""
     cb.set_label(label, fontsize=size, fontweight='bold', color=TEXT)
-    cb.ax.tick_params(labelsize=12.5)
+    cb.ax.tick_params(labelsize=14.5)
     return cb
 
 

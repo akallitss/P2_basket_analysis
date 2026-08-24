@@ -76,9 +76,9 @@ BENCH_LABEL = {
 # labels large AND bold everywhere, matching sps_beam_analysis/mpgd26_figs/
 # p2style.py so the whole deck reads as one system.
 plt.rcParams.update({
-    'font.size': 13, 'axes.titlesize': 14, 'axes.labelsize': 16,
+    'font.size': 14, 'axes.titlesize': 14, 'axes.labelsize': 17,
     'axes.labelweight': 'bold', 'axes.titleweight': 'bold',
-    'xtick.labelsize': 13.5, 'ytick.labelsize': 13.5,
+    'xtick.labelsize': 16, 'ytick.labelsize': 16,
     'legend.fontsize': 12, 'figure.facecolor': 'white',
     'figure.titlesize': 15, 'figure.titleweight': 'bold',
     'axes.grid': True, 'grid.alpha': 0.3, 'axes.axisbelow': True,
@@ -511,7 +511,7 @@ def fig_bench_beam_maps(out):
 
     cb = fig.colorbar(im, ax=axes, fraction=0.021, pad=0.02)
     cb.set_label('efficiency', fontsize=16, fontweight='bold')
-    cb.ax.tick_params(labelsize=13)
+    cb.ax.tick_params(labelsize=14.5)
     fig.suptitle('The same chamber, two probes, one frame — wish-list 5a.4\n'
                  f'the beam only ever lights the red patch '
                  f'({100 * len(lit_verts) / len(verts):.0f} % of the pad '
@@ -1073,7 +1073,7 @@ def fig_timing_campaigns(out):
     ax.text(19.4, len(items) - 0.4, 'P2 goal: 20 ns', rotation=90,
             va='top', ha='right', fontsize=11, fontweight='bold')
     ax.set_yticks(y)
-    ax.set_yticklabels([i[0] for i in items], fontsize=10.5)
+    ax.set_yticklabels([i[0] for i in items], fontsize=13)
     ax.set_xlabel('time resolution σ [ns]')
     ax.set_xlim(0, 38)
     ax.set_title('Time resolution across the programme — the 20 ns goal is met '
