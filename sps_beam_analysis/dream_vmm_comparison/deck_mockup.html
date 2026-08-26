@@ -1,0 +1,197 @@
+<title>Three slides: the VMM efficiency deficit</title>
+<meta name="description" content="A three-slide MPGD2026 sequence for P2_OUT:
+the VMM is less efficient than DREAM, the deficit is a place on the chamber,
+and one discriminator level inside the Landau explains it.">
+<style>
+:root{--bg:#fcfcfb;--fg:#0b0b0b;--fg2:#52514e;--mut:#8a887f;--line:#e6e5e0;
+--acc:#2a78d6;--warn:#eb6834;--card:#ffffff}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1a1a19;
+--fg:#fff;--fg2:#c3c2b7;--mut:#8a887f;--line:#33322f;--acc:#3987e5;
+--warn:#d95926;--card:#211f1e}}
+[data-theme=dark]{--bg:#1a1a19;--fg:#fff;--fg2:#c3c2b7;--line:#33322f;
+--acc:#3987e5;--warn:#d95926;--card:#211f1e}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,
+BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;margin:0;padding:2rem 1.2rem}
+main{max-width:1000px;margin:0 auto}
+h1{font-size:1.7rem;line-height:1.25;margin:0 0 .3rem}
+h2{font-size:1.15rem;margin:2.2rem 0 .6rem;padding-bottom:.3rem;
+border-bottom:1px solid var(--line)}
+.sub{color:var(--fg2);margin:0 0 1.6rem}
+.verdict{background:var(--card);border-left:3px solid var(--acc);
+padding:1rem 1.2rem;border-radius:6px;margin:1.2rem 0}
+.kpis{display:flex;flex-wrap:wrap;gap:.8rem;margin:1.2rem 0}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:8px;
+padding:.7rem 1rem;min-width:120px}
+.kpi b{display:block;font-size:1.5rem;color:var(--acc);line-height:1.15}
+.kpi span{font-size:.8rem;color:var(--fg2)}
+table{border-collapse:collapse;width:100%;font-size:.9rem;margin:.8rem 0}
+th,td{padding:.4rem .6rem;border-bottom:1px solid var(--line);text-align:right}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--fg2);font-weight:600}
+figure{margin:1.4rem 0}
+img{width:100%;height:auto;border:1px solid var(--line);border-radius:6px}
+figcaption{color:var(--fg2);font-size:.86rem;margin-top:.45rem}
+code{background:var(--card);padding:.1rem .35rem;border-radius:4px;font-size:.88em}
+.tw{overflow-x:auto}
+.note{color:var(--fg2);font-size:.9rem}
+ul{padding-left:1.2rem}
+
+main{max-width:1240px}
+.slide{margin:1.6rem 0 0}
+.slide img{border:1px solid var(--line);border-radius:8px}
+.say{background:var(--card);border-left:3px solid var(--warn);
+padding:.85rem 1.1rem;border-radius:6px;margin:.9rem 0 0}
+.say b{color:var(--warn)}
+.order{background:var(--card);border:1px solid var(--line);border-radius:8px;
+padding:.9rem 1.1rem;margin:1.2rem 0;font-size:.94rem;line-height:1.9}
+.order .now{color:var(--acc);font-weight:700}
+.order .prev{color:var(--mut)}
+h2 small{font-weight:400;color:var(--fg2);font-size:.8em}
+</style>
+<main>
+<h1>Three slides: why the VMM is less efficient than DREAM</h1>
+<p class="sub">A mock-up for MPGD2026. Three 16:9 slides, almost no body text
+&mdash; each one is a picture with a headline and a single grey line of
+provenance. They are built by <code>figures_deck.py</code> from the same tables
+as <a href="p2out-vmm-threshold-weak-pads.html">the full note</a>, so the
+numbers move together.</p>
+
+<p class="sub">Sized for a projector, not a desk: type is ~2&times; a printed
+figure's, the pad maps drop their tick labels for a scale bar, and slide 3 runs
+6 gain bands instead of eight so the rows are tall enough to read from
+the back. Colour does two separate jobs and they are kept apart &mdash;
+<b>which readout</b> is categorical (DREAM orange, VMM blue, on the dots, bars
+and lines), while <b>what is mapped</b> is a sequential ramp that changes with
+the quantity: <b style="color:#7250a4">purple for efficiency</b> on slide 1,
+<b style="color:#ac5f1a">amber for gain</b> on slide 2. Both maps on a slide
+share one ramp and one colorbar, which is what makes them comparable. Each ramp
+passes the ordinal checks against the slide background, including the one that
+matters in a hall: the pale end clears 2:1 contrast, so it does not wash out to
+paper.</p>
+
+<div class="order">
+<span class="prev">&hellip;&nbsp; DREAM on the SPS beam &mdash; efficiency,
+timing, space</span><br>
+<span class="prev">&hellip;&nbsp; VMM3a &mdash; timing, space: it matches</span>
+<br>
+<span class="now">&rarr;&nbsp; 1. &nbsp;but the efficiency does not</span><br>
+<span class="now">&rarr;&nbsp; 2. &nbsp;the deficit is a place on the chamber,
+and both readouts see that place</span><br>
+<span class="now">&rarr;&nbsp; 3. &nbsp;it is one threshold sitting inside the
+Landau</span><br>
+<span class="prev">&hellip;&nbsp; what it would take to fix</span>
+</div>
+
+<h2>Slide 1 &nbsp;<small>&mdash; the observation</small></h2>
+<div class="slide">
+<img src="figures/deck_1_deficit.png" alt="Two per-pad efficiency maps of
+P2_OUT, DREAM and VMM3a on one colour scale, and the pad-by-pad pairing of the
+two efficiencies.">
+</div>
+<div class="say">
+<b>Say:</b> same chamber, same beam, same mesh and drift voltage, the same
+uRWELL tracks and the same selection &mdash; only the electronics differ.
+DREAM records 95.6&nbsp;% of the tracks that point at
+a pad; the VMM records 85.3&nbsp;%. Then point at the
+right-hand panel: the deficit is <b>not</b> a uniform scale factor. DREAM holds
+every live pad above 92&nbsp;%, while the VMM runs from 96&nbsp;% down to
+50&nbsp;% &mdash; and the pads it loses are all in one
+corner.
+</div>
+
+<h2>Slide 2 &nbsp;<small>&mdash; whose fault is it?</small></h2>
+<div class="slide">
+<img src="figures/deck_2_gainmap.png" alt="Per-pad gain maps of P2_OUT for
+DREAM and VMM3a on one colour scale, with the fitted gradient direction, and a
+pad-by-pad scatter of the two relative gains.">
+</div>
+<div class="say">
+<b>Say:</b> the same corner, now in pulse height. The gas gain rolls off by a
+factor 3.9 across the beam spot, one smooth gradient, and
+<b>both readouts measure the same map</b> &mdash; pad for pad, r&nbsp;=&nbsp;+0.94,
+same direction to 5&deg;. So the variation is the chamber's, not the
+electronics'. Leave them with the one loose end that sets up slide&nbsp;3: the
+VMM's copy of that map is systematically <i>flatter</i>.
+</div>
+
+<h2>Slide 3 &nbsp;<small>&mdash; the mechanism, and the close</small></h2>
+<div class="slide">
+<img src="figures/deck_3_threshold.png" alt="Ridgeline of the per-pad DREAM
+pulse-height spectra banded by gain on a logarithmic axis, with the VMM
+discriminator level drawn through them and the per-band recorded fraction
+alongside.">
+</div>
+<div class="say">
+<b>Say:</b> every row is the same Landau; the axis is logarithmic, so a gain
+factor is a pure sideways shift. The blue line is the VMM's discriminator
+&mdash; one level, all six chips at <code>sdt&nbsp;=&nbsp;224</code>. Walk down
+the rows: the solid orange area is what falls below it. On the strong pads that
+is the bottom of the tail; on the weak pads the peak itself has slid onto the
+line. The bars on the right are the consequence &mdash; DREAM holds
+98&nbsp;&rarr;&nbsp;92&nbsp;%
+across the 6 gain bands, the VMM falls
+93&nbsp;&rarr;&nbsp;63&nbsp;%.
+<br><br>
+One fitted level, 162 DREAM ADC, cut into DREAM's own per-pad spectra
+reproduces the VMM's efficiency pad by pad: r&nbsp;=&nbsp;+0.90,
+85.5&nbsp;% predicted against
+85.3&nbsp;% measured. And it closes slide&nbsp;2's loose
+end: cutting the spectra at that level is also what flattens the VMM's copy of
+the gain map.
+</div>
+
+<h2>What to say next &mdash; the options, cheapest first</h2>
+<ul>
+<li><b>Raise the VMM front-end gain.</b> A register change. It halves the
+threshold in charge and buys back most of the deficit &mdash;
+&times;2&nbsp;signal-over-threshold takes the fleet to
+93.1&nbsp;% and the weakest pad from
+64&nbsp;% to
+85&nbsp;%. Noise scales with it and the ADC saturates
+earlier.</li>
+<li><b>Lower <code>sdt</code>.</b> Already at the campaign minimum on these
+chips; how much further it can go is set by the noise, which this measurement
+does not constrain. Needs a threshold scan (224 / 208 / 192) with beam.</li>
+<li><b>Raise the mesh.</b> Works &mdash; &times;1.5 alone is worth
+91.1&nbsp;% &mdash; but it is multiplicative, so the
+gradient survives and the strong pads move too.</li>
+<li><b>Use the per-channel trim DACs against the measured gain map.</b> The
+right shape of fix, but the trim range is a few mV against a factor
+3.9 in gain, and buying uniformity that way costs noise.</li>
+<li><b>Fix the chamber.</b> 0.42 relative rms, about
+13&nbsp;% per 10&nbsp;mm, on the amplification side. This is the only option
+that helps <i>both</i> readouts.</li>
+</ul>
+
+<h2>Deliberately not on these three</h2>
+<p>Kept as backup slides so the main line stays one idea per slide:</p>
+<ul>
+<li><b>The proof panel</b> (<code>figures/slide_proof.png</code>) &mdash; the
+predicted-vs-measured scatter over all 53 pads, and the spread
+waterfall 0.42 &rarr; 0.36 &rarr;
+0.26 that shows the threshold plus a
++43-count additive ADC offset accounts for the compression
+with nothing left over.</li>
+<li><b>The fix curve</b> (<code>figures/slide_fix.png</code>) &mdash;
+efficiency against signal-over-threshold, all pads and the weakest pad, with
+3.4&times; needed to reach DREAM's 95&nbsp;%.</li>
+<li><b>Caveats</b> &mdash; the two runs are five days apart; the fitted level is
+a charge threshold and would absorb anything else that bites at the low end;
+the additive offset is measured, not explained; this is P2_OUT only; and
+nothing here measures the noise occupancy a lower threshold would bring.
+They are written out in
+<a href="p2out-vmm-threshold-weak-pads.html">the full note</a>.</li>
+</ul>
+
+<h2>Getting the files</h2>
+<p>The figures on this page are inlined, which is no use when you want the PNG
+itself. The originals are published one file each, with captions and pixel
+sizes, at <a href="../p2_sps/"><b>dylan-neff.web.cern.ch/p2_sps/</b></a> &mdash;
+the three slides, the backup slides and every analysis figure behind them.</p>
+
+<p class="note">Slides: <code>p2_sps/figures/deck_{1_deficit,2_gainmap,
+3_threshold}.png</code>, 13.33&times;7.5&nbsp;in at 160&nbsp;dpi
+(2132&times;1200&nbsp;px), built by <code>p2_sps/figures_deck.py</code> on
+branch <code>p2-sps-vmm-vs-dream</code>.
+Sources: VMM3a <code>run_46 / cfg_gain4.5_peaktime200</code>, DREAM
+<code>eff_nominal_1</code>, both at mesh 450&nbsp;V / drift 750&nbsp;V.</p>

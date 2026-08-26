@@ -1,0 +1,125 @@
+{
+  "run": "eff_nominal_1",
+  "station": "P2_OUT",
+  "sub_runs": [
+    {
+      "sub_run": "eff_nominal_00",
+      "n": 173384,
+      "k": 167320,
+      "eff": 0.9650256078992294,
+      "rot_deg": -59.959960293170255,
+      "det": 1.0223169883022227,
+      "n_amp": 167320
+    },
+    {
+      "sub_run": "eff_nominal_01",
+      "n": 182059,
+      "k": 174498,
+      "eff": 0.958469507137796,
+      "rot_deg": -60.005101812293894,
+      "det": 1.0226690204990951,
+      "n_amp": 174498
+    },
+    {
+      "sub_run": "eff_nominal_02",
+      "n": 183372,
+      "k": 175349,
+      "eff": 0.9562474096372402,
+      "rot_deg": -60.00129668050047,
+      "det": 1.0221463578681778,
+      "n_amp": 175349
+    },
+    {
+      "sub_run": "eff_nominal_03",
+      "n": 192013,
+      "k": 183552,
+      "eff": 0.9559352752157406,
+      "rot_deg": -59.98667584164089,
+      "det": 1.0229833645161854,
+      "n_amp": 183552
+    },
+    {
+      "sub_run": "eff_nominal_04",
+      "n": 190132,
+      "k": 181324,
+      "eff": 0.95367428944102,
+      "rot_deg": -59.99868955766069,
+      "det": 1.0225422494729939,
+      "n_amp": 181324
+    },
+    {
+      "sub_run": "eff_nominal_05",
+      "n": 188507,
+      "k": 179975,
+      "eff": 0.9547390813073254,
+      "rot_deg": -60.02021922326309,
+      "det": 1.0221115782633725,
+      "n_amp": 179975
+    },
+    {
+      "sub_run": "eff_nominal_06",
+      "n": 188709,
+      "k": 180008,
+      "eff": 0.9538919712361361,
+      "rot_deg": -59.9695822032654,
+      "det": 1.022235138579114,
+      "n_amp": 180008
+    },
+    {
+      "sub_run": "eff_nominal_07",
+      "n": 190416,
+      "k": 181254,
+      "eff": 0.9518842954373582,
+      "rot_deg": -60.011404904015684,
+      "det": 1.022297985144063,
+      "n_amp": 181254
+    },
+    {
+      "sub_run": "eff_nominal_08",
+      "n": 191305,
+      "k": 182460,
+      "eff": 0.9537649303468284,
+      "rot_deg": -59.99055219637008,
+      "det": 1.022777374875962,
+      "n_amp": 182460
+    },
+    {
+      "sub_run": "eff_nominal_09",
+      "n": 189642,
+      "k": 180760,
+      "eff": 0.9531643834171755,
+      "rot_deg": -59.97585921930722,
+      "det": 1.0226359533730827,
+      "n_amp": 180760
+    }
+  ],
+  "amp_bin": 8.0,
+  "amp_nbin": 512,
+  "n_pads": 512,
+  "args": {
+    "run": "eff_nominal_1",
+    "data_root": "/eos/experiment/ntof/data/x17/p2_sps_july/runs",
+    "station": "P2_OUT",
+    "sub_run": [
+      "eff_nominal_00",
+      "eff_nominal_01",
+      "eff_nominal_02",
+      "eff_nominal_03",
+      "eff_nominal_04",
+      "eff_nominal_05",
+      "eff_nominal_06",
+      "eff_nominal_07",
+      "eff_nominal_08",
+      "eff_nominal_09"
+    ],
+    "max_chunks": 0,
+    "track_cut": 3.0,
+    "cluster_r": 15.0,
+    "probe_r": 15.0,
+    "fid_r": 9.0,
+    "match_win": 25.0,
+    "min_events": 500,
+    "no_veto_sparks": false,
+    "out": "/eos/experiment/ntof/data/x17/p2_sps_july/vmm/pad_adc"
+  }
+}

@@ -1,0 +1,177 @@
+<title>Why the VMM loses the weak pads</title>
+<meta name="description" content="P2_OUT read by VMM3a and by DREAM at the same
+operating point: the pad-to-pad gain spread is the chamber's, and one
+discriminator level accounts for the whole difference between the two
+readouts.">
+<style>
+:root{--bg:#fcfcfb;--fg:#0b0b0b;--fg2:#52514e;--mut:#8a887f;--line:#e6e5e0;
+--acc:#2a78d6;--warn:#eb6834;--card:#ffffff}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1a1a19;
+--fg:#fff;--fg2:#c3c2b7;--mut:#8a887f;--line:#33322f;--acc:#3987e5;
+--warn:#d95926;--card:#211f1e}}
+[data-theme=dark]{--bg:#1a1a19;--fg:#fff;--fg2:#c3c2b7;--line:#33322f;
+--acc:#3987e5;--warn:#d95926;--card:#211f1e}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,
+BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;margin:0;padding:2rem 1.2rem}
+main{max-width:1000px;margin:0 auto}
+h1{font-size:1.7rem;line-height:1.25;margin:0 0 .3rem}
+h2{font-size:1.15rem;margin:2.2rem 0 .6rem;padding-bottom:.3rem;
+border-bottom:1px solid var(--line)}
+.sub{color:var(--fg2);margin:0 0 1.6rem}
+.verdict{background:var(--card);border-left:3px solid var(--acc);
+padding:1rem 1.2rem;border-radius:6px;margin:1.2rem 0}
+.kpis{display:flex;flex-wrap:wrap;gap:.8rem;margin:1.2rem 0}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:8px;
+padding:.7rem 1rem;min-width:120px}
+.kpi b{display:block;font-size:1.5rem;color:var(--acc);line-height:1.15}
+.kpi span{font-size:.8rem;color:var(--fg2)}
+table{border-collapse:collapse;width:100%;font-size:.9rem;margin:.8rem 0}
+th,td{padding:.4rem .6rem;border-bottom:1px solid var(--line);text-align:right}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--fg2);font-weight:600}
+figure{margin:1.4rem 0}
+img{width:100%;height:auto;border:1px solid var(--line);border-radius:6px}
+figcaption{color:var(--fg2);font-size:.86rem;margin-top:.45rem}
+code{background:var(--card);padding:.1rem .35rem;border-radius:4px;font-size:.88em}
+.tw{overflow-x:auto}
+.note{color:var(--fg2);font-size:.9rem}
+ul{padding-left:1.2rem}
+</style>
+<main>
+<h1>Why the VMM loses the weak pads &mdash; and DREAM does not</h1>
+<p class="sub">P2_OUT, SPS H4. VMM3a <code>run_46 /
+cfg_gain4.5_peaktime200</code> against DREAM <code>eff_nominal_1</code>, matched
+operating point (mesh 450&nbsp;V, drift 750&nbsp;V), same uRWELL reference
+tracks, same selection, 53 pads under the beam.</p>
+
+<div class="verdict">
+<b>The pad-to-pad gain variation belongs to the chamber. Both readouts measure
+the same map</b> &mdash; per-pad, r&nbsp;=&nbsp;+0.94, a factor
+3.9 from the weakest illuminated pad to the strongest, laid out as one
+smooth gradient across the beam spot.
+<br><br>
+<b>What the VMM adds is a threshold that sits inside the Landau.</b> Fitting one
+level to the DREAM spectra reproduces the VMM's efficiency pad by pad
+&mdash; 53 pads, one free number, r&nbsp;=&nbsp;+0.90,
+residual 5.1 points, predicted overall
+0.855 against 0.853 measured. That level is
+<b>0.69&times; the most probable pulse of an average pad</b>,
+which is <b>1.19&times;</b> the most probable pulse of a
+weak one &mdash; so on the weak pads it eats the peak, not the tail.
+<br><br>
+<b>The VMM's apparently better uniformity is an artefact of the same two
+effects.</b> Detector spread 0.42 (DREAM, everything kept)
+&rarr; 0.36 once the threshold cuts the Landau &rarr;
+0.26 once the VMM ADC's 43-count additive
+offset is folded in. Removing that offset from the VMM medians gives
+0.36 &mdash; the truncated DREAM number. Nothing is left
+over.
+</div>
+
+<div class="kpis">
+<div class="kpi"><b>0.69x</b><span>threshold / MPV, average pad</span></div>
+<div class="kpi"><b>1.19x</b><span>threshold / MPV, weak pad</span></div>
+<div class="kpi"><b>+0.90</b><span>predicted vs measured eff.</span></div>
+<div class="kpi"><b>0.853</b><span>VMM efficiency</span></div>
+<div class="kpi"><b>0.956</b><span>DREAM efficiency</span></div>
+</div>
+
+<h2>The figure</h2>
+<figure><img src="figures/slide_ridge.png" alt="ridgeline">
+<figcaption>The 53 pads sorted by gain into eight bands; each band's
+pulse-height distribution as DREAM records it, on a <b>logarithmic</b> axis so
+that a gain factor is a pure sideways shift and the eight curves are the same
+Landau translated. The vertical line is the VMM's discriminator &mdash; one
+level, identical on all six P2_OUT chips (sdt&nbsp;=&nbsp;224). Solid orange is
+the part below it. As the pad gain falls from 1.83&times; to 0.55&times; the
+solid part grows and the VMM's recorded fraction falls from 91&nbsp;% to
+53&nbsp;%, while DREAM stays between 98 and 89&nbsp;%. Bands are the
+track-weighted mean of their pads' unit-area spectra, so a band's
+sub-threshold area is exactly the mean of its pads'.</figcaption></figure>
+
+<h2>That it is quantitatively the whole story</h2>
+<figure><img src="figures/slide_proof.png" alt="proof">
+<figcaption><b>Left:</b> per-pad VMM efficiency against what you get by cutting
+that pad's DREAM spectrum at the one fitted level, 162&nbsp;ADC
+(145&ndash;178). One free parameter for
+53 pads. The outlier is pad 635, which is dead in both readouts and is
+not a threshold effect. <b>Right:</b> the measured pad-to-pad spread of the
+pulse height, and where the VMM's smaller number comes from. Marker area is the
+track count.</figcaption></figure>
+
+<h2>What it would take to fix</h2>
+<figure><img src="figures/slide_fix.png" alt="fix">
+<figcaption>Efficiency against signal-over-threshold relative to today, from the
+same model. Raising the chamber gain, lowering <code>sdt</code> and raising the
+VMM's front-end gain all enter as the same ratio, so the model cannot tell them
+apart &mdash; it says what a factor is worth, not which knob to turn.</figcaption>
+</figure>
+
+<div class="tw"><table>
+<tr><th>signal / threshold</th><th>efficiency, all pads</th>
+<th>weakest live pad</th><th>spread across pads</th></tr>
+<tr><td>x1</td><td>0.855</td><td>0.639</td><td>0.31</td></tr><tr><td>x1.15</td><td>0.879</td><td>0.695</td><td>0.26</td></tr><tr><td>x1.3</td><td>0.896</td><td>0.739</td><td>0.22</td></tr><tr><td>x1.5</td><td>0.911</td><td>0.783</td><td>0.19</td></tr><tr><td>x2</td><td>0.931</td><td>0.847</td><td>0.14</td></tr><tr><td>x3</td><td>0.947</td><td>0.893</td><td>0.10</td></tr>
+</table></div>
+
+<h2>Options, cheapest first</h2>
+<ul>
+<li><b>Raise the VMM front-end gain</b> from 4.5&nbsp;mV/fC. The discriminator
+is set in mV after the amplifier, so 9&nbsp;mV/fC halves the threshold in charge
+&mdash; exactly the factor of two the model asks for &mdash; and it is a
+register change with no HV risk. Two things to check on the bench: the noise
+scales with the gain too, so <code>sdt</code> may not be able to stay where it
+is; and the 10-bit ADC saturates earlier, which costs the top of the Landau (it
+does not cost efficiency).</li>
+<li><b>Lower <code>sdt</code></b>. All six P2_OUT chips already sit at 224, the
+lowest value used anywhere in the July setup (P2_IN ran 224&ndash;300). How much
+further it can go is a noise question this measurement does not answer &mdash;
+the cheap experiment is a threshold scan, 224/208/192, one chip, with beam.</li>
+<li><b>Raise the mesh voltage.</b> 93% at &times;2 and
+91% at &times;1.5. It moves the whole Landau up, so it works,
+but the gain gradient is multiplicative and survives &mdash; the pads stay as
+unequal as they were, they just all clear the bar.</li>
+<li><b>Use the per-channel trim DACs against the gain map, not for it.</b> The
+usual point of trimming is to remove threshold dispersion; here the dispersion
+that matters is the detector's gain, and it is measured. Trimming the low-gain
+pads <i>down</i> would flatten the efficiency map directly. The range is a few
+mV, which is small against the factor 3.9, and it buys noise on exactly
+the channels that get the lower threshold &mdash; worth costing, not obviously
+worth doing.</li>
+<li><b>Fix the chamber.</b> The gradient is ~13&nbsp;% per 10&nbsp;mm across the
+beam spot and it is the same in both readouts, so it is amplification-side, not
+electronics. That is the only option that improves the detector rather than the
+readout's tolerance of it.</li>
+</ul>
+
+<h2>The one-slide version</h2>
+<figure><img src="figures/slide_full.png" alt="composite slide">
+<figcaption>Mechanism, consequence, proof and fix on one 16:9 frame, for the
+talk. The stand-alone panels above are the same figures at readable size.
+</figcaption></figure>
+
+<h2>What this does not rule out</h2>
+<ul>
+<li>The two runs are five days apart. The gain map could have moved between
+them; that it did not is an inference from the r&nbsp;=&nbsp;+0.94 agreement,
+not an independent measurement.</li>
+<li>The fitted level is a <i>charge</i> threshold expressed in DREAM ADC. It
+absorbs anything else that scales with pulse height and bites at the low end
+&mdash; time-over-threshold requirements, the peak-finder's own floor &mdash;
+so "the discriminator" is the natural reading, not a proven one.</li>
+<li>The additive 43-count offset is measured, not explained.
+A pedestal in the peak ADC is the obvious candidate; a charge-injection scan
+would settle it in an afternoon.</li>
+<li>Only P2_OUT. P2_MID and P2_IN have their own threshold settings and, in
+P2_MID's case, 27 dead channels on VMM&nbsp;12; nothing here transfers to them
+without redoing it.</li>
+<li>Everything is conditional on a uRWELL track pointing at the pad, so it is a
+statement about efficiency for tracks, not about noise occupancy at a lower
+threshold &mdash; which is the cost side of every option above and is not
+measured here.</li>
+</ul>
+
+<p class="note">Chain: <code>urw_p2_padadc.py</code> (DREAM per-pad spectra,
+lxplus) &rarr; <code>eff_autopsy_report.py::pad_pulse_height</code> (VMM)
+&rarr; <code>compare_dream_vmm.py</code> &rarr;
+<code>threshold_model.py</code> &rarr; <code>figures_slide.py</code>.</p>
+</main>

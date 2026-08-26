@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P2 dead areas and the bulk pillar lattice</title>
+<meta name="description" content="The uRWELL reference resolves the P2 bulk
+pillars: a triangular lattice at 3.000 mm, effective diameter 0.75 mm, and it
+costs the weakest station 9 points of efficiency.">
+<style>
+:root{--bg:#fcfcfb;--fg:#0b0b0b;--fg2:#52514e;--mut:#8a887f;--line:#e6e5e0;
+--acc:#2a78d6;--warn:#eb6834;--card:#ffffff}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1a1a19;
+--fg:#fff;--fg2:#c3c2b7;--mut:#8a887f;--line:#33322f;--acc:#3987e5;
+--warn:#d95926;--card:#211f1e}}
+[data-theme=dark]{--bg:#1a1a19;--fg:#fff;--fg2:#c3c2b7;--line:#33322f;
+--acc:#3987e5;--warn:#d95926;--card:#211f1e}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,
+BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;margin:0;padding:2rem 1.2rem}
+main{max-width:1000px;margin:0 auto}
+h1{font-size:1.7rem;line-height:1.25;margin:0 0 .3rem}
+h2{font-size:1.15rem;margin:2.2rem 0 .6rem;padding-bottom:.3rem;
+border-bottom:1px solid var(--line)}
+.sub{color:var(--fg2);margin:0 0 1.6rem}
+.verdict{background:var(--card);border-left:3px solid var(--acc);
+padding:1rem 1.2rem;border-radius:6px;margin:1.2rem 0}
+.kpis{display:flex;flex-wrap:wrap;gap:.8rem;margin:1.2rem 0}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:8px;
+padding:.7rem 1rem;min-width:120px}
+.kpi b{display:block;font-size:1.5rem;color:var(--acc);line-height:1.15}
+.kpi span{font-size:.8rem;color:var(--fg2)}
+table{border-collapse:collapse;width:100%;font-size:.9rem;margin:.8rem 0}
+th,td{padding:.4rem .6rem;border-bottom:1px solid var(--line);text-align:right}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--fg2);font-weight:600}
+figure{margin:1.4rem 0}
+img{width:100%;height:auto;border:1px solid var(--line);border-radius:6px}
+figcaption{color:var(--fg2);font-size:.86rem;margin-top:.45rem}
+code{background:var(--card);padding:.1rem .35rem;border-radius:4px;font-size:.88em}
+.tw{overflow-x:auto}
+.note{color:var(--fg2);font-size:.9rem}
+ul{padding-left:1.2rem}
+
+main{max-width:1180px}
+.big{font-size:1.05rem;line-height:1.65}
+figure img{width:100%;height:auto;border:1px solid var(--line);border-radius:8px}
+.flag{background:var(--card);border-left:3px solid var(--warn);
+padding:.9rem 1.1rem;border-radius:6px;margin:1.1rem 0}
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin:1.4rem 0}
+@media(max-width:820px){.kpi{grid-template-columns:repeat(2,1fr)}}
+.kpi div{background:var(--card);border-radius:8px;padding:.9rem 1rem}
+.kpi b{display:block;font-size:1.5rem;line-height:1.15}
+.kpi span{color:var(--mut);font-size:.85rem}
+</style></head><body><main>
+
+<h1>P2 dead areas, down to the bulk pillars</h1>
+<p class="sub">eff_nominal_1, 14 sub-runs,
+2,226,918 reference tracks. Three P2 stations at z = 320 / 630 / 940 mm
+between two uRWELL planes. Source: <code>nTof_x17/p2_sps/</code>
+(<code>p2_pillars.py</code> &rarr; <code>pillar_numbers.py</code>).</p>
+
+<h2>The answer</h2>
+<p class="big"><b>Yes &mdash; and they are already measured.</b> The reference
+telescope points to <b>0.22 mm</b> at the P2 planes, which is small enough
+that a 3.00 mm lattice survives with <b>86 % of its contrast</b>.
+The bulk pillars show up in the efficiency map as six spots
+60&deg; apart at
+15&ndash;19&sigma;, and folding every pillar in the beam spot onto one cell
+images the average one directly.</p>
+
+<p class="big">Two things came out of that which were not the question.
+First, <b>the as-built lattice is triangular at 2.995 mm</b>, and that is not
+what any mask file in the repositories says &mdash; the archived April artwork
+is triangular at 4.000 mm and the CERN bulk order of May is a square grid at
+2.000 mm. Second, <b>the pillars are most of the inefficiency</b>: they cost
+P2_IN 9.5 points of
+10.6, and P2_OUT
+3.5 of
+4.5.</p>
+
+<div class="kpi">
+<div><b>2.995 mm</b><span>measured pillar lattice, triangular, rows along
+the board x axis</span></div>
+<div><b>&#8709;0.77 mm</b><span>effective pillar footprint in charge
+&mdash; 0.56&ndash;0.82 mm over both runs</span></div>
+<div><b>0.22 mm</b><span>reference pointing resolution at the P2 planes,
+from the lattice itself</span></div>
+<div><b>19&sigma;</b><span>significance of the lattice in the
+efficiency map</span></div>
+</div>
+
+<h2>What was asked, and what was done</h2>
+<p>Two questions. <b>Cut the dead areas out of each chamber and see how the
+stack looks.</b> And: <b>the pillars should leave dead spots &mdash; can any
+reference track resolve them?</b></p>
+<p>Both run off one new extraction stage, <code>p2_pillars.py</code>, which
+re-uses <code>p2_selftrack.py</code>'s tracks, alignment, fiducial and vetoes
+unchanged and adds a <b>0.20 mm</b> map of each station's pad frame, a per-pad
+ledger indexed by channel&nbsp;id, and a finely binned residual-to-the-pad-box
+histogram. Everything below is computed offline from those.</p>
+
+<h2>1. A pillar you can simply look at</h2>
+<p>Before any statistics: the mask gerber puts five &#8709;6.15 mm support
+pillars on the board and one of them,
+at (411.36, 237.50) mm, is inside this
+beam spot. Binned at 0.2 mm it is a round hole exactly where the gerber says,
+with the chamber dead across it.</p>
+<table><thead><tr><th>station</th>
+<th>efficiency inside r &lt; 2 mm</th><th>beyond 7.5 mm</th>
+<th>tracks in the core</th></tr></thead>
+<tbody><tr><td>IN</td><td>0.0228</td><td>0.9070</td><td>2411</td></tr><tr><td>MID</td><td>0.0228</td><td>0.9761</td><td>2588</td></tr><tr><td>OUT</td><td>0.0156</td><td>0.9697</td><td>2570</td></tr></tbody></table>
+<p class="note">That settles two things needed later: the reference is sharp
+enough to image a millimetre-scale feature at its true position, and a pillar
+is completely dead rather than merely attenuating.</p>
+
+<h2>2. The lattice</h2>
+<p>The 0.5&ndash;0.8 mm bulk pillars cannot be looked at one at a time &mdash;
+a beam spot of 2.2 M tracks over 128 mm leaves a handful of tracks on each. But
+a lattice is a single wavevector, so the question becomes a measurement of one
+number. The estimator is a periodogram of the map's high-pass residual, with
+its null calibrated on wavevectors well off the lattice, and <b>the lattice
+itself is scanned</b> &mdash; spacing and orientation together, not three
+independent wavevectors &mdash; so a spacing is fitted, never assumed.</p>
+<table><thead><tr>
+<th>station</th><th>d [mm]</th><th>&theta; [&deg;]</th>
+<th>A<sub>1</sub> eff [%]</th><th>A<sub>2</sub> eff [%]</th>
+<th>A<sub>1</sub> amp [%]</th><th>&sigma;<sub>point</sub> [mm]</th>
+<th>&#8709;<sub>charge</sub> [mm]</th><th>&#8709;<sub>eff</sub> [mm]</th>
+</tr></thead><tbody><tr><td>IN</td>
+<td>2.9987</td><td>-0.33</td>
+<td>15.21 (19&sigma;)</td>
+<td>5.24 (6&sigma;)</td>
+<td>7.89 (18&sigma;)</td>
+<td>0.206</td>
+<td>0.776</td>
+<td>1.020</td></tr><tr><td>MID</td>
+<td>2.9912</td><td>+0.18</td>
+<td>4.54 (15&sigma;)</td>
+<td>2.15 (7&sigma;)</td>
+<td>7.14 (17&sigma;)</td>
+<td>0.256</td>
+<td>0.740</td>
+<td>0.536</td></tr><tr><td>OUT</td>
+<td>2.9962</td><td>+0.00</td>
+<td>6.05 (17&sigma;)</td>
+<td>3.29 (9&sigma;)</td>
+<td>8.01 (17&sigma;)</td>
+<td>0.212</td>
+<td>0.780</td>
+<td>0.604</td></tr></tbody></table>
+<p>Reading across: the three stations agree on d to
+3
+&micro;m and on the orientation to
+0.21&deg;,
+the rows run along the board x axis, and each station's lattice read on its
+neighbours' maps recovers
+94 %
+of the amplitude that station's own lattice gives on its own map. One pillar
+pattern, three chambers.</p>
+
+<h2>3. How well the reference sees it, measured twice</h2>
+<p>The harmonic ratio gives the pointing resolution on its own: how big the
+pillar is and how dead it is both cancel in A<sub>2</sub>/A<sub>1</sub>, and
+only the smearing is left. Independently, a one-pad cluster reports its pad's
+centre, so the residual to the reference is a box of the pad's own width
+convolved with the pointing error and nothing else &mdash; the edge of that box
+is the same number, off a different observable.</p>
+<table><thead><tr><th>station</th>
+<th>box along w [mm]</th><th>&sigma; [mm]</th>
+<th>box along h [mm]</th><th>&sigma; [mm]</th>
+<th>&sigma; from the lattice [mm]</th></tr></thead>
+<tbody><tr><td>IN</td><td>11.52</td><td>0.275</td><td>11.12</td><td>0.235</td><td>0.206</td></tr><tr><td>MID</td><td>11.60</td><td>0.260</td><td>11.12</td><td>0.320</td><td>0.256</td></tr><tr><td>OUT</td><td>11.68</td><td>0.250</td><td>11.06</td><td>0.285</td><td>0.212</td></tr></tbody></table>
+<p>At 0.22 mm the contrast retained at a 3.00 mm period is
+86 %, which is why this works at all; at a 1.0 mm period it would
+be 37 %, which is roughly
+where this method stops.</p>
+
+<h2>4. What the pillars cost</h2>
+<p>The disc that would produce the measured modulation is
+<b>&#8709;0.77 mm in charge</b>, and that number is the same on all three
+chambers &mdash; as it must be for one PCB design. In <i>efficiency</i> it is
+not: a pillar only costs a hit when the charge it takes away drops the pad
+under threshold, so the footprint depends on how much margin the pad had. Five
+of the six station-and-run combinations measured sit at
+&#8709;0.49&ndash;0.63 mm; the sixth is P2_IN in this run, at
+&#8709;1.02 mm, and it is also
+the only one running below 90 % efficiency.</p>
+<table><thead><tr>
+<th>station</th><th>efficiency</th><th>away from a pillar</th>
+<th>lost to pillars [pp]</th><th>of all loss</th>
+<th>everything else [pp]</th><th>mean charge lost [%]</th>
+</tr></thead><tbody><tr><td>IN</td>
+<td>0.8935</td><td>0.9889</td>
+<td>9.53</td>
+<td>90 %</td>
+<td>1.11</td>
+<td>7.97</td></tr><tr><td>MID</td>
+<td>0.9094</td><td>0.9372</td>
+<td>2.78</td>
+<td>31 %</td>
+<td>6.28</td>
+<td>3.95</td></tr><tr><td>OUT</td>
+<td>0.9552</td><td>0.9905</td>
+<td>3.52</td>
+<td>79 %</td>
+<td>0.95</td>
+<td>5.65</td></tr></tbody></table>
+<p class="note">Coverage of a &#8709;0.77 mm disc on a 3.00 mm
+triangular lattice is 5.9 % of the area. The deficits above are
+model-free: the efficiency averaged over the part of the cell more than 1.35 mm
+from a pillar, minus the station average.</p>
+
+<h2>5. Cutting the dead areas out</h2>
+<p>The mask is built from things known independently of the efficiency being
+measured: the gerber's medium and big pillars (a position cut), channels that
+never responded, and 64-channel connector blocks that are weak as a block. It
+is then applied to all three stations at once, because a three-station track
+needs every station clean.</p>
+<table><thead><tr><th>quantity</th><th>everything</th>
+<th>dead areas cut</th><th>change</th></tr></thead>
+<tbody><tr><td>efficiency, P2_IN</td><td>0.8928</td><td>0.8957</td><td>+0.33 %</td></tr><tr><td>efficiency, P2_MID</td><td>0.9091</td><td>0.9122</td><td>+0.34 %</td></tr><tr><td>efficiency, P2_OUT</td><td>0.9553</td><td>0.9595</td><td>+0.44 %</td></tr><tr><td>three-station tracks</td><td>0.7804</td><td>0.7849</td><td>+0.56 %</td></tr><tr><td>exit-plane core, x [mm]</td><td>4.305</td><td>4.304</td><td>-0.02 %</td></tr><tr><td>exit-plane core, y [mm]</td><td>4.071</td><td>4.071</td><td>+0.01 %</td></tr><tr><td>exit-plane p95, x [mm]</td><td>7.56</td><td>7.56</td><td>-0.01 %</td></tr><tr><td>angle core, x [mrad]</td><td>0.741</td><td>0.741</td><td>+0.03 %</td></tr><tr><td>angle core, y [mrad]</td><td>1.106</td><td>1.106</td><td>-0.02 %</td></tr></tbody></table>
+<div class="flag"><b>In this beam spot there is nothing much to cut.</b> The
+beam lights about 75 pads per station and none of them is dead, no connector
+block is weak, and the only maskable feature is the one support pillar &mdash;
+0.59 % of tracks. The documented P2_IN
+connector-11 problem and the cold-pad clusters sit in a different part of the
+chamber, under the <code>highstat_eff_1</code> spot. The honest conclusion is
+that <b>for this run the inefficiency is not maskable</b>: it is the pillar
+lattice, which is everywhere, plus a threshold floor.</p></div>
+
+<h2>6. The same measurement on a second run</h2>
+<p><code>highstat_eff_1</code>, 6 sub-runs,
+5,933,737 reference tracks, a different working point. The lattice is
+the same to <b>0.4 &micro;m</b> per station and the charge footprint
+to a few hundredths of a millimetre &mdash; which is what it should be, because
+it is the same three chambers.</p>
+<table><thead><tr><th rowspan="2">station</th><th colspan="2">d [mm]</th>
+<th colspan="2">&#8709;<sub>charge</sub> [mm]</th>
+<th colspan="2">efficiency</th>
+<th colspan="2">&#8709;<sub>eff</sub> [mm]</th></tr>
+<tr><th>eff_nominal_1</th><th>highstat_eff_1</th><th>eff_nominal_1</th>
+<th>highstat_eff_1</th><th>eff_nominal_1</th><th>highstat_eff_1</th>
+<th>eff_nominal_1</th><th>highstat_eff_1</th></tr></thead>
+<tbody><tr><td>IN</td>
+<td>2.9987</td><td>2.9987</td>
+<td>0.776</td>
+<td>0.560</td>
+<td>0.8935</td>
+<td>0.9634</td>
+<td>1.020</td>
+<td>0.492</td></tr><tr><td>MID</td>
+<td>2.9912</td><td>2.9912</td>
+<td>0.740</td>
+<td>0.756</td>
+<td>0.9094</td>
+<td>0.9631</td>
+<td>0.536</td>
+<td>0.524</td></tr><tr><td>OUT</td>
+<td>2.9962</td><td>2.9950</td>
+<td>0.780</td>
+<td>0.816</td>
+<td>0.9552</td>
+<td>0.9517</td>
+<td>0.604</td>
+<td>0.632</td></tr></tbody></table>
+<p>The cleanest test of the mechanism is P2_IN, the same chamber at two working
+points: efficiency 0.8935 &rarr;
+0.9634, and its <i>efficiency</i> footprint
+shrinks from &#8709;1.02 mm to
+&#8709;0.49 mm while its
+<i>charge</i> footprint stays put. The pillar did not change size; the margin
+above threshold did.</p>
+
+<h2>Figures</h2>
+<figure><img src="figures/pill_1_bigpillar.png" alt="pill_1_bigpillar.png"><figcaption>One of the five 6.15 mm bulk support pillars, the only one inside this beam spot, binned at 0.2 mm from reference tracks. The dashed circle is the gerber, drawn not fitted: the hole sits on it. Efficiency inside is 1.6&ndash;2.3 % against 91&ndash;98 % a few millimetres away, so a pillar is not a partial loss &mdash; over its own footprint the chamber is blind.</figcaption></figure>
+<figure><img src="figures/pill_2_kplane.png" alt="pill_2_kplane.png"><figcaption>The efficiency map has one periodic structure in it and this is it: six spots 60&deg; apart at |k| = 2.42 rad/mm. Nothing about a pitch is assumed &mdash; the left panel is the whole k-plane, the middle scans the triangular lattice spacing, and all three stations peak at d = 3.00 mm.</figcaption></figure>
+<figure><img src="figures/pill_3_avgpillar.png" alt="pill_3_avgpillar.png"><figcaption>No single 0.75 mm pillar has more than a handful of tracks on it. Folding the map onto one lattice cell puts every pillar in the beam spot into one picture, and the average pillar is resolved: at the centre the efficiency falls to a fifth of its plateau on P2_IN and to three fifths on the other two, and the leading pad loses about 40 % of its charge on all three.</figcaption></figure>
+<figure><img src="figures/pill_4_resolution.png" alt="pill_4_resolution.png"><figcaption>Two measurements of the reference's pointing resolution that share nothing but the tracks. Left: the edge of the pad-residual box &mdash; a one-pad cluster reports its pad centre, so the residual is a box convolved with the pointing error. Middle: the same number from the ratio of the lattice's first and second harmonics, where the pillar's size and deadness cancel.</figcaption></figure>
+<figure><img src="figures/pill_5_cost.png" alt="pill_5_cost.png"><figcaption>What the lattice costs. The <i>charge</i> footprint is the same &#8709;0.74&ndash;0.82 mm at all six working points measured, as it should be for one PCB design; the <i>efficiency</i> footprint is not. Five of the six sit at 0.49&ndash;0.63 mm and the sixth &mdash; the one station running at 89 % &mdash; is twice that, which is what a threshold-limited loss looks like.</figcaption></figure>
+<figure><img src="figures/pill_6_mask.png" alt="pill_6_mask.png"><figcaption>The dead areas that can actually be masked, and what masking them does. In this beam spot there is one support pillar and no dead or weak pads at all, so the whole exercise moves the tracking numbers by less than 0.1 %.</figcaption></figure>
+
+<h2>What this does not settle</h2>
+<ul>
+<li><b>Which mask was actually used.</b> The measurement is unambiguous &mdash;
+triangular, d = 2.995 mm, rows along x, &#8709;&asymp;0.77 mm &mdash;
+and it matches the <i>symmetry, orientation and diameter</i> of the archived
+April artwork (<code>P2_BASKET-Mask_M2_V*.gbr</code>, triangular
+&#8709;0.80 mm) but not its 4.000 mm spacing, and it matches nothing about the
+CERN May file (<code>P2_Mask2.gbr</code>, square 2.000 mm, &#8709;0.500 mm).
+Somebody should find the artwork the bulk was actually made from.</li>
+<li><b>The effective diameter is not the pillar's diameter.</b> It is the
+diameter of the fully dead disc that would reproduce the measured modulation.
+A real pillar plus whatever gain suppression surrounds it, seen through a
+charge cloud of unmeasured width, gives the same number; the drift diffusion of
+these chambers has not been measured here. The charge channel carries a second
+bias in the same direction: an amplitude only exists for a track the pad
+actually recorded, so at the centre of a pillar the average is taken over the
+surviving high-charge tail and the dip is <i>understated</i>. Read
+&#8709;<sub>charge</sub> as a lower bound.</li>
+<li><b>P2_MID behaves differently</b> and it is not understood. Its lattice
+amplitude in efficiency is the weakest of the three
+(4.5 % against
+15.2 % on IN) while its amplitude
+modulation is normal, and it carries
+6.3 points of inefficiency away from
+any pillar &mdash; far more than the other two.</li>
+<li><b>Two runs, not the whole campaign.</b> &sect;6 repeats everything on
+<code>highstat_eff_1</code>; the HV scans and the other working points have not
+been processed, and neither run's beam spot reaches the P2_IN connector-11
+region that the tag-and-probe study found.</li>
+<li><b>Nothing here bounds a global scale or rotation error</b> of the
+alignment: the pad frame is fitted to the reference, as in every other stage.
+It does now bound a <i>local</i> one &mdash; a lattice that reproduces to better than
+5 &micro;m in 3 mm across a 90 mm spot, on two runs, means the frame is linear
+to a few parts in 10<sup>4</sup>.</li>
+</ul>
+</main></body></html>
