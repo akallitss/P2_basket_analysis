@@ -111,6 +111,66 @@ def reduce_hits(hits, n, keep):
     return d, cnt
 
 
+DNL_PERIOD = 16      # VMM3a ADC differential non-linearity period, in codes
+
+
+def pad_pulse_height(tracks, st, j, sel, n_pads):
+    """Per-pad pulse height of the tracks that WERE detected on that pad.
+
+    `win_adc_{st}` is the ADC of the nearest in-window unmasked hit, and is 0
+    where the track produced none -- so the pulse height is defined on the k
+    detected tracks, not on all n.  Returns arrays aligned with `ids`.
+
+    Two medians are stored.  `adc_med` is the plain one.  `adc_med_dnl` is the
+    same quantity read off a histogram rebinned to 16 codes: the VMM3a ADC is
+    ~2x too wide on every multiple of 16, and a plain median lands on a comb
+    tooth wherever the distribution is locally flat.  The two agree to a few
+    codes on a well-populated pad and diverge on a sparse one, which is the
+    useful signal -- quote `adc_med_dnl`, and use the pair as a warning flag.
+
+    That 16-code histogram is kept as `adc_hist` (sparse: only pads that saw
+    something), so the per-pad pulse-height DISTRIBUTION can be drawn, not just
+    its median.  16 codes is the natural bin here for the same reason it fixes
+    the median -- it is exactly one DNL period, so the comb averages out inside
+    a bin instead of rippling across the plot.
+    """
+    adc = tracks[f"win_adc_{st}"].to_numpy().astype(np.float64)
+    m = sel & (adc > 0)
+    out = {k: np.full(n_pads, np.nan) for k in
+           ("adc_med", "adc_p25", "adc_p75", "adc_med_dnl")}
+    out["adc_n"] = np.zeros(n_pads, np.int64)
+    if not m.any():
+        d = {k: v.tolist() for k, v in out.items()}
+        d.update(adc_hist={}, adc_hist_bin=DNL_PERIOD)
+        return d
+
+    df = pd.DataFrame({"j": j[m], "adc": adc[m]})
+    g = df.groupby("j")["adc"]
+    for name, q in (("adc_med", 0.5), ("adc_p25", 0.25), ("adc_p75", 0.75)):
+        s = g.quantile(q)
+        out[name][s.index.to_numpy()] = s.to_numpy()
+    c = g.size()
+    out["adc_n"][c.index.to_numpy()] = c.to_numpy()
+
+    # DNL-clean median: interpolate the 50% point of a 16-code histogram
+    nb = 1024 // DNL_PERIOD
+    b = np.minimum((df["adc"].to_numpy() // DNL_PERIOD).astype(np.int64), nb - 1)
+    h = np.zeros((n_pads, nb), np.int64)
+    np.add.at(h, (df["j"].to_numpy(), b), 1)
+    tot_h = h.sum(1)
+    for i in np.flatnonzero(tot_h > 0):
+        cum = np.cumsum(h[i]) / tot_h[i]
+        k = int(np.searchsorted(cum, 0.5, side="left"))
+        below = cum[k - 1] if k > 0 else 0.0
+        frac = (0.5 - below) / max(cum[k] - below, 1e-12)
+        out["adc_med_dnl"][i] = (k + frac) * DNL_PERIOD
+
+    d = {k: v.tolist() for k, v in out.items()}
+    d["adc_hist"] = {int(i): h[i].tolist() for i in np.flatnonzero(tot_h > 0)}
+    d["adc_hist_bin"] = DNL_PERIOD
+    return d
+
+
 def analyse(tracks, hits, meta, st, args):
     pads = VS.build_pad_table()
     pads = pads[(pads["station"] == st) & pads["pad_cx"].notna()]
@@ -221,6 +281,7 @@ def analyse(tracks, hits, meta, st, args):
                       "y": pads["pad_cy"].round(2).tolist(),
                       "vmm": pads["vmm"].tolist(), "ch": pads["ch"].tolist(),
                       "n": tot.tolist(), "k": got.tolist()}
+    res["per_pad"].update(pad_pulse_height(tracks, st, j, ok & hit, len(ids)))
     live = tot >= args.min_pad
     e_pad = np.where(live, got / np.maximum(tot, 1), np.nan)
     res["pad_summary"] = {
