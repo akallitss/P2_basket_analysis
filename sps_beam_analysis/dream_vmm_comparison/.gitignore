@@ -1,0 +1,21 @@
+# Regenerated from data/ by the figure scripts -- the repository keeps code and
+# the small derived tables, not the pictures.
+figures/
+
+# make_note.py output: the report fragment with every PNG inlined as a data:
+# URI, ~1 MB each. Generated, and only ever consumed by the site publisher.
+*_note.html
+
+# The repository root drops *.npz, but these two are chain inputs, not output:
+# the per-pad DREAM spectra the threshold fit reads, and the per-channel ADC
+# histograms. Both are small. Keep them.
+!data/*.npz
+
+# ...except the raw p2_pillars extraction products: 45-78 MB each of 0.20 mm
+# maps plus the whole per-track table. They live on EOS under
+# `analysis/pillars/`; the repository keeps only what the figures and the
+# report actually read, `data/pillar_numbers_*.json` and
+# `data/pillar_arrays_*.npz`. The gerber-derived pillar geometry is small and
+# is a chain INPUT, so it stays.
+data/p2_pillars_*.npz
+!data/p2_pillars_gerber.npz
