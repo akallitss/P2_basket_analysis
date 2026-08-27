@@ -50,6 +50,11 @@ GROUPS = [
           "a gain factor is a sideways shift, one discriminator level drawn "
           "through them, and what each band actually records &mdash; DREAM "
           "98 &rarr; 92 %, the VMM 93 &rarr; 63 %."),
+         ("deck_3_threshold_perpad.png",
+          "Slide 3 with the audit on it: the blue line is one level fitted to "
+          "all 53 pads at once, each green tick is the same model inverted "
+          "for a single pad. For the audience that asks whether it really is "
+          "one threshold &mdash; median 177 against the fitted 162 ADC."),
      ]),
     ("P2 tracking against the uRWELL reference",
      "The three P2 stations judged against external reference tracks: what one "
@@ -120,6 +125,11 @@ GROUPS = [
          ("slide_ridge.png",
           "The ridgeline on its own, without the slide chrome &mdash; the "
           "source of deck slide 3."),
+         ("slide_ridge_perpad.png",
+          "The same ridgeline with each pad's own fitted threshold ticked on "
+          "it in green against the one global line in blue, and both colours "
+          "named on the figure &mdash; the desk-sized version of "
+          "<code>deck_3_threshold_perpad.png</code>."),
          ("slide_full.png",
           "All three ideas on one 16:9 slide, for a single-slide version of "
           "the story."),

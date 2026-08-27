@@ -14,6 +14,12 @@ it is one discriminator level sitting inside the Landau.
                        gas-gain gradient that BOTH measure, pad for pad
   deck_3_threshold.png the mechanism -- the Landau slides across a fixed
                        discriminator line; the closer
+  deck_3_threshold_perpad.png
+                       the same slide with the audit drawn on it: each pad's
+                       own independently fitted threshold as a green tick,
+                       against the one global line in blue.  For the question
+                       "is that really ONE level?" -- backup, or a swap-in for
+                       deck_3 when the audience is the kind that asks
 
 BUILT FOR A PROJECTOR, not for reading at a desk.  Everything is sized off
 `SC`, roughly twice what a printed figure would use, and that costs about half
@@ -42,6 +48,7 @@ from matplotlib.patches import Ellipse
 
 import figures as F
 import figures_slide as S
+import threshold_model as M
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIG, DATA = os.path.join(HERE, "figures"), os.path.join(HERE, "data")
@@ -316,11 +323,19 @@ def slide_2(g, n):
 
 
 # --------------------------------------------------------------------------- #
-def slide_3(g, H, bw, Sp, n):
+def slide_3(g, H, bw, Sp, n, perpad=False):
     """The closer: the spectra themselves, banded by gain, against the one
-    discriminator line -- and what each band actually records."""
+    discriminator line -- and what each band actually records.
+
+    With perpad=True the same slide also carries the audit of the claim the
+    blue line makes: the model inverted for each pad SEPARATELY, one green
+    tick per pad.  Same composition, one extra key line, so the two versions
+    can be swapped in the deck without the audience re-reading the axes."""
     gr = S.groups(g, H, bw, ngroup=NGROUP)
     T = n["T"]
+    if perpad:
+        Tpad, _, lo_clip, hi_clip = M.fit_threshold_per_pad(g, Sp)
+        rows, p = [Tpad[G["idx"]] for G in gr], n["perpad"]
 
     fig = plt.figure(figsize=SLIDE)
     gs = fig.add_gridspec(1, 2, width_ratios=[2.45, 1],
@@ -328,10 +343,23 @@ def slide_3(g, H, bw, Sp, n):
                           wspace=0.05)
     ax = fig.add_subplot(gs[0, 0])
     axb = fig.add_subplot(gs[0, 1], sharey=ax)
-    S.ridge(ax, gr, bw, T, fs=SC)
+    S.ridge(ax, gr, bw, T, fs=SC,
+            **(dict(Tpad_rows=rows, tick=(0.03, 0.58, 1.7 * SC, 0.95))
+               if perpad else {}))
     S.effbars(axb, gr, n, fs=SC, bh=0.38)
+    if perpad:
+        # room under the rows for the green key; sharey, so this sets both
+        ax.set_ylim(-0.92, NGROUP + 0.35)
+        # no tick glyph in front of this one: at projector size it lands on
+        # the spine and reads as a smudge.  The sentence names the colour.
+        ax.text(30.0, -0.77, "green ticks = that pad's own fit, one per pad",
+                fontsize=NOTE, color=S.TICK_C, fontweight="bold", ha="left",
+                va="center", zorder=45)
 
-    ax.annotate("the VMM's discriminator", xy=(T, NGROUP + 0.01),
+    ax.annotate("the VMM's discriminator —"
+                "\none level, all 53 pads at once" if perpad
+                else "the VMM's discriminator",
+                xy=(T, NGROUP + 0.01),
                 xytext=(T * 1.32, NGROUP + 0.26), fontsize=NOTE,
                 color=VMM_C, fontweight="bold", va="center",
                 arrowprops=dict(arrowstyle="-", color=VMM_C, lw=1.0 * SC))
@@ -354,6 +382,20 @@ def slide_3(g, H, bw, Sp, n):
     axb.text(0.74, -0.34, DREAM_LBL, fontsize=PTITLE * 0.82, color=DREAM_C,
              fontweight="bold", ha="center", va="center")
 
+    if perpad:
+        n_clip = int((lo_clip | hi_clip).sum())
+        chrome(fig,
+               "One level — and every pad, fitted on its own, says so",
+               f"Blue is one number fitted to all {p['n_ok'] + n_clip} pads "
+               f"together.  Invert the same model pad by pad (green)\nand the "
+               f"answers centre on it: median {p['T_med']:.0f} vs {T:.0f} "
+               f"DREAM ADC, scatter {p['T_relrms'] * 100:.0f} % — worth "
+               f"{n['resid_rms'] * 100:.1f} efficiency points.",
+               "P2 SPS July 2026 · P2_OUT · sdt = 224 on all six chips")
+        fig.savefig(f"{FIG}/deck_3_threshold_perpad.png", dpi=DPI)
+        plt.close(fig)
+        return
+
     chrome(fig,
            "The Landau slides onto the VMM's threshold",
            f"One fitted level, {T:.0f} DREAM ADC, cut into DREAM's own "
@@ -372,7 +414,9 @@ def main():
         slide_1(g, n)
         slide_2(g, n)
         slide_3(g, H, bw, Sp, n)
-    print("wrote figures/deck_{1_deficit,2_gainmap,3_threshold}.png")
+        slide_3(g, H, bw, Sp, n, perpad=True)
+    print("wrote figures/deck_{1_deficit,2_gainmap,3_threshold,"
+          "3_threshold_perpad}.png")
 
 
 if __name__ == "__main__":

@@ -150,9 +150,17 @@ them with the project venv (`../../.venv/bin/python` from here).
 3. `deck_3_threshold.png` — the ridgeline: on a log axis a gain factor is a
    sideways shift, and the Landau slides onto a fixed discriminator line.
 
+`deck_3_threshold_perpad.png` is slide 3 with the audit drawn on it: same six
+bands, same efficiency bars, plus one **green** tick per pad at the threshold
+fitted from that pad alone, against the **blue** global line — one level fitted
+to all 53 pads at once. Both colours are named on the figure. Swap it in for
+slide 3 when the audience is going to ask whether it really is one threshold,
+or keep it as the backup for that question.
+
 `figures_slide.py` builds the backup slides — `slide_proof.png` (predicted vs
-measured, and the spread waterfall) and `slide_fix.png` (efficiency against
-signal-over-threshold).
+measured, and the spread waterfall), `slide_fix.png` (efficiency against
+signal-over-threshold) and `slide_ridge_perpad.png`, the desk-sized version of
+the per-pad slide above (eight bands, and the numbers in a footer).
 
 `figures_perpad.py` builds the audit of the threshold claim. The ridgeline rows
 are gain *bands*, the track-weighted mean of six or seven pads' unit-area
