@@ -12,10 +12,15 @@ figures/
 !data/*.npz
 
 # ...except the raw p2_pillars extraction products: 45-78 MB each of 0.20 mm
-# maps plus the whole per-track table. They live on EOS under
-# `analysis/pillars/`; the repository keeps only what the figures and the
-# report actually read, `data/pillar_numbers_*.json` and
+# maps plus the whole per-track table. The repository keeps only what the
+# figures and the report actually read, `data/pillar_numbers_*.json` and
 # `data/pillar_arrays_*.npz`. The gerber-derived pillar geometry is small and
 # is a chain INPUT, so it stays.
+#
+# These used to be described here as living on EOS under `analysis/pillars/`.
+# Checked 2026-08-27: that path does not exist and no `p2_pillars*` file is
+# anywhere under /eos/user/d/dneff/. The only copy is on the p2 machine, or
+# regenerate with `p2_pillars.py --data-root <raw>`. Only
+# `figures_pillar.py::fig_mask` reads them; pill_1-pill_5 do not.
 data/p2_pillars_*.npz
 !data/p2_pillars_gerber.npz
