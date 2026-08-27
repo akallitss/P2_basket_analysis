@@ -123,6 +123,24 @@ GROUPS = [
          ("slide_full.png",
           "All three ideas on one 16:9 slide, for a single-slide version of "
           "the story."),
+         ("slide_ridge_check.png",
+          "The ridgeline with each pad's own independently fitted threshold "
+          "ticked against the single global line, and those fits plotted "
+          "against pad gain."),
+     ]),
+    ("Does one threshold really fit every pad?",
+     "The test the joint fit cannot do on itself: invert the model separately "
+     "for each of the 53 pads and compare the answers. Built by "
+     "<code>figures_perpad.py</code>.", [
+         ("perpad_ridge.png",
+          "The ridgeline with the band averaging removed &mdash; 53 rows, one "
+          "pad each, every one carrying its own fitted threshold next to the "
+          "global line."),
+         ("perpad_check.png",
+          "What the spread in those 53 answers is worth: 77 % of it lives "
+          "inside a gain band, it is 46 ADC against 4 from counting noise, "
+          "and at 10 ADC per efficiency point it is the 5.1-point residual "
+          "of the global fit in other units."),
      ]),
     ("VMM vs DREAM, the comparison", "Built by <code>figures_dv.py</code>.", [
         ("dv_headline.png", "The headline comparison of the two readouts."),

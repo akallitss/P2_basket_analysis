@@ -72,7 +72,10 @@ def groups(g, H, bw, ngroup=None):
 
 
 # --------------------------------------------------------------------------- #
-def ridge(ax, gr, bw, T, xlim=(28.0, 3000.0), h=1.02, fs=1.0):
+TICK_C = F.C3
+
+
+def ridge(ax, gr, bw, T, xlim=(28.0, 3000.0), h=1.02, fs=1.0, Tpad_rows=None):
     """The hero panel.  One filled curve per gain band, stacked bottom (weak)
     to top (strong), with the single discriminator level drawn straight through
     all of them.
@@ -81,7 +84,12 @@ def ridge(ax, gr, bw, T, xlim=(28.0, 3000.0), h=1.02, fs=1.0):
     factor, so on a log axis the eight bands are the same curve TRANSLATED, and
     what changes from row to row is only how much of it falls left of the fixed
     threshold line.  (Plotted as A x dN/dA, the density per decade, so the areas
-    on screen are the real fractions.)"""
+    on screen are the real fractions.)
+
+    Tpad_rows, if given, is one array per band of the INDEPENDENT per-pad
+    threshold fits (threshold_model.fit_threshold_per_pad) for the pads in
+    that band, drawn as short ticks against the single global line -- the
+    test of whether the global-threshold claim actually holds pad by pad."""
     c = (np.arange(gr[0]["h"].size) + 0.5) * bw
     # 3600 up: the DREAM amplitude saturates and the last bins are an overflow
     # pile-up.  Left in, that spike sets the normalisation and flattens the
@@ -100,6 +108,11 @@ def ridge(ax, gr, bw, T, xlim=(28.0, 3000.0), h=1.02, fs=1.0):
         ax.plot(xlim, [base, base], lw=0.7, color=F.GRID, zorder=1)
         ax.text(xlim[0] * 0.90, base + 0.30, f"{G['gain']:.2f}x",
                 fontsize=9 * fs, color=F.INK2, ha="right", va="center")
+        if Tpad_rows is not None:
+            tp = np.asarray(Tpad_rows[j])
+            tp = tp[(tp >= xlim[0]) & (tp <= xlim[1])]
+            ax.vlines(tp, base + 0.03, base + 0.30, color=TICK_C, lw=1.2,
+                      alpha=0.75, zorder=44)
 
     ax.axvline(T, lw=2.2, color=VMM_C, zorder=40)
     ax.set_xscale("log")
@@ -180,6 +193,75 @@ def fig_ridge(g, H, bw, S, n):
                  loc="left", color=F.INK2, fontsize=9)
     fig.tight_layout(rect=[0, 0, 1, 0.945])
     fig.savefig(f"{FIG}/slide_ridge.png", dpi=170)
+    plt.close(fig)
+
+
+# --------------------------------------------------------------------------- #
+def fig_ridge_check(g, H, bw, S, n):
+    """The test the global fit doesn't otherwise get: fit T pad by pad,
+    independently, and see whether the 53 answers cluster on the global line
+    or scatter away from it (with gain, or just noisily)."""
+    gr = groups(g, H, bw)
+    T = n["T"]
+    Tpad, sigT, lo_clip, hi_clip = M.fit_threshold_per_pad(g, S)
+    Tpad_rows = [Tpad[G["idx"]] for G in gr]
+    ok = ~(lo_clip | hi_clip) & np.isfinite(sigT)
+
+    fig, (ax, ax2) = plt.subplots(
+        1, 2, figsize=(13.6, 6.4),
+        gridspec_kw=dict(width_ratios=[2.0, 1.35], wspace=0.28))
+
+    ridge(ax, gr, bw, T, Tpad_rows=Tpad_rows)
+    ax.annotate("global fit — all 53 pads together",
+                xy=(T, NGROUP - 0.05), xytext=(T * 1.35, NGROUP + 0.20),
+                fontsize=9.5, color=VMM_C, fontweight="bold", va="center",
+                arrowprops=dict(arrowstyle="-", color=VMM_C, lw=1.0))
+    ax.text(28 * 0.90, -0.34, "ticks: each pad's OWN threshold, fit from that "
+            "pad alone", fontsize=8.5, color=TICK_C, fontweight="bold",
+            ha="left", va="center")
+    ax.set_title("P2_OUT · same 8 gain bands · one tick per pad, from an "
+                 "independent per-pad fit", loc="left", color=F.INK2,
+                 fontsize=9)
+
+    # -- the actual test: does T_pad cluster on T, or trend/scatter? -------- #
+    _style(ax2)
+    gain = (g["amp_med_d"].to_numpy() / np.median(g["amp_med_d"].to_numpy()))
+    ax2.axhspan(n["T_lo"], n["T_hi"], color=VMM_C, alpha=0.12, zorder=1)
+    ax2.axhline(T, lw=2.0, color=VMM_C, zorder=3)
+    ax2.errorbar(gain[ok], Tpad[ok], yerr=sigT[ok], fmt="o", ms=5.5,
+                color=TICK_C, ecolor=TICK_C, elinewidth=1.0, capsize=2,
+                alpha=0.85, zorder=5, label="in-range pads")
+    bad = lo_clip | hi_clip
+    if bad.any():
+        ax2.scatter(gain[bad], Tpad[bad], marker="x", s=42, color=F.MUTED,
+                    zorder=4, label="off scan range (ratio ill-defined)")
+    ax2.set_xscale("log")
+    ax2.set_xlabel("pad gain (DREAM median / fleet median)")
+    ax2.set_ylabel("independent per-pad threshold fit  [DREAM ADC]")
+    ax2.legend(loc="upper right", fontsize=8, frameon=False)
+
+    n_ok = int(ok.sum())
+    med, iqr_lo, iqr_hi = (np.median(Tpad[ok]), *np.percentile(Tpad[ok], [25, 75])) \
+        if n_ok else (np.nan, np.nan, np.nan)
+    chi2 = float(np.sum(((Tpad[ok] - T) / sigT[ok]) ** 2)) if n_ok else np.nan
+    dof = max(n_ok - 1, 1)
+    ax2.text(0.03, 0.03, f"{n_ok}/{len(g)} pads in range\n"
+             f"median T_pad = {med:.0f} ADC  (IQR {iqr_lo:.0f}–{iqr_hi:.0f})\n"
+             f"global T = {T:.0f} ADC\n"
+             f"$\\chi^2$/dof vs global = {chi2 / dof:.2f}  ({n_ok} pads, "
+             "counting-noise error bars)",
+             transform=ax2.transAxes, fontsize=8.5, color=F.INK,
+             va="bottom", ha="left",
+             bbox=dict(boxstyle="round,pad=0.35", fc=F.SURFACE, ec=F.GRID))
+    ax2.set_title("Independent per-pad fits vs. the global line",
+                 loc="left", color=F.INK, fontsize=10, fontweight="bold")
+
+    fig.suptitle("Testing the global-threshold claim: fit each pad on its own, "
+                 "not jointly — do the 53 answers agree?",
+                 x=0.006, ha="left", fontsize=12.5, fontweight="bold",
+                 color=F.INK)
+    fig.tight_layout(rect=[0, 0, 1, 0.93])
+    fig.savefig(f"{FIG}/slide_ridge_check.png", dpi=170)
     plt.close(fig)
 
 
@@ -407,10 +489,11 @@ def fig_full(g, H, bw, S, n):
 def main():
     g, H, bw, S, n = load()
     fig_ridge(g, H, bw, S, n)
+    fig_ridge_check(g, H, bw, S, n)
     fig_proof(g, H, bw, S, n)
     fig_fix(g, H, bw, S, n)
     fig_full(g, H, bw, S, n)
-    print("wrote figures/slide_{ridge,proof,fix,full}.png")
+    print("wrote figures/slide_{ridge,ridge_check,proof,fix,full}.png")
 
 
 if __name__ == "__main__":

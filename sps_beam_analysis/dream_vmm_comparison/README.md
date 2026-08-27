@@ -131,7 +131,7 @@ the two extraction steps need lxplus and the raw data.
 | Join the two on the pad map | `compare_dream_vmm.py` | `data/compare_dream_vmm_P2_OUT.csv` |
 | Fit the one threshold, cost the fixes | `threshold_model.py` | `data/threshold_model_P2_OUT.json` |
 | Aggregate the self-tracking counts | `track_stats.py` | (in memory) |
-| Figures | `figures.py`, `figures_p2out.py`, `figures_dv.py`, `figures_slide.py`, `figures_deck.py`, `figures_track.py`, `figures_pillar.py` | `figures/*.png` |
+| Figures | `figures.py`, `figures_p2out.py`, `figures_dv.py`, `figures_slide.py`, `figures_perpad.py`, `figures_deck.py`, `figures_track.py`, `figures_pillar.py` | `figures/*.png` |
 | Reports | `make_report.py`, `make_report_dv.py`, `make_report_slide.py`, `make_deck_mockup.py`, `make_report_track.py`, `make_report_pillar.py` | `report*.html`, `deck_mockup.html` |
 | Notes for the site | `make_note.py` | `*_note.html` (PNGs inlined as data: URIs) |
 
@@ -153,6 +153,20 @@ them with the project venv (`../../.venv/bin/python` from here).
 `figures_slide.py` builds the backup slides — `slide_proof.png` (predicted vs
 measured, and the spread waterfall) and `slide_fix.png` (efficiency against
 signal-over-threshold).
+
+`figures_perpad.py` builds the audit of the threshold claim. The ridgeline rows
+are gain *bands*, the track-weighted mean of six or seven pads' unit-area
+spectra, so the picture cannot be used to ask whether the pads agree — it has
+averaged over the axis the question is about, and a joint least squares will
+always return some minimising `T` anyway. `threshold_model.fit_threshold_per_pad`
+inverts the model for each pad separately; `perpad_ridge.png` draws all 53 rows
+unaveraged with their own fitted thresholds, and `perpad_check.png` decomposes
+the spread. The answer is that the mechanism holds (53 independent fits centre
+on the global value) but "one number is the whole story" overstates it: the
+per-pad thresholds scatter by 26 % rms, ~10x counting noise, with no significant
+gain trend. At 10 ADC per efficiency point that scatter *is* the 5.1-point
+residual of the global fit — the same fact in different units, not a second
+problem. Summary numbers land in `threshold_model_P2_OUT.json` under `perpad`.
 
 ## Gotchas
 

@@ -27,6 +27,7 @@ def main():
     fix = {r["factor"]: r for r in n["fix"]}
     f2, f15 = fix[2.0], fix[1.5]
     span = g["amp_med_d"].max() / g["amp_med_d"].min()
+    pp = n["perpad"]
 
     frow = "".join(
         f"<tr><td>x{r['factor']:g}</td><td>{r['eff_all']:.3f}</td>"
@@ -68,6 +69,17 @@ effects.</b> Detector spread {n['rms_dream_raw']:.2f} (DREAM, everything kept)
 offset is folded in. Removing that offset from the VMM medians gives
 {n['rms_vmm_deoffset']:.2f} &mdash; the truncated DREAM number. Nothing is left
 over.
+<br><br>
+<b>One level is the first-order story, not the last word.</b> Inverting the same
+model pad by pad instead of jointly gives {pp['n_ok']} independent thresholds
+that centre on the global one (median {pp['T_med']:.0f} against
+{n['T']:.0f}&nbsp;ADC) but scatter around it by {pp['T_relrms'] * 100:.0f}&nbsp;%
+rms &mdash; far beyond the {pp['sig_med']:.0f}&nbsp;ADC that counting statistics
+allow. At {pp['adc_per_point']:.0f}&nbsp;ADC per efficiency point that scatter
+<i>is</i> the {n['resid_rms'] * 100:.1f}-point residual quoted above, in other
+units. Read it as one common level plus a per-channel dispersion of order
+{pp['T_relrms'] * 100:.0f}&nbsp;%, which is what an untrimmed VMM front end is
+expected to have.
 </div>
 
 <div class="kpis">
@@ -100,6 +112,53 @@ that pad's DREAM spectrum at the one fitted level, {n['T']:.0f}&nbsp;ADC
 not a threshold effect. <b>Right:</b> the measured pad-to-pad spread of the
 pulse height, and where the VMM's smaller number comes from. Marker area is the
 track count.</figcaption></figure>
+
+<h2>Testing it pad by pad, with the averaging off</h2>
+<p>The ridgeline above is eight curves for {n['npad']} pads: each row is a gain
+band, the track-weighted mean of six or seven pads' unit-area spectra. That is
+the right average for the model &mdash; a band's sub-threshold area is exactly
+the mean of its pads' &mdash; but it cannot answer "do the cut-offs line up?",
+because it has averaged over the axis the question is about. A joint least
+squares has the same problem: it will always return some minimising T. So the
+model is inverted separately for every pad, solving
+eff<sub>VMM</sub>&nbsp;=&nbsp;eff<sub>DREAM</sub>&nbsp;&times;&nbsp;F(T) with
+that pad's own spectrum and its own two measured efficiencies, and the
+{pp['n_ok']} answers are compared with the single global line.</p>
+
+<figure><img src="figures/perpad_ridge.png" alt="per-pad ridgeline">
+<figcaption>The same figure with the band averaging removed: one row per pad,
+sorted by gain, its own spectrum, its own independently fitted threshold (green)
+against the one global level (blue). Right: what each pad actually recorded, with
+the global-cut prediction marked. The green ticks do not stack on the blue line,
+and where they fall bears no clear relation to where that row's Landau
+sits.</figcaption></figure>
+
+<figure><img src="figures/perpad_check.png" alt="per-pad threshold spread">
+<figcaption><b>Left:</b> {pp['frac_within_band'] * 100:.0f}&nbsp;% of the spread
+in the per-pad thresholds lives <i>within</i> a gain band and only
+{(1 - pp['frac_within_band']) * 100:.0f}&nbsp;% separates the bands &mdash; so
+the eight-row figure averages over precisely the axis along which the pads
+disagree. <b>Middle:</b> the observed spread is {pp['T_rms']:.0f}&nbsp;ADC rms
+against {pp['sig_med']:.0f}&nbsp;ADC from track and pulse counting alone
+(&chi;&sup2;/dof&nbsp;=&nbsp;{pp['chi2_dof']:.0f} against one common level), so
+it is real and not a statistics artefact. <b>Right:</b> the exchange rate.
+{pp['adc_per_point']:.0f}&nbsp;ADC of threshold is worth one efficiency point,
+which makes the {pp['T_rms']:.0f}-ADC spread and the
+{n['resid_rms'] * 100:.1f}-point residual of the global fit the same fact twice
+&mdash; not two separate problems.</figcaption></figure>
+
+<p>The mechanism survives this: the {pp['n_ok']} independent answers centre on
+the global value, with median {pp['T_med']:.0f}&nbsp;ADC (IQR
+{pp['T_iqr_lo']:.0f}&ndash;{pp['T_iqr_hi']:.0f}) against the fitted
+{n['T']:.0f}. What does not survive is the stronger reading, that one number is
+the <i>whole</i> story. The honest statement is one common level plus a
+channel-to-channel dispersion of about {pp['T_relrms'] * 100:.0f}&nbsp;%. That
+dispersion shows no significant trend with pad gain
+(r&nbsp;=&nbsp;{pp['r_gain']:+.2f}, p&nbsp;=&nbsp;{pp['p_gain']:.2f}), which is
+the reason it does not touch the conclusions below: every fix is a move in the
+ratio T/gain, and a gain-independent dispersion around T survives all of them
+equally. A dispersion that <i>did</i> track gain would have been a second
+mechanism and would have changed them.</p>
 
 <h2>What it would take to fix</h2>
 <figure><img src="figures/slide_fix.png" alt="fix">
@@ -160,6 +219,12 @@ not an independent measurement.</li>
 absorbs anything else that scales with pulse height and bites at the low end
 &mdash; time-over-threshold requirements, the peak-finder's own floor &mdash;
 so "the discriminator" is the natural reading, not a proven one.</li>
+<li>The {pp['T_relrms'] * 100:.0f}&nbsp;% per-pad threshold dispersion is
+measured but not attributed. Untrimmed VMM channel-to-channel threshold spread
+is the obvious candidate, and the per-channel trim DACs would settle it on the
+bench in an afternoon; timewalk, per-channel noise, and any pad-dependence of
+the DREAM peak-finder would all land in the same number. Nothing here separates
+them.</li>
 <li>The additive {n['offset_adc']:.0f}-count offset is measured, not explained.
 A pedestal in the peak ADC is the obvious candidate; a charge-injection scan
 would settle it in an afternoon.</li>
@@ -175,7 +240,8 @@ measured here.</li>
 <p class="note">Chain: <code>urw_p2_padadc.py</code> (DREAM per-pad spectra,
 lxplus) &rarr; <code>eff_autopsy_report.py::pad_pulse_height</code> (VMM)
 &rarr; <code>compare_dream_vmm.py</code> &rarr;
-<code>threshold_model.py</code> &rarr; <code>figures_slide.py</code>.</p>
+<code>threshold_model.py</code> &rarr; <code>figures_slide.py</code>,
+<code>figures_perpad.py</code>.</p>
 </main>
 """
     p = os.path.join(HERE, "report_slide.html")
