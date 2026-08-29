@@ -102,7 +102,10 @@ place, and a pillar is dead, not merely attenuating.
 
 Report: `report_pillar.html`. **Only the derived products are committed**
 (`data/pillar_numbers_*.json`, `data/pillar_arrays_*.npz`); the raw
-`p2_pillars_*.npz` are 45–78 MB and live on EOS under `analysis/pillars/`.
+`p2_pillars_*.npz` are 45–78 MB and live on EOS at
+`/eos/experiment/ntof/data/x17/p2_sps_july/analysis/pillars/`, which is also
+where the raw runs are (`.../p2_sps_july/runs/`) — the run_config, DAQ logs and
+applied pedestal/threshold files included.
 
 ## The runs
 
@@ -114,6 +117,22 @@ cfg_gain4.5_peaktime200`, 0.84 M good tracks. All six P2_OUT chips are at
 `sdt = 224`, which is what makes "one threshold" a meaningful statement.
 
 Pad 635 is dead in both readouts and is excluded from the threshold fit.
+
+The full working point of both runs — HV, gas, trigger, VMM gain and peaking
+time, DREAM zero-suppression — is in `data/run_conditions_P2_OUT.json`,
+extracted once off EOS (paths recorded in the file's own `_source` block) so
+the figures stay runnable from `data/` alone. Two things in it are worth
+naming here because they are not obvious from the run names:
+
+- **The two readouts do not share a trigger.** DREAM ran on the SPS
+  scintillator coincidence through the TCM; the VMM run is self-triggered.
+- **DREAM's own threshold is not a global setting.** Zero suppression is
+  5σ of each channel's *own* pedestal, which lands at 26–29 ADC across the 53
+  pads — flat to ±1 count, against the 162 ADC and 26 % spread the VMM's one
+  DAC value works out to. That number comes from the threshold table the DAQ
+  actually loaded, `..._thr.prg`, copied into the run directory beside the
+  data; `data/dream_zs_threshold_eff_nominal_1_P2_OUT.csv` is that table
+  decoded (word − 256, the pedestal target) and joined to the pad map.
 
 ## Chain
 
@@ -131,7 +150,7 @@ the two extraction steps need lxplus and the raw data.
 | Join the two on the pad map | `compare_dream_vmm.py` | `data/compare_dream_vmm_P2_OUT.csv` |
 | Fit the one threshold, cost the fixes | `threshold_model.py` | `data/threshold_model_P2_OUT.json` |
 | Aggregate the self-tracking counts | `track_stats.py` | (in memory) |
-| Figures | `figures.py`, `figures_p2out.py`, `figures_dv.py`, `figures_slide.py`, `figures_deck.py`, `figures_track.py`, `figures_pillar.py` | `figures/*.png` |
+| Figures | `figures.py`, `figures_p2out.py`, `figures_dv.py`, `figures_slide.py`, `figures_perpad.py`, `figures_deck.py`, `figures_setup.py`, `figures_track.py`, `figures_pillar.py` | `figures/*.png` |
 | Reports | `make_report.py`, `make_report_dv.py`, `make_report_slide.py`, `make_deck_mockup.py`, `make_report_track.py`, `make_report_pillar.py` | `report*.html`, `deck_mockup.html` |
 | Notes for the site | `make_note.py` | `*_note.html` (PNGs inlined as data: URIs) |
 
@@ -148,11 +167,49 @@ them with the project venv (`../../.venv/bin/python` from here).
 2. `deck_2_gainmap.png` — that place is the low-gain corner, and both readouts
    measure the same gain map.
 3. `deck_3_threshold.png` — the ridgeline: on a log axis a gain factor is a
-   sideways shift, and the Landau slides onto a fixed discriminator line.
+   sideways shift, and the Landau slides onto a fixed discriminator line. It
+   carries the audit of that claim on it: **blue** is the one level fitted to
+   all 53 pads at once, and each **green** tick is the same model inverted for
+   a single pad, so the answer to "is it really one level?" is already on the
+   screen. Both colours are named on the figure.
+
+Slide 3 alone carries no chrome — no headline, no sub-line, no source stamp —
+because it goes into the talk's own template, which supplies the title. Slides
+1 and 2 keep theirs.
+
+`figures_setup.py` builds the two slides the sequence assumes but never shows:
+
+- `setup_conditions.png` — which runs, at what voltages, with which chip
+  settings, and DREAM's own per-pad threshold drawn on the pad plane with the
+  number written in each pad. The map is worth drawing *because* it is boring:
+  a threshold calibrated per channel comes out flat, which is the control for
+  the VMM's single global DAC setting coming out with a 26 % spread.
+- `setup_groups.png` — what a ridgeline row is. The pads coloured by which
+  band they are in, beside the sort itself with the five cuts drawn on it.
+  Sorted on the pad's median **DREAM** pulse height on tracked events (not
+  efficiency, not position, and not the VMM's own median, which the threshold
+  under test has already biased), then cut into bands of equal pad count. The
+  bands come out spatially banded only because the gain is one smooth
+  gradient — a result, not a construction.
 
 `figures_slide.py` builds the backup slides — `slide_proof.png` (predicted vs
-measured, and the spread waterfall) and `slide_fix.png` (efficiency against
-signal-over-threshold).
+measured, and the spread waterfall), `slide_fix.png` (efficiency against
+signal-over-threshold) and `slide_ridge_perpad.png`, the desk-sized version of
+the per-pad slide above (eight bands, and the numbers in a footer).
+
+`figures_perpad.py` builds the audit of the threshold claim. The ridgeline rows
+are gain *bands*, the track-weighted mean of six or seven pads' unit-area
+spectra, so the picture cannot be used to ask whether the pads agree — it has
+averaged over the axis the question is about, and a joint least squares will
+always return some minimising `T` anyway. `threshold_model.fit_threshold_per_pad`
+inverts the model for each pad separately; `perpad_ridge.png` draws all 53 rows
+unaveraged with their own fitted thresholds, and `perpad_check.png` decomposes
+the spread. The answer is that the mechanism holds (53 independent fits centre
+on the global value) but "one number is the whole story" overstates it: the
+per-pad thresholds scatter by 26 % rms, ~10x counting noise, with no significant
+gain trend. At 10 ADC per efficiency point that scatter *is* the 5.1-point
+residual of the global fit — the same fact in different units, not a second
+problem. Summary numbers land in `threshold_model_P2_OUT.json` under `perpad`.
 
 ## Gotchas
 

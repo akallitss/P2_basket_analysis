@@ -49,7 +49,23 @@ GROUPS = [
           "The mechanism: 53 pads in six gain bands, spectra on a log axis so "
           "a gain factor is a sideways shift, one discriminator level drawn "
           "through them, and what each band actually records &mdash; DREAM "
-          "98 &rarr; 92 %, the VMM 93 &rarr; 63 %."),
+          "98 &rarr; 92 %, the VMM 93 &rarr; 63 %. The blue line is that one "
+          "level fitted to all 53 pads at once; each green tick is the same "
+          "model inverted for a single pad, so the audit of the claim is on "
+          "the slide itself. No chrome &mdash; the talk supplies the title."),
+         ("setup_conditions.png",
+          "The backing slide for \u201csame chamber, same working "
+          "point\u201d: both runs, their HV, gas and trigger, the VMM's gain "
+          "/ peaking / threshold registers &mdash; and DREAM's OWN threshold "
+          "written into each pad. 26&ndash;29 ADC, flat, because it is 5&sigma; "
+          "of each channel's own pedestal; the VMM's is 162 ADC and scatters "
+          "26 %."),
+         ("setup_groups.png",
+          "The backing slide for \u201ca row is a gain band\u201d: which "
+          "pads are in each band, and the sort they came from. Sorted on the "
+          "pad's median DREAM pulse height &mdash; not efficiency, not "
+          "position, not the VMM's own median &mdash; then cut into bands of "
+          "equal pad count."),
      ]),
     ("P2 tracking against the uRWELL reference",
      "The three P2 stations judged against external reference tracks: what one "
@@ -120,9 +136,33 @@ GROUPS = [
          ("slide_ridge.png",
           "The ridgeline on its own, without the slide chrome &mdash; the "
           "source of deck slide 3."),
+         ("slide_ridge_perpad.png",
+          "The same ridgeline with each pad's own fitted threshold ticked on "
+          "it in green against the one global line in blue, and both colours "
+          "named on the figure &mdash; the desk-sized version of "
+          "<code>deck_3_threshold.png</code>, eight bands instead of six and "
+          "the numbers in a footer."),
          ("slide_full.png",
           "All three ideas on one 16:9 slide, for a single-slide version of "
           "the story."),
+         ("slide_ridge_check.png",
+          "The ridgeline with each pad's own independently fitted threshold "
+          "ticked against the single global line, and those fits plotted "
+          "against pad gain."),
+     ]),
+    ("Does one threshold really fit every pad?",
+     "The test the joint fit cannot do on itself: invert the model separately "
+     "for each of the 53 pads and compare the answers. Built by "
+     "<code>figures_perpad.py</code>.", [
+         ("perpad_ridge.png",
+          "The ridgeline with the band averaging removed &mdash; 53 rows, one "
+          "pad each, every one carrying its own fitted threshold next to the "
+          "global line."),
+         ("perpad_check.png",
+          "What the spread in those 53 answers is worth: 77 % of it lives "
+          "inside a gain band, it is 46 ADC against 4 from counting noise, "
+          "and at 10 ADC per efficiency point it is the 5.1-point residual "
+          "of the global fit in other units."),
      ]),
     ("VMM vs DREAM, the comparison", "Built by <code>figures_dv.py</code>.", [
         ("dv_headline.png", "The headline comparison of the two readouts."),
