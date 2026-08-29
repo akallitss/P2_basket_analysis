@@ -61,7 +61,10 @@ VMM_LBL, DREAM_LBL = "VMM3a", "DREAM"
 SC = 1.70
 HEAD, SUB, STAMP = 15.5 * SC, 9.8 * SC, 7.5 * SC
 PTITLE, TITLE, NOTE = 13.5 * SC, 12.0 * SC, 10.2 * SC
-AXL, TICK, CBL = 9.8 * SC, 9.2 * SC, 9.8 * SC
+# Axis numbers and axis labels are the last thing to survive a projector, and
+# at 9.2/9.8 they were the smallest type on the slide -- below the in-panel
+# notes they sit next to.  Raised to sit just under NOTE.
+AXL, TICK, CBL = 11.6 * SC, 11.0 * SC, 11.2 * SC
 
 RC = {"font.size": TICK, "axes.labelsize": AXL, "axes.titlesize": TITLE,
       "xtick.labelsize": TICK, "ytick.labelsize": TICK,
@@ -103,11 +106,79 @@ def scalebar(ax, x0=434.0, y0=173.0, mm=20.0):
             color=F.INK2, ha="center", va="bottom", zorder=8)
 
 
+PAD_MM = 11.88          # measured pad-centre spacing on these 53 pads
+
+
+def _cell_mask(x, y, GX, GY):
+    """True where a grid point falls inside some pad's own square cell.
+
+    A radius cut around each pad centre scallops the outline -- the discs of
+    the outermost pads bulge past the footprint and bite into each other -- and
+    that scalloping reads as structure the detector does not have.  The pads
+    are a regular lattice (11.88 mm, one spacing to 0.02 mm), so give each pad
+    the square cell it actually occupies: rotate into the lattice frame, and
+    keep grid points within half a pitch in BOTH lattice directions.  The union
+    is then the true stair-stepped pad footprint, edge pads included.
+    """
+    from scipy.spatial import cKDTree
+    p = np.column_stack([x, y])
+    # lattice orientation from the shortest pad-to-pad vector
+    d, j = cKDTree(p).query(p, k=2)
+    v = p[j[:, 1]] - p
+    v = v[np.argmin(d[:, 1])]
+    a = np.arctan2(v[1], v[0])
+    R = np.array([[np.cos(-a), -np.sin(-a)], [np.sin(-a), np.cos(-a)]])
+    pr = p @ R.T
+    gr = np.column_stack([GX.ravel(), GY.ravel()]) @ R.T
+    # Chebyshev distance in the rotated frame == "inside a square cell"
+    dd, _ = cKDTree(pr).query(gr, p=np.inf)
+    return (dd <= 0.5 * PAD_MM).reshape(GX.shape)
+
+
+def padsurface(ax, x, y, c, norm, cmap, label, colour):
+    """The same map as a continuous surface instead of 53 discrete dots.
+
+    What the slide is claiming is a GRADIENT -- one smooth roll-off across the
+    chamber -- and a field of separate dots makes the eye read 53 independent
+    measurements instead of one shape.  Interpolated linearly between pad
+    centres and masked back to within 0.75 of a pad pitch of a real pad, so
+    nothing is painted where no pad was read and the footprint keeps its own
+    ragged edge rather than being squared off by the grid.
+
+    The cost is honest and worth stating: between two pad centres the surface
+    shows a value nobody measured, and a single anomalous pad is spread over
+    its neighbourhood instead of standing alone.  On slide 1 that is why the
+    one dead pad is called out in the third panel, where it is still a point.
+    """
+    from scipy.interpolate import griddata
+    gx = np.linspace(x.min() - PAD_MM, x.max() + PAD_MM, 340)
+    gy = np.linspace(y.min() - PAD_MM, y.max() + PAD_MM, 340)
+    GX, GY = np.meshgrid(gx, gy)
+    Z = griddata((x, y), c, (GX, GY), method="linear")
+    # nearest-neighbour fill first, so the MASK decides the outline; linear
+    # alone stops at the triangulation hull and clips the outer half-pads
+    Zn = griddata((x, y), c, (GX, GY), method="nearest")
+    Z = np.where(np.isfinite(Z), Z, Zn)
+    Z = np.where(_cell_mask(x, y, GX, GY), Z, np.nan)
+    sc = ax.imshow(Z, origin="lower", cmap=cmap, norm=norm, aspect="equal",
+                   extent=[gx[0], gx[-1], gy[0], gy[-1]],
+                   interpolation="bilinear", zorder=3)
+    _map_frame(ax, label, colour)
+    return sc
+
+
 def padmap(ax, x, y, c, norm, cmap, label, colour):
-    """A pad map with no tick labels: the absolute mm never mattered, only the
-    pattern and the scale, and the scale is a bar."""
+    """The discrete version: one mark per pad, kept for the desk figures."""
     sc = ax.scatter(x, y, c=c, s=420, cmap=cmap, norm=norm,
                     edgecolor=F.SURFACE, linewidth=1.4, zorder=3)
+    _map_frame(ax, label, colour)
+    return sc
+
+
+def _map_frame(ax, label, colour):
+    """Frame, limits, title and scale bar -- shared by both renderings.  No
+    tick labels: the absolute mm never mattered, only the pattern and the
+    scale, and the scale is a bar."""
     ax.set_aspect("equal")
     ax.set_xlim(*XLIM)
     ax.set_ylim(*YLIM)
@@ -119,7 +190,6 @@ def padmap(ax, x, y, c, norm, cmap, label, colour):
     ax.set_title(label, loc="left", color=colour, fontsize=PTITLE,
                  fontweight="bold", pad=8 * SC)
     scalebar(ax)
-    return sc
 
 
 def hbar(fig, sc, label, ticks, rect=(0.050, 0.093, 0.38, 0.028)):
@@ -166,9 +236,26 @@ def gradient(g):
 
 
 def _maps_grid(fig):
-    return fig.add_gridspec(1, 3, width_ratios=[1, 1, 1.20],
-                            left=0.015, right=0.985, top=0.735, bottom=0.205,
+    # The maps are surfaces now, not fields of dots, so they carry their
+    # pattern at a smaller size; the width that frees goes to the third panel,
+    # which needs it for a y axis at the raised type size.
+    return fig.add_gridspec(1, 3, width_ratios=[1, 1, 1.45],
+                            left=0.015, right=0.992, top=0.735, bottom=0.205,
                             wspace=0.13)
+
+
+def _shift_right(ax, dx=0.036):
+    """Push the third panel clear of the middle map.
+
+    The two maps carry no tick labels and sit happily close; the third panel
+    carries a y axis -- numbers AND a label -- which at this type size reaches
+    ~5 % of the figure width to its left and lands on the map.  `wspace` is one
+    number for every gap in the row, so widening it would also pull the two
+    maps apart and run their captions into each other.  Moving this one axes
+    after the fact is the only change that touches nothing else.
+    """
+    b = ax.get_position()
+    ax.set_position([b.x0 + dx, b.y0, b.width - dx, b.height])
 
 
 def _panel(ax, title):
@@ -190,11 +277,11 @@ def slide_1(g, n):
     norm = Normalize(0.45, 1.0)
 
     axd = fig.add_subplot(gs[0, 0])
-    sc = padmap(axd, x, y, ed, norm, PURPLE,
-                f"{DREAM_LBL} · {n['eff_dream_all'] * 100:.1f} %", DREAM_C)
+    sc = padsurface(axd, x, y, ed, norm, PURPLE,
+                    f"{DREAM_LBL} · {n['eff_dream_all'] * 100:.1f} %", DREAM_C)
     axv = fig.add_subplot(gs[0, 1])
-    padmap(axv, x, y, ev, norm, PURPLE,
-           f"{VMM_LBL} · {n['eff_obs_all'] * 100:.1f} %", VMM_C)
+    padsurface(axv, x, y, ev, norm, PURPLE,
+               f"{VMM_LBL} · {n['eff_obs_all'] * 100:.1f} %", VMM_C)
     hbar(fig, sc, "efficiency, per pad", [0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
 
     corner(axv)
@@ -207,6 +294,7 @@ def slide_1(g, n):
 
     # -- pad-by-pad pairing -------------------------------------------------- #
     ax = fig.add_subplot(gs[0, 2])
+    _shift_right(ax)
     order = np.argsort(ev)
     r = np.arange(len(order))
     ax.vlines(r, ev[order], ed[order], color=F.MUTED, lw=1.1 * SC, alpha=0.65,
@@ -260,9 +348,9 @@ def slide_2(g, n):
     norm = Normalize(0.5, 2.0)
 
     axd = fig.add_subplot(gs[0, 0])
-    sc = padmap(axd, x, y, rd, norm, AMBER, DREAM_LBL, DREAM_C)
+    sc = padsurface(axd, x, y, rd, norm, AMBER, DREAM_LBL, DREAM_C)
     axv = fig.add_subplot(gs[0, 1])
-    padmap(axv, x, y, rv, norm, AMBER, VMM_LBL, VMM_C)
+    padsurface(axv, x, y, rv, norm, AMBER, VMM_LBL, VMM_C)
     hbar(fig, sc, "pad gain  /  that readout's own median",
          [0.5, 1.0, 1.5, 2.0])
 
@@ -285,6 +373,7 @@ def slide_2(g, n):
 
     # -- pad for pad --------------------------------------------------------- #
     ax = fig.add_subplot(gs[0, 2])
+    _shift_right(ax)
     lim = (0.40, 2.18)
     ax.plot(lim, lim, ls=(0, (5, 4)), lw=1.2 * SC, color=F.MUTED, zorder=2)
     ax.scatter(rd, rv, s=np.clip(g["n_track_v"] / 210, 40, 280),
@@ -352,32 +441,37 @@ def slide_3(g, H, bw, Sp, n):
     S.ridge(ax, gr, bw, T, fs=SC, Tpad_rows=rows,
             tick=(0.03, 0.58, 1.7 * SC, 0.95))
     S.effbars(axb, gr, n, fs=SC, bh=0.38)
-    # headroom above the rows for the blue key; the green ticks are keyed in
-    # the deck's own text, not on the figure.  sharey, so this sets both panels
-    ax.set_ylim(-0.55, NGROUP + 1.00)
 
-    # -- the two keys, each next to the mark it names ------------------------ #
-    # Two lines: on one, at projector size, this label runs off the panel and
-    # into the efficiency bars.  No connector -- the discriminator line is an
-    # axvline and already reaches up through the text.
-    ax.text(T * 1.12, NGROUP + 0.08, "VMM discriminator\n(53-pad average)",
-            fontsize=NOTE, color=VMM_C, fontweight="bold", ha="left",
-            va="bottom", linespacing=1.25, zorder=45)
-    ax.text(T * 0.46, -0.34, "lost", fontsize=NOTE * 1.15, color=DREAM_C,
+    # The lost/recorded and VMM3a/DREAM keys live BELOW the lowest band, in the
+    # margin the y limit leaves under it.  The desk figure's -0.42 leaves ~0.08
+    # of clear space, which at this type size put them on the axis line and
+    # into the tick numbers underneath.  Deepen that margin and hang the keys
+    # in the middle of it: no label moves relative to the data, they simply
+    # stop sharing a row with the axis.  Shared y, so one call does both.
+    ax.set_ylim(-0.92, NGROUP + 0.35)
+    KEY = -0.46           # the key row, clear of both spine and lowest band
+
+    ax.annotate("the VMM's discriminator", xy=(T, NGROUP + 0.01),
+                xytext=(T * 1.32, NGROUP + 0.26), fontsize=NOTE,
+                color=VMM_C, fontweight="bold", va="center",
+                arrowprops=dict(arrowstyle="-", color=VMM_C, lw=1.0 * SC))
+    ax.text(T * 0.46, KEY, "lost", fontsize=NOTE * 1.15, color=DREAM_C,
             fontweight="bold", ha="center", va="center")
-    ax.text(T * 2.4, -0.34, "recorded", fontsize=NOTE * 1.15, color=F.INK2,
+    ax.text(T * 2.4, KEY, "recorded", fontsize=NOTE * 1.15, color=F.INK2,
             ha="center", va="center")
-    ax.annotate("", xy=(T * 0.98, -0.34), xytext=(T * 0.66, -0.34),
+    ax.annotate("", xy=(T * 0.98, KEY), xytext=(T * 0.66, KEY),
                 arrowprops=dict(arrowstyle="<-", color=DREAM_C, lw=1.1 * SC))
     ax.text(30.5, NGROUP + 0.08, "pad gain", fontsize=NOTE, color=F.INK2,
             ha="left", va="bottom", style="italic")
-    ax.set_xlabel("pulse height on the pad  [DREAM ADC]")
+    ax.set_xlabel("pulse height on the pad  [DREAM ADC]", labelpad=7 * SC)
+    ax.set_title("log axis — so a gain factor is a sideways shift",
+                 loc="left", color=F.INK2, fontsize=TITLE * 0.86, pad=8 * SC)
 
     axb.text(0.405, NGROUP + 0.08, "% of those tracks recorded",
              fontsize=NOTE, color=F.INK2, ha="left", va="bottom")
-    axb.text(0.50, -0.34, VMM_LBL, fontsize=PTITLE * 0.82, color=VMM_C,
+    axb.text(0.50, KEY, VMM_LBL, fontsize=PTITLE * 0.82, color=VMM_C,
              fontweight="bold", ha="center", va="center")
-    axb.text(0.74, -0.34, DREAM_LBL, fontsize=PTITLE * 0.82, color=DREAM_C,
+    axb.text(0.74, KEY, DREAM_LBL, fontsize=PTITLE * 0.82, color=DREAM_C,
              fontweight="bold", ha="center", va="center")
 
     fig.savefig(f"{FIG}/deck_3_threshold.png", dpi=DPI)

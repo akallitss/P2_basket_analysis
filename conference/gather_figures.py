@@ -183,6 +183,22 @@ MANIFEST = [
      'Q: "Did you pick the right drift field for timing?"',
      'SACLAY/P2_basket_analysis/reports/mpgd26_sps_beam_2026-08/figs/'
      'timing_drift_choice_table_drift_mesh_2d_2.png'),
+    ('4_act3_beam', 0, 'NEW', 'timing_vs_drift_all3.png',
+     'sigma vs drift with ALL THREE stations — the published '
+     'timing_vs_drift_magboltz shows only two, because drift_mesh_scan_1 parks '
+     'P2_IN at a fixed 630 V; these are the two runs that swept all three',
+     'SACLAY/P2_basket_analysis/reports/mpgd26_sps_beam_2026-08/figs/'
+     'timing_vs_drift_all3.png'),
+    ('4_act3_beam', 0, 'NEW', 'vmm_timing_vs_drift_all3.png',
+     'the VMM half of the same: coincidence width vs drift, both gases, with '
+     'P2_IN kept in and its low-statistics points drawn hollow',
+     'SACLAY/P2_basket_analysis/reports/mpgd26_sps_beam_2026-08/figs/'
+     'vmm_timing_vs_drift_all3.png'),
+    ('4_act3_beam', 0, 'NEW', 'timing_vs_drift_dream_vs_vmm.png',
+     'the two readouts on one axis: same three chambers, same gas, same drift '
+     'sweep — VMM3a sits a little above DREAM and still near the 20 ns goal',
+     'SACLAY/P2_basket_analysis/reports/mpgd26_sps_beam_2026-08/figs/'
+     'timing_vs_drift_dream_vs_vmm.png'),
     ('4_act3_beam', 28, 'CORE', 'p2_standalone_tracking.png',
      'The three planes tracking on their own — and what that costs',
      'SACLAY/P2_basket_analysis/reports/mpgd26_sps_beam_2026-08/figs/'
