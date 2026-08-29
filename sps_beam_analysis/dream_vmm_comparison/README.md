@@ -148,14 +148,15 @@ them with the project venv (`../../.venv/bin/python` from here).
 2. `deck_2_gainmap.png` — that place is the low-gain corner, and both readouts
    measure the same gain map.
 3. `deck_3_threshold.png` — the ridgeline: on a log axis a gain factor is a
-   sideways shift, and the Landau slides onto a fixed discriminator line.
+   sideways shift, and the Landau slides onto a fixed discriminator line. It
+   carries the audit of that claim on it: **blue** is the one level fitted to
+   all 53 pads at once, and each **green** tick is the same model inverted for
+   a single pad, so the answer to "is it really one level?" is already on the
+   screen. Both colours are named on the figure.
 
-`deck_3_threshold_perpad.png` is slide 3 with the audit drawn on it: same six
-bands, same efficiency bars, plus one **green** tick per pad at the threshold
-fitted from that pad alone, against the **blue** global line — one level fitted
-to all 53 pads at once. Both colours are named on the figure. Swap it in for
-slide 3 when the audience is going to ask whether it really is one threshold,
-or keep it as the backup for that question.
+Slide 3 alone carries no chrome — no headline, no sub-line, no source stamp —
+because it goes into the talk's own template, which supplies the title. Slides
+1 and 2 keep theirs.
 
 `figures_slide.py` builds the backup slides — `slide_proof.png` (predicted vs
 measured, and the spread waterfall), `slide_fix.png` (efficiency against
