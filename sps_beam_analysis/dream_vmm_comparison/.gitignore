@@ -17,10 +17,10 @@ figures/
 # `data/pillar_arrays_*.npz`. The gerber-derived pillar geometry is small and
 # is a chain INPUT, so it stays.
 #
-# These used to be described here as living on EOS under `analysis/pillars/`.
-# Checked 2026-08-27: that path does not exist and no `p2_pillars*` file is
-# anywhere under /eos/user/d/dneff/. The only copy is on the p2 machine, or
-# regenerate with `p2_pillars.py --data-root <raw>`. Only
+# They are on EOS, in the EXPERIMENT area, not under /eos/user/d/dneff/:
+#   /eos/experiment/ntof/data/x17/p2_sps_july/analysis/pillars/
+# (A note here on 2026-08-27 claimed they were nowhere on EOS. That was a
+# search of the wrong tree; verified present 2026-08-29.) Only
 # `figures_pillar.py::fig_mask` reads them; pill_1-pill_5 do not.
 data/p2_pillars_*.npz
 !data/p2_pillars_gerber.npz

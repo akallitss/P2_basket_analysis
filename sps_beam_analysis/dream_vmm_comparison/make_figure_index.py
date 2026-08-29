@@ -53,6 +53,19 @@ GROUPS = [
           "level fitted to all 53 pads at once; each green tick is the same "
           "model inverted for a single pad, so the audit of the claim is on "
           "the slide itself. No chrome &mdash; the talk supplies the title."),
+         ("setup_conditions.png",
+          "The backing slide for \u201csame chamber, same working "
+          "point\u201d: both runs, their HV, gas and trigger, the VMM's gain "
+          "/ peaking / threshold registers &mdash; and DREAM's OWN threshold "
+          "written into each pad. 26&ndash;29 ADC, flat, because it is 5&sigma; "
+          "of each channel's own pedestal; the VMM's is 162 ADC and scatters "
+          "26 %."),
+         ("setup_groups.png",
+          "The backing slide for \u201ca row is a gain band\u201d: which "
+          "pads are in each band, and the sort they came from. Sorted on the "
+          "pad's median DREAM pulse height &mdash; not efficiency, not "
+          "position, not the VMM's own median &mdash; then cut into bands of "
+          "equal pad count."),
      ]),
     ("P2 tracking against the uRWELL reference",
      "The three P2 stations judged against external reference tracks: what one "

@@ -332,11 +332,12 @@ def slide_3(g, H, bw, Sp, n):
     read without.  Everything that would have been said in prose is said as a
     label instead: BLUE is the single level fitted to all 53 pads at once,
     GREEN is that same model inverted for each pad ALONE, one tick per pad.
+    Only the blue one is keyed on the figure -- the green key goes on in
+    PowerPoint, so nothing here may occupy the strip under the rows.
 
     With the chrome gone the panels take the whole slide, and the space that
-    freed up at the top and the bottom is what the two colour keys sit in --
-    they are inside the axes, not in a legend box, because each one has to
-    point at the mark it names."""
+    freed up at the top is what the blue key sits in -- inside the axes, not
+    in a legend box, because it has to sit against the line it names."""
     gr = S.groups(g, H, bw, ngroup=NGROUP)
     T = n["T"]
     Tpad, _, lo_clip, hi_clip = M.fit_threshold_per_pad(g, Sp)
@@ -351,9 +352,9 @@ def slide_3(g, H, bw, Sp, n):
     S.ridge(ax, gr, bw, T, fs=SC, Tpad_rows=rows,
             tick=(0.03, 0.58, 1.7 * SC, 0.95))
     S.effbars(axb, gr, n, fs=SC, bh=0.38)
-    # headroom above the rows for the blue key, and room under them for the
-    # green one; sharey, so this sets both panels
-    ax.set_ylim(-1.00, NGROUP + 1.00)
+    # headroom above the rows for the blue key; the green ticks are keyed in
+    # the deck's own text, not on the figure.  sharey, so this sets both panels
+    ax.set_ylim(-0.55, NGROUP + 1.00)
 
     # -- the two keys, each next to the mark it names ------------------------ #
     # Two lines: on one, at projector size, this label runs off the panel and
@@ -362,12 +363,6 @@ def slide_3(g, H, bw, Sp, n):
     ax.text(T * 1.12, NGROUP + 0.08, "VMM discriminator\n(53-pad average)",
             fontsize=NOTE, color=VMM_C, fontweight="bold", ha="left",
             va="bottom", linespacing=1.25, zorder=45)
-    # no tick glyph in front of this one: at projector size it lands on the
-    # spine and reads as a smudge.  The sentence names the colour.
-    ax.text(30.0, -0.74, "green = each pad's own threshold, fitted "
-            "separately", fontsize=NOTE, color=S.TICK_C, fontweight="bold",
-            ha="left", va="center", zorder=45)
-
     ax.text(T * 0.46, -0.34, "lost", fontsize=NOTE * 1.15, color=DREAM_C,
             fontweight="bold", ha="center", va="center")
     ax.text(T * 2.4, -0.34, "recorded", fontsize=NOTE * 1.15, color=F.INK2,

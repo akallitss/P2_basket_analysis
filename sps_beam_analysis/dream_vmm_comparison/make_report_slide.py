@@ -22,6 +22,7 @@ DATA = os.path.join(HERE, "data")
 
 def main():
     n = json.load(open(os.path.join(DATA, "threshold_model_P2_OUT.json")))
+    c = json.load(open(os.path.join(DATA, "run_conditions_P2_OUT.json")))
     g = pd.read_csv(os.path.join(DATA, "compare_dream_vmm_P2_OUT.csv"))
     g = g[g["use"]]
     fix = {r["factor"]: r for r in n["fix"]}
@@ -102,6 +103,34 @@ solid part grows and the VMM's recorded fraction falls from 91&nbsp;% to
 53&nbsp;%, while DREAM stays between 98 and 89&nbsp;%. Bands are the
 track-weighted mean of their pads' unit-area spectra, so a band's
 sub-threshold area is exactly the mean of its pads'.</figcaption></figure>
+
+<h2>The run, and what a band is</h2>
+
+<figure><img src="figures/setup_conditions.png" alt="run conditions">
+<figcaption>The working point both readouts were at, and the settings each was
+run with. Two things on it are easy to assume and worth checking: the two
+readouts do <b>not</b> share a trigger (DREAM on the SPS scintillator
+coincidence through the TCM, the VMM self-triggered), and DREAM's own threshold
+is not a global setting at all &mdash; zero suppression is 5&sigma; of each
+channel's <i>own</i> pedestal, which is why the map is flat at
+{c['dream']['thr_lo_adc']}&ndash;{c['dream']['thr_hi_adc']}&nbsp;ADC across the
+{n['npad']} pads. That flatness is the control this whole page needs: a
+threshold calibrated per channel comes out uniform, and the VMM's single DAC
+value comes out at {n['T']:.0f}&nbsp;ADC with a
+{n['perpad']['T_relrms'] * 100:.0f}&nbsp;% spread. The numbers come from the
+threshold table the DAQ actually loaded
+(<code>&hellip;_thr.prg</code>, copied into the run directory beside the
+data), not from a nominal setting.</figcaption></figure>
+
+<figure><img src="figures/setup_groups.png" alt="how the bands are built">
+<figcaption>What a ridgeline row is. The pads are sorted on their median
+<b>DREAM</b> pulse height on tracked events &mdash; the same quantity the VMM
+reports, taken from the readout that is not on trial &mdash; and cut into bands
+of equal pad count. Not efficiency, not position, and deliberately not the
+VMM's own median, which the threshold under test has already biased downward on
+exactly the pads the argument is about. The bands come out spatially banded, as
+the left panel shows, only because the chamber's gain is one smooth gradient;
+that is a result of the sort, not a property built into it.</figcaption></figure>
 
 <h2>That it is quantitatively the whole story</h2>
 <figure><img src="figures/slide_proof.png" alt="proof">
