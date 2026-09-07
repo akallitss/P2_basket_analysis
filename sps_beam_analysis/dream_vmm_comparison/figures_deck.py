@@ -13,7 +13,12 @@ it is one discriminator level sitting inside the Landau.
   deck_2_gainmap.png   the cause is upstream of both readouts -- a factor 3.9
                        gas-gain gradient that BOTH measure, pad for pad
   deck_3_threshold.png the mechanism -- the Landau slides across a fixed
-                       discriminator line; the closer
+                       discriminator line; the closer.  Carries the audit on
+                       it: the one global level in blue, and each pad's own
+                       independently fitted threshold as a green tick, for
+                       the audience that asks whether it really is ONE level.
+                       The only one of the three with no chrome -- it goes in
+                       the talk's own template, which supplies the title
 
 BUILT FOR A PROJECTOR, not for reading at a desk.  Everything is sized off
 `SC`, roughly twice what a printed figure would use, and that costs about half
@@ -42,6 +47,7 @@ from matplotlib.patches import Ellipse
 
 import figures as F
 import figures_slide as S
+import threshold_model as M
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIG, DATA = os.path.join(HERE, "figures"), os.path.join(HERE, "data")
@@ -406,18 +412,34 @@ def slide_2(g, n):
 
 # --------------------------------------------------------------------------- #
 def slide_3(g, H, bw, Sp, n):
-    """The closer: the spectra themselves, banded by gain, against the one
-    discriminator line -- and what each band actually records."""
+    """The closer: the spectra themselves, banded by gain, against the
+    discriminator line -- and what each band actually records.
+
+    NO CHROME.  This is the one slide that goes into the talk's own template,
+    so the headline, the sub-line and the source stamp are the deck's job and
+    not the figure's; what is left on the picture is only what it cannot be
+    read without.  Everything that would have been said in prose is said as a
+    label instead: BLUE is the single level fitted to all 53 pads at once,
+    GREEN is that same model inverted for each pad ALONE, one tick per pad.
+    Only the blue one is keyed on the figure -- the green key goes on in
+    PowerPoint, so nothing here may occupy the strip under the rows.
+
+    With the chrome gone the panels take the whole slide, and the space that
+    freed up at the top is what the blue key sits in -- inside the axes, not
+    in a legend box, because it has to sit against the line it names."""
     gr = S.groups(g, H, bw, ngroup=NGROUP)
     T = n["T"]
+    Tpad, _, lo_clip, hi_clip = M.fit_threshold_per_pad(g, Sp)
+    rows = [Tpad[G["idx"]] for G in gr]
 
     fig = plt.figure(figsize=SLIDE)
     gs = fig.add_gridspec(1, 2, width_ratios=[2.45, 1],
-                          left=0.068, right=0.962, top=0.700, bottom=0.200,
+                          left=0.068, right=0.962, top=0.945, bottom=0.145,
                           wspace=0.05)
     ax = fig.add_subplot(gs[0, 0])
     axb = fig.add_subplot(gs[0, 1], sharey=ax)
-    S.ridge(ax, gr, bw, T, fs=SC)
+    S.ridge(ax, gr, bw, T, fs=SC, Tpad_rows=rows,
+            tick=(0.03, 0.58, 1.7 * SC, 0.95))
     S.effbars(axb, gr, n, fs=SC, bh=0.38)
 
     # The lost/recorded and VMM3a/DREAM keys live BELOW the lowest band, in the
@@ -439,27 +461,19 @@ def slide_3(g, H, bw, Sp, n):
             ha="center", va="center")
     ax.annotate("", xy=(T * 0.98, KEY), xytext=(T * 0.66, KEY),
                 arrowprops=dict(arrowstyle="<-", color=DREAM_C, lw=1.1 * SC))
-    ax.text(30.5, NGROUP + 0.02, "pad gain", fontsize=NOTE, color=F.INK2,
+    ax.text(30.5, NGROUP + 0.08, "pad gain", fontsize=NOTE, color=F.INK2,
             ha="left", va="bottom", style="italic")
     ax.set_xlabel("pulse height on the pad  [DREAM ADC]", labelpad=7 * SC)
     ax.set_title("log axis — so a gain factor is a sideways shift",
                  loc="left", color=F.INK2, fontsize=TITLE * 0.86, pad=8 * SC)
 
-    axb.text(0.405, NGROUP + 0.10, "% of those tracks recorded",
+    axb.text(0.405, NGROUP + 0.08, "% of those tracks recorded",
              fontsize=NOTE, color=F.INK2, ha="left", va="bottom")
     axb.text(0.50, KEY, VMM_LBL, fontsize=PTITLE * 0.82, color=VMM_C,
              fontweight="bold", ha="center", va="center")
     axb.text(0.74, KEY, DREAM_LBL, fontsize=PTITLE * 0.82, color=DREAM_C,
              fontweight="bold", ha="center", va="center")
 
-    chrome(fig,
-           "The Landau slides onto the VMM's threshold",
-           f"One fitted level, {T:.0f} DREAM ADC, cut into DREAM's own "
-           f"per-pad spectra reproduces the VMM's efficiency\npad by pad: "
-           f"r = {n['r_pred']:+.2f}, {n['eff_pred_all'] * 100:.1f} % predicted "
-           f"vs {n['eff_obs_all'] * 100:.1f} % measured.  It eats the peak, "
-           f"not the tail.",
-           "P2 SPS July 2026 · P2_OUT · sdt = 224 on all six chips")
     fig.savefig(f"{FIG}/deck_3_threshold.png", dpi=DPI)
     plt.close(fig)
 

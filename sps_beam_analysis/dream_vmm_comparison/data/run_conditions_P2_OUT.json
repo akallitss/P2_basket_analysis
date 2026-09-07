@@ -1,0 +1,53 @@
+{
+  "_source": {
+    "extracted": "2026-08-29",
+    "note": "Read once off EOS and committed so the figure chain stays runnable from data/ alone. Re-extract from the paths below if a run changes.",
+    "dream_run_config": "/eos/experiment/ntof/data/x17/p2_sps_july/runs/eff_nominal_1/run_config.json",
+    "vmm_run_config": "/eos/experiment/ntof/data/x17/p2_sps_july/vmm/runs/run_46/run_config.json",
+    "vmm_chip_config": "/eos/experiment/ntof/data/x17/p2_sps_july/vmm/runs/run_46/p2b-config-cern-ext_gain4.5_peaktime200.txt",
+    "dream_zs_thresholds": "runs/eff_nominal_1/eff_nominal_00/raw_daq_data/EicP2Bt_pedestals_pedthr_260726_21H37_000_05_thr.prg"
+  },
+  "station": "P2_OUT",
+  "gas": "Ar/CO2/iC4H10  93/5/2",
+  "hv": {
+    "note": "Identical in both runs. Names are the run_config's own; the drift gap therefore sees 750 - 450 = 300 V.",
+    "p2_drift_v": 750,
+    "p2_mesh_v": 450,
+    "urwell_drift_v": 620,
+    "urwell_resistive_v": 420
+  },
+  "dream": {
+    "run": "eff_nominal_1",
+    "sub_runs": "eff_nominal_00 - 09",
+    "n_sub_runs": 10,
+    "sub_run_minutes": 10,
+    "start": "2026-07-27 10:41",
+    "feu": 5,
+    "trigger": "SPS scintillator coincidence (TCM)",
+    "n_probe_tracks": 1869539,
+    "eff": 0.9556,
+    "zs_sigma": 5.0,
+    "pedestal_set": "260726_21H37",
+    "ped_mean_adc": 301,
+    "thr_med_adc": 27,
+    "thr_lo_adc": 26,
+    "thr_hi_adc": 29,
+    "thr_all_lo_adc": 25,
+    "thr_all_hi_adc": 30
+  },
+  "vmm": {
+    "run": "run_46",
+    "sub_run": "cfg_gain4.5_peaktime200",
+    "start": "2026-08-01 04:53",
+    "trigger": "self-triggered VMM readout",
+    "chips": "14-19 (hybrids 7, 8, 9)",
+    "gain_mv_per_fc": 4.5,
+    "peaking_ns": 200,
+    "polarity": "negative",
+    "neighbour_logic": "disabled",
+    "sdt": 224,
+    "sdt_note": "10-bit global threshold DAC, MSB*64 + LSB; identical on all six P2_OUT chips",
+    "n_good_tracks": 847721,
+    "eff": 0.8528
+  }
+}
