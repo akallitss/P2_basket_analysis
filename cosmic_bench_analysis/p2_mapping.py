@@ -234,55 +234,102 @@ def pad_tiles(channel_table):
 # Insulation-mask pillars (mesh-support pillars = local dead spots)
 # --------------------------------------------------------------------------- #
 def load_pillars(gbr_path):
-    """Pillar positions from the insulation-mask Gerber (KiCad, mm, same board
-    frame as the pad map — verified by overlaying the mask fan on the pads).
+    """Pillar positions from an insulation-mask Gerber, in mm, in the same board
+    frame as the pad map (verified: the 5 big pillars land at identical
+    coordinates in the Saclay and CERN masks, to 0.00 mm).
 
-    Pillars are drawn as full circles built from G02/G03 arc pairs: the arc
-    centre is start + (I,J) and its radius |IJ|; the pen is wide enough that
-    the stroke fills the disk, so the physical pillar radius is
-    |IJ| + aperture/2. Two populations on the M2_V2 mask:
-      small : arc r 0.20 mm, 0.4 mm pen -> 0.8 mm pillars (~11.7k, ~4 mm grid)
+    TWO Gerber dialects are in use and they draw pillars completely differently,
+    so both are handled:
+
+    SACLAY (KiCad, %MOMM, `Insulation_masks/V1/P2_BASKET-Mask_M2_V1.gbr`, the
+    mask det1-det4 were bulked with; V2 is the same dialect) draws
+    each pillar as a full circle built from G02/G03 ARC pairs: the arc centre is
+    start + (I,J), radius |IJ|, and the pen is wide enough to fill the disk, so
+    the physical radius is |IJ| + aperture/2.
+      small : arc r 0.20 mm, 0.4 mm pen -> 0.8 mm pillars (12,477 in V1,
+              11,678 in V2; 4.0 mm grid)
       big   : arc r 1.54 mm, 3.075 mm pen -> 6.15 mm pillars (exactly 5)
-    Everything else in the file (fan outlines, text, fiducials) is not an arc
-    at these radii and is ignored. Returns a DataFrame(x, y, r, big) or an
-    empty one if the file is missing.
+
+    CERN (UcamX, %MOIN — INCHES, `Bulk_CERN/P2_Mask2.gbr`) instead FLASHES a
+    circular aperture (D03) at each pillar; it contains essentially no arcs.
+      small : 0.500 mm flashes (41,366, 2.0 mm grid)
+      big   : 6.150 mm flashes (exactly 5, same positions as Saclay)
+      (a 4.6 mm population of 40 sits outside the fan - frame/mounting, dropped
+       by the same 'not small, not 6.15' filter that keeps the big ones)
+
+    Reading a CERN mask with the arc-only parser silently returned ~nothing, so
+    the units (%MOIN/%MOMM) and the coordinate format (%FSLAXaaYbb) are now read
+    from the file rather than assumed.
+
+    Returns a DataFrame(x, y, r, big) or an empty one if the file is missing.
     """
     cols = ['x', 'y', 'r', 'big']
     if not gbr_path or not os.path.isfile(gbr_path):
         return pd.DataFrame(columns=cols)
 
+    fmt = re.compile(r'%FSLAX(\d)(\d)Y(\d)(\d)\*%')
     ap_def = re.compile(r'%ADD(\d+)C,([\d.]+)')          # circular apertures
     ap_sel = re.compile(r'^D(\d+)\*')
     move = re.compile(r'X(-?\d+)Y(-?\d+)D02\*')
     arc = re.compile(r'X(-?\d+)Y(-?\d+)I(-?\d+)J(-?\d+)D01\*')
+    flash = re.compile(r'^(?:X(-?\d+))?(?:Y(-?\d+))?D03\*')
 
-    apertures, ap_r = {}, 0.0
+    scale = 1e-6                       # %FSLAX46 -> 4 int + 6 decimal digits
+    unit = 1.0                         # mm
+    apertures, ap_r, ap_d = {}, 0.0, 0.0
     cur = None
+    fx = fy = 0.0
     circles = {}                       # (cx,cy rounded) -> (cx, cy, r_outer)
-    with open(gbr_path) as fh:
+    with open(gbr_path, errors='replace') as fh:
         for line in fh:
+            m = fmt.search(line)
+            if m:
+                scale = 10.0 ** (-int(m.group(2)))
+                continue
+            if '%MOIN' in line:
+                unit = 25.4
+                continue
+            if '%MOMM' in line:
+                unit = 1.0
+                continue
             m = ap_def.search(line)
             if m:
                 apertures[int(m.group(1))] = float(m.group(2))
                 continue
             m = ap_sel.match(line)
-            if m:
-                ap_r = apertures.get(int(m.group(1)), 0.0) / 2
+            if m and int(m.group(1)) >= 10:
+                ap_d = apertures.get(int(m.group(1)), 0.0)
+                ap_r = ap_d / 2
                 continue
             m = move.search(line)
             if m:
-                cur = (int(m.group(1)) / 1e6, int(m.group(2)) / 1e6)
+                cur = (int(m.group(1)) * scale, int(m.group(2)) * scale)
                 continue
             m = arc.search(line)
             if m and cur is not None:
-                i, j = int(m.group(3)) / 1e6, int(m.group(4)) / 1e6
+                i, j = int(m.group(3)) * scale, int(m.group(4)) * scale
                 r_arc = float(np.hypot(i, j))
                 # pillar circles only: small (~0.2) and big (~1.54) arc radii
-                if 0.15 < r_arc < 0.30 or 1.0 < r_arc < 3.0:
-                    cx, cy = cur[0] + i, cur[1] + j
+                if 0.15 < r_arc * unit < 0.30 or 1.0 < r_arc * unit < 3.0:
+                    cx, cy = (cur[0] + i) * unit, (cur[1] + j) * unit
                     key = (round(cx, 2), round(cy, 2))
-                    circles.setdefault(key, (cx, cy, r_arc + ap_r))
-                cur = (int(m.group(1)) / 1e6, int(m.group(2)) / 1e6)
+                    circles.setdefault(key, (cx, cy, (r_arc + ap_r) * unit))
+                cur = (int(m.group(1)) * scale, int(m.group(2)) * scale)
+                continue
+            m = flash.match(line)
+            if m:
+                if m.group(1) is not None:
+                    fx = int(m.group(1)) * scale
+                if m.group(2) is not None:
+                    fy = int(m.group(2)) * scale
+                # a flashed circle IS the pillar: keep the small population and
+                # the 6.15 mm big ones, drop the 4.6 mm frame/mounting set that
+                # sits outside the fan.
+                d_mm = ap_d * unit
+                if 0.2 < d_mm < 1.2 or 5.5 < d_mm < 7.0:
+                    cx, cy = fx * unit, fy * unit
+                    key = (round(cx, 2), round(cy, 2))
+                    circles.setdefault(key, (cx, cy, d_mm / 2))
 
     if not circles:
         return pd.DataFrame(columns=cols)
