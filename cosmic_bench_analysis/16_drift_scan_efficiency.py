@@ -366,6 +366,8 @@ def main():
     suffix = cfg.product_suffix(args.veto_sparks)
     if args.min_amp is not None:
         suffix += f'_minamp{args.min_amp:g}'   # never overwrite the defaults
+    if args.r != cfg.MATCH_R:
+        suffix += f'_r{args.r:g}'              # same rule as stage 06's --r
 
     # drift-field geometry + Magboltz drift velocity (drift scan only)
     gap_cm = args.drift_gap_mm / 10.0
