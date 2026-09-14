@@ -370,7 +370,8 @@ def main():
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
                                   strategy=args.strategy,
-                                  drop_connectors=cfg.DEAD_CONNECTORS)
+                                  drop_connectors=cfg.DEAD_CONNECTORS,
+                                  strategy_overrides=cfg.STRATEGY_OVERRIDES)
     if cfg.DEAD_CONNECTORS:
         print(f'  dropped dead connectors: {list(cfg.DEAD_CONNECTORS)}')
     n_pads = ct['channel_id'].nunique()
