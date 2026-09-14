@@ -336,8 +336,7 @@ def cern(out):
     lim = np.nanpercentile(np.abs(g.v), 95)
     sc = ax.scatter(g.bx, g.by, c=g.v, cmap='coolwarm', vmin=-lim, vmax=lim,
                     marker='s', s=330, edgecolors='none')
-    fig.colorbar(sc, ax=ax, shrink=.85,
-                 label='signal arrival time vs chamber median [ns]\n(later = longer drift path)')
+    fig.colorbar(sc, ax=ax, shrink=.85, label='arrival time offset [ns]')
     ax.set_xlabel('board x [mm]')
     ax.set_ylabel('board y [mm]')
     ax.set_aspect('equal')
