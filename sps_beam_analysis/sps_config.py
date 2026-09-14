@@ -93,12 +93,14 @@ ANALYSIS_ROOT = _root(
     '/local/home/ak271430/Documents/PostDocSaclay/data/SPS_Beam_Test/Analysis')
 
 # Gerber-derived pad mapping + insulation-mask pillar Gerber (shared with the
-# bench: same P2 BASKET PCB).
+# bench: same P2 BASKET PCB). det1-det4 were bulked with mask V1 (confirmed
+# 2026-09-14), not V2: same 0.8 mm / 4 mm pattern, ~800 more pillars. The
+# CERN-bulked det5 (P2_IN from 28 Jul) has a different mask, Bulk_CERN/P2_Mask2.gbr.
 MAP_CSV_PATH = os.path.join(
     REPO_ROOT, 'Detector_Mapping', 'P2_BASKET', 'P2_BASKET_mapping.csv')
 MASK_GBR_PATH = os.path.join(
     os.path.dirname(REPO_ROOT), 'Detector_Drawings', 'Version_Apr26',
-    'Insulation_masks', 'V2', 'P2_BASKET-Mask_M2_V2.gbr')
+    'Insulation_masks', 'V1', 'P2_BASKET-Mask_M2_V1.gbr')
 
 DEFAULT_RUN = 'fe55_telescope'
 
