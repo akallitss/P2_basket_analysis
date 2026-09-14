@@ -277,7 +277,8 @@ def main():
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
                                   strategy='reverse',
-                                  drop_connectors=cfg.DEAD_CONNECTORS)
+                                  drop_connectors=cfg.DEAD_CONNECTORS,
+                                  strategy_overrides=cfg.STRATEGY_OVERRIDES)
     out_dir = cfg.out_dir('16_drift_scan_efficiency')
 
     pts = discover_points(cfg)
