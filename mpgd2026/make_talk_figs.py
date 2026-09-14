@@ -350,7 +350,12 @@ def _board_to_bench():
     """
     import p2_qa_config as _qa
     import p2_mapping as _pm
-    brd = _pm.load_pillars(_qa.MASK_GBR_PATH)
+    # The row-for-row match needs the mask the pillars_m3 CSV was built from,
+    # which is V2 (11,683 circles). The config now points at V1, the mask det1
+    # was actually bulked with (12,482); both share the board frame, so V2 is
+    # still the right key for the frame bridge until stage 06 is re-run.
+    mask = _qa.MASK_GBR_PATH.replace('/V1/', '/V2/').replace('_V1.gbr', '_V2.gbr')
+    brd = _pm.load_pillars(mask)
     m3 = pd.read_csv(f'{BENCH}/det1/p2_det1_long_run_efficiency_7-19-26/'
                      'long_run_det1_415_615/06_efficiency/'
                      'pillars_m3_without_connectors_1_2_10_spark_vetoed.csv')
