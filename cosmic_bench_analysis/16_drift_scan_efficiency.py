@@ -132,6 +132,23 @@ def load_subrun(cfg, ct, subrun, z, chi2_cut, veto_sparks, sig_amp=300.0):
     return m3, p2, hit_events, n_veto, amp, tspread, tres
 
 
+def m3_trigger_count(cfg, subrun):
+    """Fraction of this sub_run's triggers that yield a good M3 track.
+
+    The M3 telescope occasionally glitches for a whole sub_run: its chi2
+    collapses (median Chi2X 0.13 -> 59) and rayN goes UP as spurious clusters
+    are fitted, so the good-track recipe keeps ~6% of triggers instead of the
+    usual ~40%. That is a REFERENCE failure, not a detector one -- the few
+    surviving tracks are mis-reconstructed, so every efficiency computed
+    against them is meaningless (and its residual sigma blows up). Same
+    signature as the M3 glitch flagged by 04_m3_reference_qa.py.
+
+    Returns the number of triggers in the sub_run; the caller divides the
+    good-track count it already has by it."""
+    m3_dir = os.path.join(cfg.subrun_dir(subrun), 'm3_tracking_root')
+    return len(pa.load_event_times(m3_dir))
+
+
 def _robust_sigma(v):
     v = v[np.isfinite(v)]
     if len(v) < 10:
@@ -302,14 +319,20 @@ def main():
                     help='fit the pad->M3 transform on the N points with the '
                          'most matched events (0 = pool all points). Keeps '
                          'noise-matches from near-dead points out of the fit.')
+    ap.add_argument('--m3-accept-frac', type=float, default=0.5,
+                    help='drop a scan point whose M3 good-track acceptance '
+                         'falls below this fraction of the scan median (the '
+                         'M3 telescope can glitch for a whole sub_run, which '
+                         'breaks the REFERENCE, not the detector). 0 = keep '
+                         'every point.')
     ap.add_argument('--scan', default='drift', choices=['drift', 'mesh'],
                     help='scanned voltage: drift (drift_scan_* sub_runs, mesh '
                          'fixed) or mesh (mesh_scan_* sub_runs, drift in '
                          'tandem). Default drift.')
-    ap.add_argument('--drift-gap-mm', type=float, default=3.0,
+    ap.add_argument('--drift-gap-mm', type=float, default=None,
                     help='conversion (drift) gap thickness [mm], for the drift '
                          'field E=(V_drift-V_mesh)/gap and the drift-velocity '
-                         'overlay. Default 3.0 (P2 Micromegas).')
+                         'overlay. Default: the run_key'"'"'s DRIFT_GAP_MM.')
     ap.add_argument('--amp-gap-um', type=float, default=150.0,
                     help='amplification gap [um], only for the reported '
                          'avalanche field. Default 150 (P2 Micromegas).')
@@ -331,6 +354,8 @@ def main():
     print(cfg)
     if args.min_amp is not None:
         cfg.MIN_AMP = float(args.min_amp)
+    if args.drift_gap_mm is None:
+        args.drift_gap_mm = cfg.DRIFT_GAP_MM
     if args.r is None:
         args.r = cfg.MATCH_R
     if args.z is None:
@@ -358,7 +383,8 @@ def main():
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
                                   strategy=args.strategy,
-                                  drop_connectors=cfg.DEAD_CONNECTORS)
+                                  drop_connectors=cfg.DEAD_CONNECTORS,
+                                  strategy_overrides=cfg.STRATEGY_OVERRIDES)
     if cfg.DEAD_CONNECTORS:
         print(f'  dropped dead connectors: {list(cfg.DEAD_CONNECTORS)}')
 
@@ -390,10 +416,35 @@ def main():
               + f' | pad amp mean {amp["mean"]:.0f} ADC'
               + f' | t_max spread {tspread["spread"]:.0f} ns'
               + f' | sigma_t {tres["sigma_ns"]:.1f} ns')
+        n_trig = m3_trigger_count(cfg, subrun)
         data.append(dict(subrun=subrun, mesh=mv, drift=dv, x=xv, m3=m3, p2=p2,
                          hit_events=hit_events, matched=matched, amp=amp,
-                         tspread=tspread, tres=tres))
-        pooled.append(matched)
+                         tspread=tspread, tres=tres,
+                         m3_accept=(len(m3) / n_trig) if n_trig else np.nan))
+    # --- M3 reference gate -------------------------------------------------- #
+    # A scan point whose M3 good-track acceptance collapses has a broken
+    # REFERENCE: the surviving tracks are mis-reconstructed, so its efficiency
+    # is meaningless and its residuals blow up. Judge each point against the
+    # scan's own median acceptance (the healthy level is run/geometry
+    # dependent) and drop the outliers rather than plotting a fake dip.
+    acc = np.array([a['m3_accept'] for a in data], dtype=float)
+    m3_dropped = []
+    if args.m3_accept_frac > 0 and np.isfinite(acc).sum() >= 3:
+        med = float(np.nanmedian(acc))
+        thr = args.m3_accept_frac * med
+        bad = [a for a in data
+               if np.isfinite(a['m3_accept']) and a['m3_accept'] < thr]
+        if bad:
+            print(f'\n  [M3 GLITCH] median good-track acceptance {med:.1%}; '
+                  f'dropping {len(bad)} point(s) below {thr:.1%} — the M3 '
+                  'reference, not the detector, failed there:')
+            for a in bad:
+                print(f'    {args.scan} {a["x"]}V ({a["subrun"]}): '
+                      f'acceptance {a["m3_accept"]:.1%}')
+            m3_dropped = [(a['x'], a['m3_accept']) for a in bad]
+            data = [a for a in data if a not in bad]
+    pooled = [a['matched'] for a in data]
+
     # transform fit sample: only the points with real response — pooling the
     # near-dead points too mixes noise-matches into the fit and biases the
     # frozen active area (seen on the det3 mesh scan: scale 0.85/RMSE 73 mm
@@ -482,7 +533,7 @@ def main():
         rows.append(dict(x=a['x'], drift=a['drift'], mesh=a['mesh'],
                          subrun=a['subrun'],
                          n_active=n, n_within=int(da['within'].sum()),
-                         n_p2_events=len(p2),
+                         n_p2_events=len(p2), m3_accept=a['m3_accept'],
                          eff_reco=eff, eff_reco_err=err, eff_anyhit=eff_any,
                          sigma_x_mm=sx, sigma_y_mm=sy,
                          amp_mean=amp['mean'], amp_mean_err=amp['sem'],
@@ -520,6 +571,13 @@ def main():
     ax.set_title(f'{cfg.DET_NAME} efficiency vs {args.scan} HV — {tag}\n'
                  f'({fixed_lbl}, r<{args.r:g} mm, '
                  f'min_amp {cfg.MIN_AMP:g} ADC, frozen active area)')
+    if m3_dropped:
+        ax.text(0.99, 0.02,
+                'excluded (M3 reference glitch): ' +
+                ', '.join(f'{x:.0f} V ({a:.0%} track acceptance)'
+                          for x, a in m3_dropped),
+                transform=ax.transAxes, ha='right', va='bottom',
+                fontsize=7, color='firebrick', style='italic')
     fig.tight_layout()
     fig.savefig(os.path.join(out_dir, f'efficiency_vs_{args.scan}{suffix}.png'),
                 dpi=200, bbox_inches='tight')
