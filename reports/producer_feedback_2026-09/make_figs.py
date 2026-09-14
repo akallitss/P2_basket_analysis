@@ -353,6 +353,143 @@ def cern(out):
     save(fig, out, 'bench_bow_scaling')
 
 
+# ===================================================== shared / talk figures ===
+class _NoTitles:
+    """Silence set_title / suptitle, so the MPGD26 talk producers (whose titles
+    carry the talk's narrative) draw bare panels for the decks."""
+    def __enter__(self):
+        from matplotlib.axes import Axes
+        from matplotlib.figure import Figure
+        self._a, self._f = Axes.set_title, Figure.suptitle
+        Axes.set_title = lambda self, *k, **kw: None
+        Figure.suptitle = lambda self, *k, **kw: None
+
+    def __exit__(self, *exc):
+        from matplotlib.axes import Axes
+        from matplotlib.figure import Figure
+        Axes.set_title, Figure.suptitle = self._a, self._f
+
+
+def setup_figs(out):
+    """Test-setup pictures: the H4 three-station render and the bench schematic."""
+    import shutil
+    os.makedirs(out, exist_ok=True)
+    shutil.copy(os.path.join(REPO, 'conference', 'figures', '4_act3_beam',
+                             's19_coincidence_hero.png'),
+                os.path.join(out, 'setup_beam.png'))
+    sys.path.insert(0, os.path.join(REPO, 'conference'))
+    import make_bench_schematic as mbs
+    with plt.rc_context({'axes.grid': False}), _NoTitles():
+        fig, ax = plt.subplots(figsize=(11.0, 8.6))
+        mbs.draw(ax)
+        fig.savefig(os.path.join(out, 'setup_bench.png'), dpi=150,
+                    bbox_inches='tight', pad_inches=0.2, facecolor='white')
+        plt.close(fig)
+    print('  wrote setup_beam.png, setup_bench.png')
+
+
+def _timing_curve(tm, run, station):
+    """(drift V, sigma ns, mesh V) for one station in one DREAM drift run;
+    repeated setpoints collapsed to their median (fig_drift_timing_all3 rule)."""
+    g = tm[(tm.run == run) & (tm.axis == 'drift')]
+    d = pd.DataFrame({'dv': g[f'drift_v_{station}'], 'mv': g[f'mesh_v_{station}'],
+                      'sg': g[f'{station}_sigma']}).astype(float).dropna()
+    d = d[d.dv > d.mv]
+    m = d.groupby('dv').sg.median().sort_index()
+    return m.index.to_numpy(), m.to_numpy(), (d.mv.iloc[0] if len(d) else np.nan)
+
+
+def timing_fig(out, series):
+    """DREAM single-station time resolution vs drift voltage.
+    series: [(run, station, det, legend label, style)]."""
+    tm = pd.read_csv(os.path.join(WS, 'report_data', 'dream_timing_scans.csv'))
+    fig, ax = plt.subplots(figsize=(8.8, 5.6))
+    for run, station, det, lab, style in series:
+        x, y, mv = _timing_curve(tm, run, station)
+        if len(x) < 2:
+            continue
+        ax.plot(x, y, style, color=COL[det], mfc='white' if '--' in style else None,
+                label=f'{lab}, mesh {mv:.0f} V')
+        print(f'    timing {det} {run}: sigma {y[-1]:.1f} ns at drift {x[-1]:.0f} V '
+              f'(min {y.min():.1f} ns)')
+    ax.set_yscale('log')
+    ticks = [15, 20, 30, 50, 100, 200]
+    ax.set_yticks(ticks)
+    ax.set_yticklabels([str(t) for t in ticks])
+    ax.minorticks_off()
+    ax.axhline(20, color='#c8322f', lw=1.2, ls=':')
+    ax.text(0.02, 20, 'P2 goal 20 ns', transform=ax.get_yaxis_transform(),
+            va='bottom', color='#c8322f', fontsize=12)
+    ax.set_xlabel('drift voltage [V]')
+    ax.set_ylabel('time resolution σ [ns]')
+    ax.legend(loc='upper right')
+    save(fig, out, 'beam_timing')
+
+
+def bench_beam_field(out):
+    """The same two chambers on the bench and in the beam vs drift FIELD
+    (4 mm gap), which lines up the different mesh settings of the two setups."""
+    GAP_CM = 0.4
+    dms = urw('drift_mesh_scan_1')
+    fig, ax = plt.subplots(figsize=(8.8, 5.6))
+    for det, st, pat in [
+            ('det1', 'P2_MID', 'det1/p2_det1_drift_scan_7-19-26/drift_scan/16_drift_scan_efficiency/'
+                               'efficiency_vs_drift_without_connectors_1_2_10_spark_vetoed.csv'),
+            ('det3', 'P2_OUT', 'det3/p2_det3_det4_drift_scan_7-16-26/drift_scan/16_drift_scan_efficiency/'
+                               'efficiency_vs_drift_without_connectors_1_8_9_10_spark_vetoed.csv')]:
+        b = bench_csv(pat).sort_values('drift')
+        ax.plot((b.drift - b.mesh) / GAP_CM, 100 * b.eff_reco, 's--', color=COL[det],
+                mfc='white', label=f'{det} bench (mesh {int(b.mesh.iloc[0])} V)')
+        u = urw_by_hv(dms, st)
+        u = u[(u.mesh == 450) & (u.drift >= 450)].sort_values('drift')
+        ax.plot((u.drift - u.mesh) / GAP_CM, u.eff, 'o-', color=COL[det],
+                label=f'{det} beam (mesh 450 V)')
+    ax.set_xlabel('drift field [V/cm]   (4 mm drift gap)')
+    pct_axis(ax)
+    ax.legend(loc='lower right', ncol=2)
+    save(fig, out, 'bench_beam_field')
+
+
+def saclay_extra(out):
+    print('Saclay deck, talk figures ->', out)
+    setup_figs(out)
+    bench_beam_field(out)
+    timing_fig(out, [
+        ('mesh_drift_scan_up_1', 'P2_MID', 'det1', 'det1, 26 Jul', 'o-'),
+        ('p2_mesh_drift_eff_1', 'P2_MID', 'det1', 'det1, 28 Jul', '^--'),
+        ('mesh_drift_scan_up_1', 'P2_OUT', 'det3', 'det3, 26 Jul', 'o-'),
+        ('p2_mesh_drift_eff_1', 'P2_OUT', 'det3', 'det3, 28 Jul', '^--'),
+        # chamber_history flags this run's P2_IN as det4 by the clock, UNCONFIRMED
+        ('mesh_drift_scan_up_1', 'P2_IN', 'det4', 'det4*, 26 Jul', 'o-')])
+    # the talk's all-chamber overlays and the bench/beam area maps, Saclay
+    # chambers only (the CERN chamber is its own deck), talk titles removed
+    with plt.rc_context():
+        sys.path.insert(0, os.path.join(REPO, 'mpgd2026'))
+        import make_talk_figs as mtf
+        mtf.CHAMBERS = ['det1', 'det2', 'det3', 'det4']
+        # the det3 note ("scan stopped at 420 V") describes its MESH scan, which
+        # the overlay drops; on the drift overlay it would mislabel the drift scan
+        mtf.BENCH_NOTE.pop('det3', None)
+        with _NoTitles():
+            mtf.fig_bench_beam_all(out)
+            mtf.fig_bench_beam_maps(out)
+    for f in glob.glob(os.path.join(out, '*.pdf')) + [os.path.join(out, 'bench_beam_grid.png')]:
+        if os.path.exists(f):
+            os.remove(f)
+
+
+def cern_extra(out, saclay_out=None):
+    import shutil
+    print('CERN deck, talk figures ->', out)
+    setup_figs(out)
+    timing_fig(out, [('p2_mesh_drift_eff_1', 'P2_IN', 'det5', 'det5, 28 Jul', '^-')])
+    # the measurement-area illustration is drawn once (det1 at P2_MID) and shared
+    src = os.path.join(saclay_out, 'bench_beam_maps.png') if saclay_out else None
+    if src and os.path.isfile(src):
+        shutil.copy(src, os.path.join(out, 'bench_beam_maps.png'))
+        print('  copied bench_beam_maps.png')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--saclay-out')
@@ -360,8 +497,10 @@ def main():
     a = ap.parse_args()
     if a.saclay_out:
         saclay(a.saclay_out)
+        saclay_extra(a.saclay_out)
     if a.cern_out:
         cern(a.cern_out)
+        cern_extra(a.cern_out, a.saclay_out)
 
 
 if __name__ == '__main__':
