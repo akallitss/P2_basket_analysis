@@ -215,7 +215,8 @@ def plot_strategy_compare(chan_stats, cfg, out_dir, tag,
         ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                       det_type=cfg.DET_TYPE,
                                       det_name=cfg.DET_NAME, strategy=strat,
-                                      drop_connectors=cfg.DEAD_CONNECTORS)
+                                      drop_connectors=cfg.DEAD_CONNECTORS,
+                                  strategy_overrides=cfg.STRATEGY_OVERRIDES)
         full = per_pad_stats(chan_stats, ct)
         _pad_scatter(ax, full, 'n_hits', f'strategy = {strat}',
                      'hits', log=True, mask_zero=True)
@@ -252,7 +253,8 @@ def main():
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
                                   strategy=args.strategy,
-                                  drop_connectors=cfg.DEAD_CONNECTORS)
+                                  drop_connectors=cfg.DEAD_CONNECTORS,
+                                  strategy_overrides=cfg.STRATEGY_OVERRIDES)
     print(f'Mapping: {cfg.DET_NAME}  FEUs {ct.attrs["feus"]}  '
           f'strategy={args.strategy}  '
           f'{int(ct["mapped"].sum())}/{len(ct)} channels resolved to pads')
