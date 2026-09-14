@@ -52,12 +52,27 @@ MAP_CSV_PATH = os.path.join(
     REPO_ROOT, 'Detector_Mapping', 'P2_BASKET', 'P2_BASKET_mapping.csv')
 
 # Insulation-mask Gerber (same KiCad board frame as the pad map): the exact
-# positions of the mesh-support pillars — ~11.7k small (~0.5 mm) on a ~4 mm
-# grid plus 5 big (~3.3 mm) ones. Overlaid on hitmaps/efficiency maps so
+# positions of the mesh-support pillars — 12,477 small 0.8 mm ones on a 4 mm
+# grid plus 5 big 6.15 mm ones. Overlaid on hitmaps/efficiency maps so
 # pillar-shadow dead spots can be told apart from real gain defects.
+# det1-det4 were bulked at Saclay with mask V1 (confirmed 2026-09-14), NOT V2:
+# same pattern, but V1 carries ~800 more pillars towards the fan edges, so the
+# dead area inside the pads is 3.78 % (V2 would give 3.55 %). Products made
+# before this date overlaid V2; no efficiency changes (pillars are overlay only).
 MASK_GBR_PATH = os.path.join(
     os.path.dirname(REPO_ROOT), 'Detector_Drawings', 'Version_Apr26',
-    'Insulation_masks', 'V2', 'P2_BASKET-Mask_M2_V2.gbr')
+    'Insulation_masks', 'V1', 'P2_BASKET-Mask_M2_V1.gbr')
+
+# CERN-bulked chambers (det5) use a DIFFERENT pillar pattern, and the Gerber is
+# a different dialect: UcamX, INCHES, pillars FLASHED (D03) rather than stroked
+# as arcs. p2_mapping.load_pillars handles both, but the file must be selected
+# per run_key -- pointing the Saclay mask at a CERN chamber silently models the
+# wrong dead area (0.8 mm on a 4 mm grid = 3.78 %, vs CERN's 0.5 mm on a 2 mm
+# grid = 4.87 %). The 5 big 6.15 mm pillars are identical in both, to 0.00 mm,
+# which is also what proves the two masks share the pad-map frame.
+MASK_GBR_CERN = os.path.join(
+    os.path.dirname(MASK_GBR_PATH), '..', '..', 'Bulk_CERN', 'P2_Mask2.gbr')
+MASK_GBR_CERN = os.path.normpath(MASK_GBR_CERN)
 
 DEFAULT_RUN = 'det1_long'
 
@@ -109,8 +124,10 @@ class _Config:
                  spark_channel='1:0', spark_imon_thr=2.0,
                  spark_guard_before=2.0, spark_guard_after=10.0,
                  burst_npads=20, det_tag=None, match_r=20.0, plane_z=None,
+                 strategy_overrides=None,
                  t_max_h=None, min_amp=0.0, out_tag=None, noisy_pads=(),
-                 hot_pad_ratio=5.0, t_min_h=None, active_r=8.4):
+                 hot_pad_ratio=5.0, t_min_h=None, active_r=8.4,
+                 drift_gap_mm=4.0):
         self.KEY = key
         self.DATA_ROOT = data_root
         self.RUN = run
@@ -131,6 +148,26 @@ class _Config:
         # spurious dead regions or bias the efficiency (a track pointing at a
         # dead connector is not a real 'miss').
         self.DEAD_CONNECTORS = tuple(dead_connectors)
+        # Per-connector-half within-half channel order, for a ribbon cabled
+        # differently from the rest of the detector: {(connector_N, half):
+        # strategy}, e.g. {(8, 'top'): 'linear'} on an otherwise 'reverse' det.
+        # Passed straight to p2_mapping.build_channel_table; None = no override,
+        # so every run that does not set it behaves exactly as before.
+        # Diagnose with the per-half residual against the M3 impact: a flipped
+        # half shows ~100 mm while correctly ordered halves sit at ~5 mm.
+        self.STRATEGY_OVERRIDES = dict(strategy_overrides or {})
+        # Drift-gap thickness [mm]: mesh -> drift cathode. Sets the drift FIELD
+        # (E = (V_drift - V_mesh)/gap) and every mm<->ns conversion built on it,
+        # so getting it wrong rescales the whole drift-scan x-axis and the
+        # Magboltz comparison. It is NOT in run_config.json (the detector
+        # entries carry no geometry), so it lives here.
+        # ALL P2 chambers are 4 mm (confirmed 2026-09-10). Everything analysed
+        # before that date assumed 3 mm, so every pre-2026-09-10 drift FIELD,
+        # v_d and ns<->mm number for det1-det4 is a factor 4/3 out and needs a
+        # re-run; the efficiencies themselves are unaffected (the gap only
+        # enters the field conversion). NOTE 14_timing_simulation.py still
+        # hardcodes a 3 mm slab -- that Garfield sim has NOT been redone.
+        self.DRIFT_GAP_MM = float(drift_gap_mm)
         # --- HV spark flagging (hv_monitor.csv) ---------------------------- #
         # The mesh HV channel discharges (sparks) as brief imon spikes. Events
         # taken during a spark + its recovery are vetoed from every stage.
@@ -513,6 +550,107 @@ RUNS = {
         spark_channel='1:0',
         dead_connectors=(1, 10),
         min_amp=0.0),     # reprocessed w/ real pedestals (thr ~28 ADC)
+
+    # det5 (bulked at CERN July 2026), installed 9-8-26 on the P1 (LOWER)
+    # plane and cabled to FEUs 6/7 with connectors 1-8 in the usual
+    # incremental order (c_1_bot -> FEU 6 slot 1); connectors 9 and 10 are not
+    # connected. First sub_run of the 9-8-26 campaign: 2 h alignment run at the
+    # operating point mesh 420 / drift 670 (drift gap 250 V). A fresh 200 V
+    # pedestal was taken at the start of the session, so min_amp 0.
+    'det5_initial1': _Config(
+        'det5_initial1',
+        run='p2_det5_alignment_mesh_drift_scan_9-8-26',
+        sub_run='initial_run_det5_420_670',
+        det_name='P2_5',
+        det_tag='det5',
+        spark_channel='1:0',
+        dead_connectors=(9, 10),
+        drift_gap_mm=4.0,          # P2 design value (now also the default)
+        mask_gbr=MASK_GBR_CERN,    # bulked at CERN: 0.5 mm pillars on a 2 mm grid
+        # 03 z-scan fits the plane ~14 mm above the nominal p1_z mounting
+        # height (232 mm): 246 mm before the c8-top fix below, 245 mm after it
+        # (FOM 1.9072, r_x 0.945, r_y 0.962) — stable, and 12's z-plateau is
+        # flat to 0.1 pt across it. Registered like det2 (nominal 702 -> fitted
+        # 712) so 04/06 project onto the measured plane, not the nominal one.
+        plane_z=246.0,
+        # Connector 8's TOP ribbon is cabled flipped: with the detector-wide
+        # 'reverse' order its single-pad hits land a median 100 mm from the M3
+        # impact, while all 15 other halves sit at 5-11 mm (c8 'bot' itself is
+        # 4.8 mm). The hits are muon-like in amplitude and the tracks point at
+        # connector 8's own footprint, so it is a channel permutation inside
+        # that half — not noise, not a wrong connector, not M3 (whose chi2 and
+        # NClus are identical for reco / mis-reco / no-hit rays).
+        # 'linear' collapses it to 5.1 mm and takes the core sigma from
+        # (9.9, 10.4) to (4.6, 4.6) mm and the Procrustes scale 0.922 -> 0.974.
+        strategy_overrides={(8, 'top'): 'linear'},
+        # Back to the 20 mm default now that c8-top is mapped correctly: the
+        # 40 mm this run briefly used was compensating for that error's 100 mm
+        # tail. At core sigma ~4.6 mm, 20 mm is ~4.3 sigma (>99.9% containment).
+        min_amp=0.0),
+
+    # det5 24 h efficiency long run (9-9-26 10:33) at the point chosen from the
+    # 9-8 mesh + drift scans: mesh 420 V / drift 820 V (drift gap 400 V,
+    # E ~ 1333 V/cm) -- the top of the (never-plateaued) mesh turn-on, and the
+    # best-timing end of the flat drift plateau. Single sub_run
+    # long_run_det5_420_820. Same c8-top ribbon fix and fitted plane height as
+    # det5_initial1; session pedestal -> min_amp 0. Fetched mid-run (the
+    # on-the-fly processor lags the DAQ by ~1 chunk).
+    'det5_long1': _Config(
+        'det5_long1',
+        run='p2_det5_long_run_9-9-26',
+        sub_run='long_run_det5_420_820',
+        det_name='P2_5',
+        det_tag='det5',
+        spark_channel='1:0',
+        dead_connectors=(9, 10),
+        drift_gap_mm=4.0,          # P2 design value (now also the default)
+        mask_gbr=MASK_GBR_CERN,    # bulked at CERN: 0.5 mm pillars on a 2 mm grid
+        plane_z=246.0,
+        strategy_overrides={(8, 'top'): 'linear'},
+        min_amp=0.0),
+
+    # det5 MESH scan (9-8-26 evening), taken right after the 2 h alignment run.
+    # Mesh stepped 420 -> 350 V in 10 V steps with the drift moving in tandem
+    # (drift = mesh + 250 V, so the drift gap is FIXED at 250 V and only the
+    # amplification field changes), 30 min per point -> 8 points. sub_runs
+    # mesh_scan_det5_<mesh>_<drift>; the sub_run here is only the products dir
+    # (stage 16 --scan mesh, and stage 11, loop the mesh_scan_det5_* dirs).
+    # Same session pedestal as det5_initial1 -> min_amp 0; same c8-top ribbon
+    # fix and same fitted plane height.
+    'det5_meshscan1': _Config(
+        'det5_meshscan1',
+        run='p2_det5_alignment_mesh_drift_scan_9-8-26',
+        sub_run='mesh_scan',
+        det_name='P2_5',
+        det_tag='det5',
+        spark_channel='1:0',
+        dead_connectors=(9, 10),
+        drift_gap_mm=4.0,          # P2 design value (now also the default)
+        mask_gbr=MASK_GBR_CERN,    # bulked at CERN: 0.5 mm pillars on a 2 mm grid
+        plane_z=246.0,
+        strategy_overrides={(8, 'top'): 'linear'},
+        min_amp=0.0),
+
+    # det5 DRIFT scan (9-8-26 night, 21:30 -> 01:34), after the mesh scan.
+    # Mesh FIXED at 420 V, drift stepped 420 -> 820 V in 50 V steps (drift gap
+    # 0 -> 400 V), 30 min per point -> 9 points. The first point (drift 420)
+    # has ZERO drift field and is expected to be near-dead: it is kept as the
+    # scan's own zero-field reference. sub_runs drift_scan_det5_420_<drift>;
+    # the sub_run here is only the products dir (stage 16 --scan drift loops
+    # them). Same pedestal / c8-top fix / plane height as det5_initial1.
+    'det5_driftscan1': _Config(
+        'det5_driftscan1',
+        run='p2_det5_alignment_mesh_drift_scan_9-8-26',
+        sub_run='drift_scan',
+        det_name='P2_5',
+        det_tag='det5',
+        spark_channel='1:0',
+        dead_connectors=(9, 10),
+        drift_gap_mm=4.0,          # P2 design value (now also the default)
+        mask_gbr=MASK_GBR_CERN,    # bulked at CERN: 0.5 mm pillars on a 2 mm grid
+        plane_z=246.0,
+        strategy_overrides={(8, 'top'): 'linear'},
+        min_amp=0.0),
 
     # det1 DRIFT scan (7-19-26 afternoon), taken right after the mesh scan
     # settled on 415 V as the working point: mesh FIXED at 415 V, drift stepped
