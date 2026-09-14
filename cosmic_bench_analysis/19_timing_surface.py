@@ -259,7 +259,8 @@ def main():
 
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
-                                  drop_connectors=cfg.DEAD_CONNECTORS)
+                                  drop_connectors=cfg.DEAD_CONNECTORS,
+                                  strategy_overrides=cfg.STRATEGY_OVERRIDES)
     drop = set(p2io.drop_pads_for(cfg, ct))
     print(f'  FEUs {ct.attrs["feus"]}  dead connectors {list(cfg.DEAD_CONNECTORS)}  '
           f'dropped pads {len(drop)}')
