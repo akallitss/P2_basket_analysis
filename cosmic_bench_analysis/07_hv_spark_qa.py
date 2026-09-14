@@ -202,7 +202,8 @@ def main():
         ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                       det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
                                       strategy=args.strategy,
-                                      drop_connectors=cfg.DEAD_CONNECTORS)
+                                      drop_connectors=cfg.DEAD_CONNECTORS,
+                                  strategy_overrides=cfg.STRATEGY_OVERRIDES)
         ev = load_event_multiplicity(cfg, ct)
         hi, _ = plot_crosscheck(sv, ev, cfg, out_dir, suffix)
         n_hi = len(hi)
