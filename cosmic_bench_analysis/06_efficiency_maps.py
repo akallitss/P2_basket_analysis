@@ -103,11 +103,18 @@ def main():
     sfx = cfg.product_suffix(args.veto_sparks) + qa.chi2_tag(args.chi2_cut)
     det_z = args.z if args.z is not None else _det_plane_z(cfg)
     R = args.r if args.r is not None else cfg.MATCH_R
+    # The match radius changes reco vs fired-not-reco (a wider R moves events
+    # from one into the other), so a non-default R must NOT overwrite the run's
+    # standard products -- same rule as stage 16's --min-amp. Needed to compare
+    # two run_keys whose configured R differs (det5 20 mm vs det1 40 mm).
+    if args.r is not None and args.r != cfg.MATCH_R:
+        sfx += f'_r{args.r:g}'
 
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
                                   strategy=args.strategy,
-                                  drop_connectors=cfg.DEAD_CONNECTORS)
+                                  drop_connectors=cfg.DEAD_CONNECTORS,
+                                  strategy_overrides=cfg.STRATEGY_OVERRIDES)
     if cfg.DEAD_CONNECTORS:
         print(f'  dropped dead connectors: {list(cfg.DEAD_CONNECTORS)}')
 
