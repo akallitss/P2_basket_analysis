@@ -471,6 +471,114 @@ def fig_gain_stability(data):
 
 
 # ======================================================================
+# Samtec only: the cable that will actually be used (Hitachi unavailable)
+# ======================================================================
+EDGE_ZONE = (0, 1, 29, 30, 31, 32, 33, 34, 62, 63)   # where self-triggering shows up
+
+
+def samtec_numbers(tab, data):
+    """Everything the Samtec conclusions rest on, in one dict."""
+    out = {"pulser": {}, "fe55": {}}
+    for volt in VOLTS:
+        pc = pulser_per_channel(tab, volt)
+        pc = pc[pc.cable == "Samtec"]
+        rows = {}
+        for length, s in pc.groupby("length"):
+            s = s.set_index("ch")
+            rows[length] = dict(
+                bulk=np.nanmedian(s.amp.reindex(BULK)),
+                edge_amp={c: s.amp.get(c, np.nan) / np.nanmedian(s.amp.reindex(BULK)) for c in EDGE},
+                noise_max=np.nanmax(s.noise_hz.reindex(EDGE_ZONE)),
+                # eff == 0 is a channel with no hits at all (dead / not cabled), not a loss
+                eff_min=np.nanmin(s.eff.reindex(EDGE_ZONE).replace(0, np.nan)),
+                dead=[c for c in range(64) if s.n_hits.get(c, 0) == 0])
+        L = np.array(sorted(rows))
+        rel = np.array([rows[x]["bulk"] for x in L]) / rows[1.5]["bulk"]
+        slope = np.polyfit(L, rel, 1)[0]
+        # edge drift: edge amp/bulk at each length relative to the shortest cable
+        drift = {x: np.nanmedian([rows[x]["edge_amp"][c] / rows[L[0]]["edge_amp"][c]
+                                  for c in EDGE]) for x in L}
+        out["pulser"][volt] = dict(rows=rows, L=L, rel=rel, slope=slope, edge_drift=drift)
+    for gain in (1, 3):
+        s15 = _run(data, "fe55", "Samtec", 1.5, gain)
+        pts = {1.5: (1.0, np.ones(len(EDGE)))}
+        for L in (2.0, 2.5):
+            s = _run(data, "fe55", "Samtec", L, gain)
+            if s:
+                med, _, per_ch, _, _ = ratio_stats(data[s]["peaks"], data[s15]["peaks"])
+                pts[L] = (med, per_ch[list(EDGE)])
+        L = np.array(sorted(pts))
+        rel = np.array([pts[x][0] for x in L])
+        refs = {d["length"]: np.nanmax(np.median(d["h"].sum(axis=2) / d["live_s"], axis=0)[list(EDGE_ZONE)])
+                for d in data.values() if d["kind"] == "ref" and d["cable"] == "Samtec" and d["gain"] == gain}
+        out["fe55"][gain] = dict(L=L, rel=rel, slope=np.polyfit(L, rel, 1)[0] if len(L) > 1 else np.nan,
+                                 edge=dict((x, pts[x][1]) for x in L), noise_max=refs)
+    return out
+
+
+def fig_samtec_summary(sn):
+    fig, axs = plt.subplots(1, 3, figsize=(16, 4.8))
+    # (a) bulk signal vs length
+    ax = axs[0]
+    p = sn["pulser"]["3V3"]
+    ax.plot(p["L"], p["rel"], "-o", ms=8, lw=2, color=CABLE_COLOR["Samtec"],
+            label=f"pulser 3.3 V: {100 * p['slope']:+.1f} %/m")
+    for gain, mk in ((1, "s"), (3, "D")):
+        f = sn["fe55"][gain]
+        ax.errorbar(f["L"], f["rel"], yerr=np.where(f["L"] == 1.5, 0, 0.04), fmt=mk + "--", ms=8,
+                    lw=1.5, capsize=3, color=CABLE_COLOR["Samtec"], mfc="white",
+                    label=f"Fe55 {gain} mV/fC: {100 * f['slope']:+.1f} %/m")
+    ax.axhline(1, color="#c3c2b7", lw=1)
+    ax.set_xlabel("total Samtec cable length [m]")
+    ax.set_ylabel("bulk signal / 1.5 m")
+    ax.set_title("(a) typical channel: signal vs length", color=INK, fontsize=12, loc="left")
+    ax.legend(fontsize=9, loc="lower left")
+    # (b) edge channels relative to bulk, relative to the shortest cable
+    ax = axs[1]
+    d = p["edge_drift"]
+    ax.plot(list(d), list(d.values()), "-o", ms=8, lw=2, color=CABLE_COLOR["Samtec"],
+            label="pulser 3.3 V (vs 1.0 m)")
+    f = sn["fe55"][1]
+    ax.plot(f["L"], [np.nanmedian(f["edge"][x]) for x in f["L"]], "s--", ms=8, lw=1.5,
+            color=CABLE_COLOR["Samtec"], mfc="white", label="Fe55 1 mV/fC (vs 1.5 m)")
+    ax.axhline(1, color="#c3c2b7", lw=1)
+    ax.set_ylim(0.9, 1.1)
+    ax.set_xlabel("total Samtec cable length [m]")
+    ax.set_ylabel("edge-channel signal / bulk,\nrelative to the shortest cable")
+    ax.set_title("(b) edge ch 0/31/32/63: extra loss vs bulk", color=INK, fontsize=12, loc="left")
+    ax.legend(fontsize=9, loc="upper left")
+    # (c) self-triggering on the edge channels
+    ax = axs[2]
+    for volt, col in (("3V3", CABLE_COLOR["Samtec"]), ("1V8", LEN_COLOR[3.0])):
+        rows = sn["pulser"][volt]["rows"]
+        L = sorted(rows)
+        y = np.array([rows[x]["noise_max"] for x in L])
+        seen = y > 0
+        ax.plot(np.array(L)[seen], y[seen], "-o", ms=8, lw=2, color=col, label=f"pulser bench, {volt}")
+        ax.plot(np.array(L)[~seen], np.full((~seen).sum(), 0.1), "v", ms=8, color=col, mfc="white",
+                label="pulser: none in 10 s" if volt == "3V3" else None)
+    nz = sn["fe55"][1]["noise_max"]
+    ax.plot(sorted(nz), [nz[x] for x in sorted(nz)], "s--", ms=8, lw=1.5, color=CABLE_COLOR["Samtec"],
+            mfc="white", label="on detector (Fe55 ref runs)")
+    ax.set_yscale("log")
+    ax.set_ylim(0.05, 3e4)
+    ax.set_xlim(0.9, 3.4)
+    ax.set_xlabel("total Samtec cable length [m]")
+    ax.set_ylabel("highest self-trigger rate among\nedge channels 0/1, 29-34, 62/63 [Hz]")
+    ax.set_title("(c) edge self-triggering: bench only", color=INK, fontsize=12, loc="left")
+    ax.legend(fontsize=9, loc="upper left")
+    for x in sorted(sn["pulser"]["1V8"]["rows"]):
+        e = sn["pulser"]["1V8"]["rows"][x]["eff_min"]
+        if e < 0.99 and x > 1.5:
+            ax.annotate(f"1.8 V: {e:.2f} of pulses kept", (x, sn["pulser"]["1V8"]["rows"][x]["noise_max"]),
+                        textcoords="offset points", xytext=(8, -14), ha="left", fontsize=8, color=INK2)
+    fig.suptitle("Samtec cables (the ones P2 will use): what changes with length",
+                 color=INK, fontsize=13, x=0.01, ha="left")
+    fig.tight_layout()
+    _save(fig, "samtec_summary.png")
+
+
+# ======================================================================
 # summary
 # ======================================================================
 def summary(tab, data):
@@ -518,6 +626,23 @@ def summary(tab, data):
         r = d["h"].sum(axis=2) / d["live_s"]
         w(f"  {d['label']:20s} {d['gain']} mV/fC  {np.median(r[:, BULK]):5.2f} | "
           + " ".join(f"{np.median(r[:, c]):5.2f}" for c in EDGE))
+    sn = samtec_numbers(tab, data)
+    w("\nSAMTEC ONLY (Hitachi will not be available)")
+    for volt, p in sn["pulser"].items():
+        w(f"  pulser {volt}: bulk / 1.5 m " + " ".join(f"{x:.1f}m:{r:.3f}" for x, r in zip(p["L"], p["rel"]))
+          + f"  -> {100 * p['slope']:+.1f} %/m")
+        w("     edge amp/bulk vs 1.0 m: " + " ".join(f"{x:.1f}m:{v:.3f}" for x, v in p["edge_drift"].items()))
+        w("     max self-trigger on edge zone [Hz]: " + " ".join(
+            f"{x:.1f}m:{r['noise_max']:.0f}" for x, r in p["rows"].items())
+          + " | min eff: " + " ".join(f"{x:.1f}m:{r['eff_min']:.2f}" for x, r in p["rows"].items())
+          + " | dead ch: " + " ".join(f"{x:.1f}m:{r['dead']}" for x, r in p["rows"].items() if r["dead"]))
+    for gain, f in sn["fe55"].items():
+        w(f"  Fe55 {gain} mV/fC: bulk / 1.5 m " + " ".join(f"{x:.1f}m:{r:.3f}" for x, r in zip(f["L"], f["rel"]))
+          + f"  -> {100 * f['slope']:+.1f} %/m (±4 % per point)")
+        w("     edge/bulk (0,31,32,63): " + " | ".join(
+            f"{x:.1f}m: " + " ".join(f"{v:.3f}" for v in f["edge"][x]) for x in f["L"]))
+        w("     max ref-run rate on edge zone [Hz]: " + " ".join(f"{x:.1f}m:{v:.2f}" for x, v in sorted(f["noise_max"].items())))
+    fig_samtec_summary(sn)
     txt = "\n".join(L)
     with open(os.path.join(FIGS, "summary.txt"), "w") as f:
         f.write(txt + "\n")
