@@ -217,6 +217,13 @@ def hist_level_width(h, nmin=30):
     return med, wid, n
 
 
+def hist_mean(h, nmin=30):
+    """Mean ADC of histograms along the last axis (NaN below nmin)."""
+    n = h.sum(-1)
+    m = (h * np.arange(h.shape[-1])).sum(-1) / np.maximum(n, 1)
+    return np.where(n >= nmin, m, np.nan)
+
+
 def pulser_per_channel(tab, volt):
     """One row per (cable, length, ch) with the measurement from the run that pulsed it.
 
@@ -437,60 +444,74 @@ def fig_fe55_edge_ratio(data, gain=1):
 
 
 def fig_noise_compare(data, volt="3V3"):
-    """Neighbour-trigger hits: level and spread per channel, bench vs detector (Samtec)."""
+    """Neighbour-trigger hits, bench vs detector (Samtec): level (median ADC) on top,
+    spread (half 16-84 % width) below; per channel and vs length."""
     nb = pulser_neighbour_hist()
-    fig, axs = plt.subplots(1, 3, figsize=(16, 4.8), gridspec_kw=dict(width_ratios=(1.25, 1.25, 1)))
-    ax = axs[0]
-    for L in (1.0, 1.5, 2.0, 2.5, 3.0):
-        if ("Samtec", L, volt) not in nb:
-            continue
-        _, wid, _ = hist_level_width(nb[("Samtec", L, volt)])
-        ax.plot(np.arange(64), wid, "-o", ms=3, lw=1.3, color=LEN_COLOR[L], label=f"{L:.1f} m")
-    ax.set_title(f"(a) pulser bench, Samtec, {volt} (3 mV/fC)", color=INK, fontsize=12, loc="left")
-    ax = axs[1]
-    for L in (1.5, 2.0, 2.5):
-        s = _run(data, "fe55", "Samtec", L, 3)
-        if s is None:
-            continue
-        _, wid, _ = hist_level_width(data[s]["h_nb"])
-        ax.plot(np.arange(64), np.nanmedian(wid, axis=0), "-s", ms=3, lw=1.3, color=LEN_COLOR[L],
-                label=f"{L:.1f} m")
-    ax.set_title("(b) detector, Samtec, Fe55 3 mV/fC", color=INK, fontsize=12, loc="left")
-    for ax in axs[:2]:
-        _edge_bands(ax)
-        ax.set_ylim(0, 50)
-        ax.set_xlabel("VMM channel")
-        ax.legend(title="total cable", fontsize=9, title_fontsize=9, loc="upper center", ncol=3)
-    axs[0].set_ylabel("spread of neighbour-trigger hits\n[ADC, half 16-84 % width]")
-    # (c) bulk and worst-edge spread vs length, both setups
-    ax = axs[2]
     edge = list(EDGE_ZONE)
-    xs, b_bulk, b_edge = [], [], []
-    for L in (1.0, 1.5, 2.0, 2.5, 3.0):
-        if ("Samtec", L, volt) in nb:
-            _, wid, _ = hist_level_width(nb[("Samtec", L, volt)])
-            xs.append(L); b_bulk.append(np.nanmedian(wid[BULK])); b_edge.append(np.nanmax(wid[edge]))
-    ax.plot(xs, b_bulk, "-o", ms=8, lw=2, color=CABLE_COLOR["Samtec"], label="bench, bulk median")
-    ax.plot(xs, b_edge, ":o", ms=8, lw=2, color=CABLE_COLOR["Samtec"], mfc="white", label="bench, worst edge ch.")
-    for gain, mk in ((3, "s"), (1, "D")):
-        xs, d_bulk, d_edge = [], [], []
-        for L in (1.5, 2.0, 2.5):
-            s = _run(data, "fe55", "Samtec", L, gain)
+    lengths_b = [L for L in (1.0, 1.5, 2.0, 2.5, 3.0) if ("Samtec", L, volt) in nb]
+    det = {L: _run(data, "fe55", "Samtec", L, 3) for L in (1.5, 2.0, 2.5)}
+    fig, axs = plt.subplots(2, 3, figsize=(16, 9), sharex="col",
+                            gridspec_kw=dict(width_ratios=(1.25, 1.25, 1)))
+    for row, (idx, ylab, ylim) in enumerate(((0, "median ADC of\nneighbour-trigger hits", (0, 130)),
+                                              (1, "spread of neighbour-trigger hits\n[ADC, half 16-84 % width]", (0, 50)))):
+        ax = axs[row, 0]
+        for L in lengths_b:
+            v = hist_level_width(nb[("Samtec", L, volt)])[idx]
+            ax.plot(np.arange(64), v, "-o", ms=3, lw=1.3, color=LEN_COLOR[L], label=f"{L:.1f} m")
+        ax = axs[row, 1]
+        for L, s in det.items():
             if s is None:
                 continue
-            _, wid, _ = hist_level_width(data[s]["h_nb"])
-            w = np.nanmedian(wid, axis=0)
-            xs.append(L); d_bulk.append(np.nanmedian(wid[:, BULK])); d_edge.append(np.nanmax(w[edge]))
-        ax.plot(xs, d_bulk, "-" + mk, ms=7, lw=1.5, color=CABLE_COLOR["Hitachi"] if False else INK2,
-                label=f"detector {gain} mV/fC, bulk")
-        ax.plot(xs, d_edge, ":" + mk, ms=7, lw=1.5, color=INK2, mfc="white",
-                label=f"detector {gain} mV/fC, worst edge")
-    ax.set_ylim(0, 50)
-    ax.set_xlabel("total Samtec cable length [m]")
-    ax.set_title("(c) vs length", color=INK, fontsize=12, loc="left")
-    ax.legend(fontsize=8, loc="upper left")
-    fig.suptitle("Neighbour-trigger hits (baseline + noise + crosstalk): the bench is 3-5x noisier "
-                 "than the detector, and gets worse with cable length", color=INK, fontsize=13,
+            v = np.nanmedian(hist_level_width(data[s]["h_nb"])[idx], axis=0)
+            ax.plot(np.arange(64), v, "-s", ms=3, lw=1.3, color=LEN_COLOR[L], label=f"{L:.1f} m")
+        for ax in axs[row, :2]:
+            _edge_bands(ax)
+            ax.set_ylim(*ylim)
+            ax.legend(title="total cable", fontsize=9, title_fontsize=9, loc="upper center", ncol=3)
+        axs[row, 0].set_ylabel(ylab)
+        # vs length
+        ax = axs[row, 2]
+        for v_, ls in ((volt, "-"), ("1V8", "--")) if volt != "1V8" else ((volt, "-"),):
+            xb, bb, eb = [], [], []
+            for L in lengths_b:
+                if ("Samtec", L, v_) not in nb:
+                    continue
+                q = hist_level_width(nb[("Samtec", L, v_)])[idx]
+                xb.append(L); bb.append(np.nanmedian(q[BULK]))
+                eb.append(np.nanmedian(q[edge]) if idx == 0 else np.nanmax(q[edge]))
+            ax.plot(xb, bb, ls + "o", ms=7, lw=2, color=CABLE_COLOR["Samtec"], label=f"bench {v_}, bulk")
+            ax.plot(xb, eb, ls + "o", ms=7, lw=1.2, color=CABLE_COLOR["Samtec"], mfc="white",
+                    label=f"bench {v_}, edge " + ("median" if idx == 0 else "worst"))
+            if idx == 0:
+                mb = [np.nanmedian(hist_mean(nb[("Samtec", L, v_)])[BULK]) for L in xb]
+                ax.plot(xb, mb, ls + "^", ms=6, lw=1, color=MUTED, label=f"bench {v_}, bulk mean")
+        for gain, mk in ((3, "s"), (1, "D")):
+            xd, bd, ed, md = [], [], [], []
+            for L in (1.5, 2.0, 2.5):
+                s = _run(data, "fe55", "Samtec", L, gain)
+                if s is None:
+                    continue
+                q = hist_level_width(data[s]["h_nb"])[idx]
+                qc = np.nanmedian(q, axis=0)
+                xd.append(L); bd.append(np.nanmedian(q[:, BULK]))
+                ed.append(np.nanmedian(qc[edge]) if idx == 0 else np.nanmax(qc[edge]))
+                md.append(np.nanmedian(hist_mean(data[s]["h_nb"])[:, BULK]))
+            ax.plot(xd, bd, "-" + mk, ms=7, lw=1.5, color=INK2, label=f"detector {gain} mV/fC, bulk")
+            ax.plot(xd, ed, ":" + mk, ms=7, lw=1.5, color=INK2, mfc="white",
+                    label=f"detector {gain} mV/fC, edge " + ("median" if idx == 0 else "worst"))
+            if idx == 0:
+                ax.plot(xd, md, ":^", ms=6, lw=1, color=MUTED, mfc="white",
+                        label=f"detector {gain} mV/fC, bulk mean")
+        ax.set_ylim(*ylim)
+        ax.legend(fontsize=7, loc="lower left" if idx == 0 else "upper left", ncol=2 if idx == 0 else 1)
+    axs[0, 0].set_title(f"(a) pulser bench, Samtec, {volt} (3 mV/fC)", color=INK, fontsize=12, loc="left")
+    axs[0, 1].set_title("(b) detector, Samtec, Fe55 3 mV/fC", color=INK, fontsize=12, loc="left")
+    axs[0, 2].set_title("(c) vs length", color=INK, fontsize=12, loc="left")
+    for ax in axs[1, :2]:
+        ax.set_xlabel("VMM channel")
+    axs[1, 2].set_xlabel("total Samtec cable length [m]")
+    fig.suptitle("Neighbour-trigger hits (baseline + noise + crosstalk). Top: level. Bottom: spread. "
+                 "Bench 3-5x noisier than the detector, worse with length", color=INK, fontsize=13,
                  x=0.01, ha="left")
     fig.tight_layout()
     _save(fig, f"noise_bench_vs_detector_{volt}.png")
@@ -762,7 +783,9 @@ def summary(tab, data):
         for volt in VOLTS:
             if ("Samtec", Lb, volt) in nb:
                 m, wd, _ = hist_level_width(nb[("Samtec", Lb, volt)])
-                parts.append(f"{volt}: level {np.nanmedian(m[BULK]):.0f} spread {np.nanmedian(wd[BULK]):.1f} "
+                mn = hist_mean(nb[("Samtec", Lb, volt)])
+                parts.append(f"{volt}: median {np.nanmedian(m[BULK]):.0f} mean {np.nanmedian(mn[BULK]):.0f} "
+                             f"edge median {np.nanmedian(m[list(EDGE_ZONE)]):.0f} spread {np.nanmedian(wd[BULK]):.1f} "
                              f"worst edge {np.nanmax(wd[list(EDGE_ZONE)]):.0f}")
         w(f"  bench {Lb:.1f} m | " + " | ".join(parts))
     for gain in (1, 3):
@@ -771,7 +794,9 @@ def summary(tab, data):
             if s is None:
                 continue
             m, wd, _ = hist_level_width(data[s]["h_nb"])
-            w(f"  detector {gain} mV/fC {Lf:.1f} m | level {np.nanmedian(m[:, BULK]):.0f} "
+            mn = hist_mean(data[s]["h_nb"])
+            w(f"  detector {gain} mV/fC {Lf:.1f} m | median {np.nanmedian(m[:, BULK]):.0f} "
+              f"mean {np.nanmedian(mn[:, BULK]):.0f} edge median {np.nanmedian(np.nanmedian(m, axis=0)[list(EDGE_ZONE)]):.0f} "
               f"spread {np.nanmedian(wd[:, BULK]):.1f} worst edge {np.nanmax(np.nanmedian(wd, axis=0)[list(EDGE_ZONE)]):.1f}")
     w("  bulk ratio vs all-channel ratio (Fe55, Samtec / 1.5 m):")
     for gain in (1, 3):
