@@ -790,9 +790,29 @@ def fig_gain_stability(data):
 EDGE_ZONE = (0, 1, 29, 30, 31, 32, 33, 34, 62, 63)   # where self-triggering shows up
 
 
+def fe55_drift(data):
+    """Gas-gain drift of the detector, measured inside each Fe55 run: slope of the
+    mid-connector photopeak over the run's 1-min files, combined over all runs."""
+    rows = []
+    for s, d in data.items():
+        if d["kind"] != "fe55" or len(d["file_peaks"]) < 3:
+            continue
+        y = np.array([np.nanmedian(fp[:, MID]) for fp in d["file_peaks"]], float)
+        t = (np.array(d["t_start"]) - d["t_start"][0]) / 3600
+        k = np.isfinite(y)
+        p, cov = np.polyfit(t[k], y[k] / y[k].mean(), 1, cov=True)
+        rows.append((d["label"], d["gain"], p[0], np.sqrt(cov[0, 0])))
+    sl = np.array([r[2] for r in rows])
+    w = 1 / np.array([r[3] for r in rows]) ** 2
+    rate = np.sum(w * sl) / w.sum()
+    return dict(rate=rate, err=1 / np.sqrt(w.sum()), runs=rows,
+                chi2ndf=np.sum(w * (sl - rate) ** 2) / max(len(sl) - 1, 1))
+
+
 def samtec_numbers(tab, data):
     """Everything the Samtec conclusions rest on, in one dict."""
-    out = {"pulser": {}, "fe55": {}}
+    gdrift = fe55_drift(data)
+    out = {"pulser": {}, "fe55": {}, "drift": gdrift}
     for volt in VOLTS:
         pc = pulser_per_channel(tab, volt)
         pc = pc[pc.cable == "Samtec"]
@@ -815,17 +835,23 @@ def samtec_numbers(tab, data):
         out["pulser"][volt] = dict(rows=rows, L=L, rel=rel, slope=slope, edge_drift=drift)
     for gain in (1, 3):
         s15 = _run(data, "fe55", "Samtec", 1.5, gain)
-        pts = {1.5: (1.0, np.ones(len(EDGE)))}
+        pts = {1.5: (1.0, np.ones(len(EDGE)), 0.0)}
         for L in (2.0, 2.5):
             s = _run(data, "fe55", "Samtec", L, gain)
             if s:
                 med, _, per_ch, _, _ = ratio_stats(data[s]["peaks"], data[s15]["peaks"])
-                pts[L] = (med, per_ch[list(EDGE)])
+                dt_h = (np.mean(data[s]["t_start"]) - np.mean(data[s15]["t_start"])) / 3600
+                pts[L] = (med, per_ch[list(EDGE)], dt_h)
         L = np.array(sorted(pts))
         rel = np.array([pts[x][0] for x in L])
+        dt_h = np.array([pts[x][2] for x in L])
+        # undo the gain drift between the run and the 1.5 m reference
+        rel_cor = rel / (1 + gdrift["rate"] * dt_h)
         refs = {d["length"]: np.nanmax(np.median(d["h"].sum(axis=2) / d["live_s"], axis=0)[list(EDGE_ZONE)])
                 for d in data.values() if d["kind"] == "ref" and d["cable"] == "Samtec" and d["gain"] == gain}
         out["fe55"][gain] = dict(L=L, rel=rel, slope=np.polyfit(L, rel, 1)[0] if len(L) > 1 else np.nan,
+                                 dt_h=dt_h, rel_cor=rel_cor, err_cor=abs(gdrift["err"] * dt_h),
+                                 slope_cor=np.polyfit(L, rel_cor, 1)[0] if len(L) > 1 else np.nan,
                                  edge=dict((x, pts[x][1]) for x in L), noise_max=refs)
     return out
 
@@ -839,9 +865,11 @@ def fig_samtec_summary(sn):
             label=f"pulser 3.3 V: {100 * p['slope']:+.1f} %/m")
     for gain, mk in ((1, "s"), (3, "D")):
         f = sn["fe55"][gain]
-        ax.errorbar(f["L"], f["rel"], yerr=np.where(f["L"] == 1.5, 0, 0.04), fmt=mk + "--", ms=8,
+        ax.plot(f["L"], f["rel"], mk + ":", ms=6, lw=1, color=MUTED, mfc="white",
+                label=f"Fe55 {gain} mV/fC, raw: {100 * f['slope']:+.1f} %/m")
+        ax.errorbar(f["L"], f["rel_cor"], yerr=f["err_cor"], fmt=mk + "--", ms=8,
                     lw=1.5, capsize=3, color=CABLE_COLOR["Samtec"], mfc="white",
-                    label=f"Fe55 {gain} mV/fC: {100 * f['slope']:+.1f} %/m")
+                    label=f"Fe55 {gain} mV/fC, drift-corrected: {100 * f['slope_cor']:+.1f} %/m")
     ax.axhline(1, color="#c3c2b7", lw=1)
     ax.set_xlabel("total Samtec cable length [m]")
     ax.set_ylabel("mid-connector signal / 1.5 m")
@@ -941,6 +969,11 @@ def summary(tab, data, gpk):
         w(f"  {d['label']:20s} {d['gain']} mV/fC  {np.median(r[:, MID]):5.2f} | "
           + " ".join(f"{np.median(r[:, c]):5.2f}" for c in EDGE))
     sn = samtec_numbers(tab, data)
+    dr = sn["drift"]
+    w(f"\nFe55 GAIN DRIFT inside runs (mid-connector photopeak vs time): {100 * dr['rate']:+.2f} "
+      f"± {100 * dr['err']:.2f} %/h, chi2/ndf {dr['chi2ndf']:.2f}")
+    for lab, gain, sl, er in dr["runs"]:
+        w(f"  {lab:18s} {gain} mV/fC {100 * sl:+5.1f} ± {100 * er:.1f} %/h")
     w("\nSAMTEC ONLY (Hitachi will not be available)")
     for volt, p in sn["pulser"].items():
         w(f"  pulser {volt}: mid-connector / 1.5 m " + " ".join(f"{x:.1f}m:{r:.3f}" for x, r in zip(p["L"], p["rel"]))
@@ -955,6 +988,9 @@ def summary(tab, data, gpk):
           + f"  -> {100 * f['slope']:+.1f} %/m (±4 % per point)")
         w("     edge/mid-connector (0,31,32,63): " + " | ".join(
             f"{x:.1f}m: " + " ".join(f"{v:.3f}" for v in f["edge"][x]) for x in f["L"]))
+        w("     drift-corrected: " + " ".join(f"{x:.1f}m:{r:.3f}(dt {t:+.2f} h)"
+                                          for x, r, t in zip(f["L"], f["rel_cor"], f["dt_h"]))
+          + f"  -> {100 * f['slope_cor']:+.1f} %/m")
         w("     max ref-run rate on edge zone [Hz]: " + " ".join(f"{x:.1f}m:{v:.2f}" for x, v in sorted(f["noise_max"].items())))
     fig_samtec_summary(sn)
 
