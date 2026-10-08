@@ -558,7 +558,7 @@ def fig_source_vs_nosource(sv):
         ax.legend(fontsize=8, loc="upper right")
     axs[0].set_ylabel("fraction of hits")
     fig.suptitle("Detector, Samtec: neighbour-trigger hits with the Fe55 source (solid) and without (dashed). "
-                 "Same median; the no-source runs have ~100x fewer hits", color=INK, fontsize=12, x=0.01, ha="left")
+                 "Same median; the no-source runs have 150-400x fewer hits", color=INK, fontsize=12, x=0.01, ha="left")
     fig.tight_layout()
     _save(fig, "detector_neighbour_hits_source_vs_nosource.png")
 
