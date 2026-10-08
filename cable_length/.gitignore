@@ -1,3 +1,7 @@
-# regenerable: python3 cable_length/cable_length_study.py
+# regenerable: python3 cable_length/cable_length_study.py && python3 cable_length/make_slides.py
 figs/
 cache/
+# presentations and exported figures, wherever they end up in this folder
+*.pptx
+*.pdf
+*.png
