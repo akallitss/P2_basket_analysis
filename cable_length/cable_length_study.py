@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Signal loss vs off-detector cable length: pulser bench (June 2026) vs Fe55 on
+Signal loss vs off-detector cable length: external-pulser runs (June 2026) vs Fe55 on
 the P2 detector (Sep/Oct 2026), and what the "edge-channel breakdown" seen on
-the pulser bench really is.
+the external-pulser runs really is.
 
 Two campaigns, one observable per channel each:
 
@@ -446,13 +446,13 @@ def fig_fe55_edge_ratio(data, gain=1):
 
 
 def fig_noise_compare(data, volt="3V3"):
-    """Neighbour-trigger hits, bench vs detector (Samtec): level (median ADC) on top,
+    """Neighbour-trigger hits, external pulser vs detector Fe55 runs (Samtec): level (median ADC) on top,
     spread (half 16-84 % width) below; per channel and vs length."""
     nb = pulser_neighbour_hist()
     edge = list(EDGE_ZONE)
     lengths_b = [L for L in (1.0, 1.5, 2.0, 2.5, 3.0) if ("Samtec", L, volt) in nb]
     det = {L: _run(data, "fe55", "Samtec", L, 3) for L in (1.5, 2.0, 2.5)}
-    fig, axs = plt.subplots(2, 3, figsize=(16, 9), sharex="col",
+    fig, axs = plt.subplots(2, 3, figsize=(20, 9), sharex="col",
                             gridspec_kw=dict(width_ratios=(1.25, 1.25, 1)))
     for row, (idx, ylab, ylim) in enumerate(((0, "median ADC of\nneighbour-trigger hits", (0, 130)),
                                               (1, "spread of neighbour-trigger hits\n[ADC, half 16-84 % width]", (0, 50)))):
@@ -481,12 +481,12 @@ def fig_noise_compare(data, volt="3V3"):
                 q = hist_level_width(nb[("Samtec", L, v_)])[idx]
                 xb.append(L); bb.append(np.nanmedian(q[MID]))
                 eb.append(np.nanmedian(q[edge]) if idx == 0 else np.nanmax(q[edge]))
-            ax.plot(xb, bb, ls + "o", ms=7, lw=2, color=CABLE_COLOR["Samtec"], label=f"bench {v_}, mid-connector")
+            ax.plot(xb, bb, ls + "o", ms=7, lw=2, color=CABLE_COLOR["Samtec"], label=f"external pulser {v_}, mid-connector")
             ax.plot(xb, eb, ls + "o", ms=7, lw=1.2, color=CABLE_COLOR["Samtec"], mfc="white",
-                    label=f"bench {v_}, edge " + ("median" if idx == 0 else "worst"))
+                    label=f"external pulser {v_}, edge " + ("median" if idx == 0 else "worst"))
             if idx == 0:
                 mb = [np.nanmedian(hist_mean(nb[("Samtec", L, v_)])[MID]) for L in xb]
-                ax.plot(xb, mb, ls + "^", ms=6, lw=1, color=MUTED, label=f"bench {v_}, mid-connector mean")
+                ax.plot(xb, mb, ls + "^", ms=6, lw=1, color=MUTED, label=f"external pulser {v_}, mid-connector mean")
         for gain, mk in ((3, "s"), (1, "D")):
             xd, bd, ed, md = [], [], [], []
             for L in (1.5, 2.0, 2.5):
@@ -498,26 +498,69 @@ def fig_noise_compare(data, volt="3V3"):
                 xd.append(L); bd.append(np.nanmedian(q[:, MID]))
                 ed.append(np.nanmedian(qc[edge]) if idx == 0 else np.nanmax(qc[edge]))
                 md.append(np.nanmedian(hist_mean(data[s]["h_nb"])[:, MID]))
-            ax.plot(xd, bd, "-" + mk, ms=7, lw=1.5, color=INK2, label=f"detector {gain} mV/fC, mid-connector")
+            ax.plot(xd, bd, "-" + mk, ms=7, lw=1.5, color=INK2, label=f"detector Fe55 {gain} mV/fC, mid-connector")
             ax.plot(xd, ed, ":" + mk, ms=7, lw=1.5, color=INK2, mfc="white",
-                    label=f"detector {gain} mV/fC, edge " + ("median" if idx == 0 else "worst"))
+                    label=f"detector Fe55 {gain} mV/fC, edge " + ("median" if idx == 0 else "worst"))
             if idx == 0:
                 ax.plot(xd, md, ":^", ms=6, lw=1, color=MUTED, mfc="white",
-                        label=f"detector {gain} mV/fC, mid-connector mean")
+                        label=f"detector Fe55 {gain} mV/fC, mid-connector mean")
         ax.set_ylim(*ylim)
-        ax.legend(fontsize=6.5, loc="lower left" if idx == 0 else "upper left", ncol=2 if idx == 0 else 1,
-                  columnspacing=0.6, handlelength=1.6, handletextpad=0.4)
-    axs[0, 0].set_title(f"(a) pulser bench, Samtec, {volt} (3 mV/fC)", color=INK, fontsize=12, loc="left")
-    axs[0, 1].set_title("(b) detector, Samtec, Fe55 3 mV/fC", color=INK, fontsize=12, loc="left")
+        ax.legend(fontsize=8, loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0,
+                  handlelength=2.2, handletextpad=0.5)
+    axs[0, 0].set_title(f"(a) external pulser runs, Samtec, {volt} (3 mV/fC)", color=INK, fontsize=12, loc="left")
+    axs[0, 1].set_title("(b) detector, Samtec, Fe55 runs 3 mV/fC", color=INK, fontsize=12, loc="left")
     axs[0, 2].set_title("(c) vs length", color=INK, fontsize=12, loc="left")
     for ax in axs[1, :2]:
         ax.set_xlabel("VMM channel")
     axs[1, 2].set_xlabel("total Samtec cable length [m]")
     fig.suptitle("Neighbour-trigger hits (baseline + noise + crosstalk). Top: level. Bottom: spread. "
-                 "Bench 3-5x noisier than the detector, worse with length", color=INK, fontsize=13,
+                 "External pulser runs 3-5x noisier than the detector, worse with length", color=INK, fontsize=13,
                  x=0.01, ha="left")
     fig.tight_layout()
-    _save(fig, f"noise_bench_vs_detector_{volt}.png")
+    _save(fig, f"noise_pulser_vs_detector_{volt}.png")
+
+
+def source_vs_nosource(data):
+    """Detector neighbour-trigger hits, Fe55 run vs no-source reference run, Samtec.
+    Hits of all mid-connector channels of VMM 4-13 pooled into one ADC histogram per
+    run (the reference runs have too few hits per channel for a per-channel width)."""
+    out = []
+    for gain in (1, 3):
+        for L in (1.5, 2.0, 2.5):
+            for kind in ("fe55", "ref"):
+                s = _run(data, kind, "Samtec", L, gain)
+                if s is None:
+                    continue
+                h = data[s]["h_nb"][:, MID]
+                pooled = h.sum((0, 1))
+                med, wid, n = (a[0] for a in hist_level_width(pooled[None], nmin=1))
+                out.append(dict(gain=gain, L=L, kind=kind, stem=s, live_s=data[s]["live_s"], hist=pooled,
+                                median=float(med), width=float(wid), mean=float(hist_mean(pooled[None], 1)[0]),
+                                n=int(n), n_per_ch=float(np.median(h.sum(-1)))))
+    return out
+
+
+def fig_source_vs_nosource(sv):
+    fig, axs = plt.subplots(1, 2, figsize=(14, 4.8), sharey=True)
+    for ax, gain in zip(axs, (1, 3)):
+        for r in (r for r in sv if r["gain"] == gain):
+            x = np.arange(r["hist"].size)
+            y = r["hist"] / max(r["n"], 1)
+            src = r["kind"] == "fe55"
+            ax.step(x, y, where="mid", lw=1.8 if src else 1.2, ls="-" if src else "--", color=LEN_COLOR[r["L"]],
+                    label=f"{r['L']:.1f} m, {'Fe55' if src else 'no source'}: median {r['median']:.0f}, "
+                          f"{r['n_per_ch']:.0f} hits/ch")
+        ax.set_yscale("log")
+        ax.set_xlim(0, 200)
+        ax.set_ylim(1e-5, 1)
+        ax.set_xlabel("ADC of neighbour-trigger hits (mid-connector ch, VMM 4-13 pooled)")
+        ax.set_title(f"({'ab'[gain == 3]}) {gain} mV/fC", color=INK, fontsize=12, loc="left")
+        ax.legend(fontsize=8, loc="upper right")
+    axs[0].set_ylabel("fraction of hits")
+    fig.suptitle("Detector, Samtec: neighbour-trigger hits with the Fe55 source (solid) and without (dashed). "
+                 "Same median; the no-source runs have ~100x fewer hits", color=INK, fontsize=12, x=0.01, ha="left")
+    fig.tight_layout()
+    _save(fig, "detector_neighbour_hits_source_vs_nosource.png")
 
 
 def fig_fe55_noise(data):
@@ -688,7 +731,7 @@ def fig_samtec_summary(sn):
         L = sorted(rows)
         y = np.array([rows[x]["noise_max"] for x in L])
         seen = y > 0
-        ax.plot(np.array(L)[seen], y[seen], "-o", ms=8, lw=2, color=col, label=f"pulser bench, {volt}")
+        ax.plot(np.array(L)[seen], y[seen], "-o", ms=8, lw=2, color=col, label=f"external pulser, {volt}")
         ax.plot(np.array(L)[~seen], np.full((~seen).sum(), 0.1), "v", ms=8, color=col, mfc="white",
                 label="pulser: none in 10 s" if volt == "3V3" else None)
     nz = sn["fe55"][1]["noise_max"]
@@ -699,7 +742,7 @@ def fig_samtec_summary(sn):
     ax.set_xlim(0.9, 3.4)
     ax.set_xlabel("total Samtec cable length [m]")
     ax.set_ylabel("highest self-trigger rate among\nedge channels 0/1, 29-34, 62/63 [Hz]")
-    ax.set_title("(c) edge self-triggering: bench only", color=INK, fontsize=12, loc="left")
+    ax.set_title("(c) edge self-triggering: external pulser only", color=INK, fontsize=12, loc="left")
     ax.legend(fontsize=9, loc="upper left")
     for x in sorted(sn["pulser"]["1V8"]["rows"]):
         e = sn["pulser"]["1V8"]["rows"][x]["eff_min"]
@@ -718,7 +761,7 @@ def fig_samtec_summary(sn):
 def summary(tab, data):
     L = []
     w = L.append
-    w("Cable-length study: pulser bench (June) vs Fe55 on detector (Oct)")
+    w("Cable-length study: external-pulser runs (June) vs Fe55 on detector (Oct)")
     w("=" * 68)
     w("\nPulser group labels -> pulsed VMM residue (ch % 3), per run family:")
     g = tab[tab.ok].groupby(["cable", "length", "group"]).residue.agg(lambda s: sorted(set(s)))
@@ -779,7 +822,7 @@ def summary(tab, data):
     fig_samtec_summary(sn)
 
     w("\nNEIGHBOUR-TRIGGER HITS, Samtec (level = median ADC, spread = half 16-84 % width)")
-    w("  bench runs: 1.0/1.5 m on 5 June, 2.0/2.5/3.0 m on 8 June (length and day are confounded)")
+    w("  external-pulser runs: 1.0/1.5 m on 5 June, 2.0/2.5/3.0 m on 8 June (length and day are confounded)")
     nb = pulser_neighbour_hist()
     for Lb in (1.0, 1.5, 2.0, 2.5, 3.0):
         parts = []
@@ -790,7 +833,7 @@ def summary(tab, data):
                 parts.append(f"{volt}: median {np.nanmedian(m[MID]):.0f} mean {np.nanmedian(mn[MID]):.0f} "
                              f"edge median {np.nanmedian(m[list(EDGE_ZONE)]):.0f} spread {np.nanmedian(wd[MID]):.1f} "
                              f"worst edge {np.nanmax(wd[list(EDGE_ZONE)]):.0f}")
-        w(f"  bench {Lb:.1f} m | " + " | ".join(parts))
+        w(f"  external pulser {Lb:.1f} m | " + " | ".join(parts))
     for gain in (1, 3):
         for Lf in (1.5, 2.0, 2.5):
             s = _run(data, "fe55", "Samtec", Lf, gain)
@@ -798,9 +841,16 @@ def summary(tab, data):
                 continue
             m, wd, _ = hist_level_width(data[s]["h_nb"])
             mn = hist_mean(data[s]["h_nb"])
-            w(f"  detector {gain} mV/fC {Lf:.1f} m | median {np.nanmedian(m[:, MID]):.0f} "
+            w(f"  detector Fe55 {gain} mV/fC {Lf:.1f} m | median {np.nanmedian(m[:, MID]):.0f} "
               f"mean {np.nanmedian(mn[:, MID]):.0f} edge median {np.nanmedian(np.nanmedian(m, axis=0)[list(EDGE_ZONE)]):.0f} "
               f"spread {np.nanmedian(wd[:, MID]):.1f} worst edge {np.nanmax(np.nanmedian(wd, axis=0)[list(EDGE_ZONE)]):.1f}")
+    w("  detector, Fe55 run vs no-source run (mid-connector ch of VMM 4-13 pooled):")
+    sv = source_vs_nosource(data)
+    for r in sv:
+        w(f"    {r['gain']} mV/fC {r['L']:.1f} m {'Fe55     ' if r['kind'] == 'fe55' else 'no source'} "
+          f"{r['stem']:28s} live {r['live_s']:4.0f} s | hits/ch {r['n_per_ch']:6.0f} | "
+          f"median {r['median']:.0f} mean {r['mean']:.1f} spread {r['width']:.1f}")
+    fig_source_vs_nosource(sv)
     w("  mid-connector ratio vs all-channel ratio (Fe55, Samtec / 1.5 m):")
     for gain in (1, 3):
         s15 = _run(data, "fe55", "Samtec", 1.5, gain)
