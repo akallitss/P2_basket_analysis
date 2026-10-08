@@ -44,6 +44,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import uproot
+from scipy.optimize import curve_fit
+from scipy.signal import find_peaks
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = ("/media/ak271430/LaCie/Extras/Physics/Post-Doc-Saclay/data/"
@@ -226,6 +228,92 @@ def hist_mean(h, nmin=30):
     return np.where(n >= nmin, m, np.nan)
 
 
+def _gauss(x, a, mu, s):
+    return a * np.exp(-0.5 * ((x - mu) / s) ** 2)
+
+
+def _gauss_fit(h, mu, s, nsig=1.5, iters=4):
+    """Iterative Gaussian fit in +-nsig sigma around mu."""
+    x = np.arange(len(h))
+    for _ in range(iters):
+        w = (x > mu - nsig * s) & (x < mu + nsig * s)
+        if w.sum() < 4:
+            return np.nan, np.nan
+        (_, mu, s), _ = curve_fit(_gauss, x[w], h[w], p0=(max(h[w].max(), 1), mu, s), maxfev=5000)
+        s = max(abs(s), 1.0)
+    return mu, s
+
+
+def pulse_peak_fit(h, n_expected, min_frac=0.3):
+    """Gaussian mean of the pulse peak of one channel's full ADC spectrum, no timing.
+
+    The pulse peak is the highest-ADC peak holding at least min_frac of the
+    expected number of pulses (noise hits sit at low ADC, and on self-triggering
+    channels their peak is the tallest one). Returns (mu, sigma, hits in +-2 sigma)."""
+    if h.sum() < min_frac * n_expected:
+        return np.nan, np.nan, 0
+    hs = np.convolve(h, np.ones(9) / 9, mode="same")
+    pk, _ = find_peaks(hs, prominence=0.005 * hs.max())
+    x = np.arange(len(h))
+    for p in sorted(pk, reverse=True):
+        half = hs[p] / 2
+        lo = hi = p
+        while lo > 0 and hs[lo] > half:
+            lo -= 1
+        while hi < len(hs) - 1 and hs[hi] > half:
+            hi += 1
+        try:
+            mu, sig = _gauss_fit(h, float(p), max((hi - lo) / 2.355, 3.0))
+        except RuntimeError:
+            continue
+        if not (np.isfinite(mu) and 0 < mu < 1023):
+            continue
+        n = int(h[(x > mu - 2 * sig) & (x < mu + 2 * sig)].sum())
+        if n >= min_frac * n_expected:
+            return mu, sig, n
+    return np.nan, np.nan, 0
+
+
+# A channel with no excess hits (<= 1.2 hits per pulse) has nothing but pulses:
+# its fit is always kept. On a channel with noise hits, the noise peak is 2-7 ADC
+# wide while the pulse peaks there are 30-60 ADC wide; a fit narrower than 8 or
+# wider than 80 ADC has caught the noise peak or a merger of both, and the pulse
+# is not separable from the noise.
+PEAK_SIGMA_OK = (8.0, 80.0)
+EXCESS_HITS = 1.2
+
+
+def pulser_peak_table(tab, refresh=False):
+    """Per pulsed channel: Gaussian pulse-peak mean from ALL hits (no pulse clock),
+    next to the raw mean and median of all hits (what a timing-free analysis sees)."""
+    out = os.path.join(CACHE, "pulser_gauss.csv")
+    if os.path.exists(out) and not refresh:
+        return pd.read_csv(out)
+    rows = []
+    for run, t in tab[tab.ok].groupby("run"):
+        d = os.path.join(PULSER_DIR, run)
+        f = [x for x in glob.glob(os.path.join(d, "*.root")) if "validation" not in x][0]
+        a = uproot.open(f)["hits"].arrays(["hits/vmm", "hits/ch", "hits/adc"], library="np")
+        m = a["hits/vmm"] == PULSER_VMM
+        c, adc = a["hits/ch"][m].astype(int), np.clip(a["hits/adc"][m].astype(int), 0, 1023)
+        res = int(t.residue.iloc[0])
+        n_exp = np.median([np.sum(c == ch) for ch in MID if ch % 3 == res])
+        for ch in range(res, 64, 3):
+            x = adc[c == ch]
+            h = np.bincount(x, minlength=1024)
+            mu, sig, n = pulse_peak_fit(h, n_exp)
+            rows.append(dict(cable=t.cable.iloc[0], length=t.length.iloc[0], volt=t.volt.iloc[0], run=run,
+                             ch=ch, n_hits=len(x), n_expected=n_exp, mu=mu, sigma=sig, n_peak=n,
+                             separable=bool(np.isfinite(mu) and (len(x) <= EXCESS_HITS * n_exp
+                                            or PEAK_SIGMA_OK[0] <= sig <= PEAK_SIGMA_OK[1])),
+                             raw_mean=x.mean() if len(x) else np.nan,
+                             raw_median=np.median(x) if len(x) else np.nan))
+        print(f"gauss {run}")
+    g = pd.DataFrame(rows)
+    g.to_csv(out, index=False)
+    return g
+
+
 def pulser_per_channel(tab, volt):
     """One row per (cable, length, ch) with the measurement from the run that pulsed it.
 
@@ -366,6 +454,55 @@ def fig_pulser_amplitude(pc, volt):
     fig.suptitle(f"Pulser, {volt}: the edge dip is the same at every length "
                  "(grey bands = connector edges)", color=INK, fontsize=12, x=0.01, ha="left")
     _save(fig, f"pulser_amplitude_vs_channel_{volt}.png")
+
+
+def fig_pulser_gauss(g, pc, volt, ref_len=1.5):
+    """Samtec, external pulser, timing-free: (a) raw median of all hits, (b) Gaussian
+    mean of the pulse peak, both / mid-connector median; (c) the Fe55-style length
+    ratio per channel, Gaussian mean at L / at ref_len, / its mid-connector median."""
+    g = g[(g.cable == "Samtec") & (g.volt == volt)]
+    fig, axs = plt.subplots(3, 1, figsize=(11, 11), sharex=True)
+    lengths = sorted(g.length.unique())
+    for L in lengths:
+        s = g[g.length == L].set_index("ch").sort_index()
+        mid_raw = np.nanmedian(s.raw_median.reindex(MID))
+        mu = s.mu.where(s.separable)
+        mid_mu = np.nanmedian(mu.reindex(MID))
+        lab = f"{L:.1f} m" + (" (cable assumed)" if ("Samtec", L) in ASSUMED_CABLE else "")
+        axs[0].plot(s.index, s.raw_median / mid_raw, "-o", ms=3.5, lw=1.4, color=LEN_COLOR[L], label=lab)
+        axs[1].plot(mu.index, mu / mid_mu, "-o", ms=3.5, lw=1.4, color=LEN_COLOR[L], label=lab)
+        bad = s.index[~s.separable & s.n_hits.gt(0)]
+        axs[1].plot(bad, np.full(len(bad), 0.62), "x", ms=8, mew=2, color=LEN_COLOR[L])
+    ref = g[g.length == ref_len].set_index("ch").mu.where(g[g.length == ref_len].set_index("ch").separable)
+    for i, L in enumerate(x for x in lengths if x > ref_len):
+        s = g[g.length == L].set_index("ch")
+        r = s.mu.where(s.separable) / ref
+        r = r / np.nanmedian(r.reindex(MID))
+        axs[2].plot(r.index + (i - 1) * 0.2, r, "o", ms=4.5, color=LEN_COLOR[L], label=f"{L:.1f} / {ref_len:.1f} m")
+    for ax in axs:
+        _edge_bands(ax)
+        ax.axhline(1, color="#c3c2b7", lw=1)
+    axs[0].set_ylim(0.2, 1.2)
+    axs[1].set_ylim(0.6, 1.2)
+    axs[2].set_ylim(0.9, 1.1)
+    axs[0].set_ylabel("median of ALL hits /\nmid-connector median")
+    axs[1].set_ylabel("Gaussian mean of pulse peak /\nmid-connector median")
+    axs[2].set_ylabel("Gaussian mean, L / 1.5 m,\n/ mid-connector ratio")
+    axs[0].legend(title="total cable", fontsize=9, title_fontsize=9, loc="lower left", bbox_to_anchor=(0.06, 0.02), ncol=3)
+    axs[2].legend(fontsize=9, loc="lower center", ncol=3)
+    axs[0].set_title("(a) median of all hits, no timing: what a timing-free analysis sees",
+                     color=INK, fontsize=11, loc="left")
+    axs[1].set_title("(b) Gaussian fit to the pulse peak, no timing  (x = pulse not separable from the noise peak)",
+                     color=INK, fontsize=11, loc="left")
+    axs[2].set_title("(c) same method as the Fe55 bottom panel: per-channel ratio between lengths, / mid-connector ratio",
+                     color=INK, fontsize=11, loc="left")
+    axs[2].set_xlabel("VMM channel")
+    head = ("the pulse peak is still there on the edge channels" if volt == "3V3" else
+            "the pulse peak is there wherever it can be told apart from the noise peak (x: it can't)")
+    fig.suptitle(f"External pulser, Samtec, {volt}: {head}",
+                 color=INK, fontsize=13, x=0.01, ha="left")
+    fig.tight_layout()
+    _save(fig, f"pulser_gauss_vs_channel_{volt}.png")
 
 
 def fig_pulser_noise(pc, volt):
@@ -758,7 +895,7 @@ def fig_samtec_summary(sn):
 # ======================================================================
 # summary
 # ======================================================================
-def summary(tab, data):
+def summary(tab, data, gpk):
     L = []
     w = L.append
     w("Cable-length study: external-pulser runs (June) vs Fe55 on detector (Oct)")
@@ -821,6 +958,23 @@ def summary(tab, data):
         w("     max ref-run rate on edge zone [Hz]: " + " ".join(f"{x:.1f}m:{v:.2f}" for x, v in sorted(f["noise_max"].items())))
     fig_samtec_summary(sn)
 
+    w("\nPULSE PEAK, GAUSSIAN FIT, NO TIMING (external pulser, Samtec)")
+    w("  per length: edge ch Gaussian mean / mid-connector [raw median of all hits / mid-connector]; "
+      "|Gauss - in-time median| on mid-connector ch")
+    for volt in VOLTS:
+        pc = pulser_per_channel(tab, volt).set_index(["cable", "length", "ch"])
+        for Lg, s in gpk[(gpk.cable == "Samtec") & (gpk.volt == volt)].groupby("length"):
+            s = s.set_index("ch")
+            mu = s.mu.where(s.separable)
+            mm, mr = np.nanmedian(mu.reindex(MID)), np.nanmedian(s.raw_median.reindex(MID))
+            it = pc.loc[("Samtec", Lg)].amp.reindex(s.index)
+            dmid = np.nanmedian(abs(mu - it).reindex(MID))
+            e = " ".join(f"{c}:{mu.get(c, np.nan) / mm:.2f}[{s.raw_median.get(c, np.nan) / mr:.2f}]"
+                         for c in (0, 1, 30, 31, 62, 63))
+            bad = list(s.index[~s.separable & (s.n_hits > 0)])
+            w(f"  {volt} {Lg:.1f} m | {e} | dGauss {dmid:.1f} ADC | sigma mid {np.nanmedian(s.sigma.reindex(MID)):.0f}"
+              + (f" | not separable: {bad}" if bad else ""))
+
     w("\nNEIGHBOUR-TRIGGER HITS, Samtec (level = median ADC, spread = half 16-84 % width)")
     w("  external-pulser runs: 1.0/1.5 m on 5 June, 2.0/2.5/3.0 m on 8 June (length and day are confounded)")
     nb = pulser_neighbour_hist()
@@ -882,6 +1036,9 @@ def main():
         fig_pulser_amplitude(pc, volt)
         fig_pulser_noise(pc, volt)
         fig_pulser_efficiency(pc, volt)
+    gpk = pulser_peak_table(tab, args.refresh)
+    for volt in VOLTS:
+        fig_pulser_gauss(gpk, pulser_per_channel(tab, volt), volt)
     fig_fe55_edge_ratio(data, 1)
     fig_fe55_edge_ratio(data, 3)
     fig_noise_compare(data, "3V3")
@@ -889,7 +1046,7 @@ def main():
     fig_fe55_noise(data)
     fig_mid_vs_length(pulser_per_channel(tab, "3V3"), data)
     fig_gain_stability(data)
-    summary(tab, data)
+    summary(tab, data, gpk)
 
 
 if __name__ == "__main__":
