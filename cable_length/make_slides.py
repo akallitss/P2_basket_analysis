@@ -198,9 +198,11 @@ def fig_signal_vs_length(sn):
     ax.plot(p["L"], p["rel"], "-o", color=BLUE, lw=3, ms=10, label=f"external pulser: {100 * p['slope']:.0f} % per metre")
     for gain, mk in ((1, "s"), (3, "D")):
         f = sn["fe55"][gain]
-        ax.errorbar(f["L"], f["rel"], yerr=np.where(f["L"] == 1.5, 0, 0.04), fmt=mk + "--", color=INK2, lw=2,
+        ax.plot(f["L"], f["rel"], mk, color="#c3c2b7", ms=8, mfc="white", mew=1.5,
+                label="detector Fe55, before the gain correction" if gain == 1 else None)
+        ax.errorbar(f["L"], f["rel_cor"], yerr=f["err_cor"], fmt=mk + "--", color=INK2, lw=2,
                     ms=10, mfc="white", mew=2, capsize=4,
-                    label=f"detector Fe55, {gain} mV/fC: {100 * f['slope']:.0f} % per metre")
+                    label=f"detector Fe55, {gain} mV/fC, gain-corrected: {100 * f['slope_cor']:.0f} % per metre")
     ax.axhline(1, color="#c3c2b7", lw=1.2)
     ax.set_ylim(0.75, 1.1)
     ax.set_xlabel("total Samtec cable length [m]")
@@ -208,6 +210,27 @@ def fig_signal_vs_length(sn):
     ax.legend(loc="lower left")
     ax.set_title("Signal of a typical channel vs cable length", loc="left", color=INK)
     return _save(fig, "signal_vs_length.png")
+
+
+def fig_drift(sn):
+    dr = sn["drift"]
+    fig, ax = _fig()
+    runs = dr["runs"]
+    y = np.arange(len(runs))[::-1]
+    ax.axvspan(100 * (dr["rate"] - dr["err"]), 100 * (dr["rate"] + dr["err"]), color="#e1e0d9")
+    ax.axvline(100 * dr["rate"], color=INK, lw=2)
+    ax.axvline(0, color="#c3c2b7", lw=1.2)
+    ax.errorbar([100 * r[2] for r in runs], y, xerr=[100 * r[3] for r in runs], fmt="o", color=INK2, ms=9,
+                capsize=4, lw=1.5)
+    ax.set_yticks(y)
+    ax.set_yticklabels([f"{r[0].replace(' (', ' ').replace(')', '')}, {r[1]} mV/fC" for r in runs])
+    ax.set_xlim(-8, 5)
+    ax.set_xlabel("change of the Fe55 peak during the 10-minute run [% per hour]")
+    ax.text(100 * dr["rate"] + 0.2, y[-1] - 0.75, f"average {100 * dr['rate']:.1f} ± {100 * dr['err']:.1f} % per hour",
+            fontsize=12, color=INK, va="top")
+    ax.set_ylim(-1.3, len(runs) - 0.5)
+    ax.set_title("Detector gain during each Fe55 run (7 October)", loc="left", color=INK)
+    return _save(fig, "gain_drift.png")
 
 
 # ---------------------------------------------------------------- slides
@@ -231,7 +254,7 @@ def _text(slide, x, y, w, h, paras, size=20, color=INK, bold_first=False):
             r = para.add_run()
             r.text = "•  "
             r.font.size = Pt(size)
-            r.font.color.rgb = _rgb(BLUE)
+            r.font.color.rgb = _rgb(INK)
         for j, chunk in enumerate(runs):
             if not chunk:
                 continue
@@ -244,13 +267,17 @@ def _text(slide, x, y, w, h, paras, size=20, color=INK, bold_first=False):
     return tb
 
 
+def _rule(slide, x, y, w):
+    ln = slide.shapes.add_shape(1, x, y, w, Pt(1.2))
+    ln.fill.solid()
+    ln.fill.fore_color.rgb = _rgb(INK)
+    ln.line.fill.background()
+
+
 def _slide(prs, title, n):
     s = prs.slides.add_slide(prs.slide_layouts[6])
-    bar = s.shapes.add_shape(1, 0, 0, Inches(0.18), H)
-    bar.fill.solid()
-    bar.fill.fore_color.rgb = _rgb(BLUE)
-    bar.line.fill.background()
     _text(s, Inches(0.6), Inches(0.35), Inches(12.2), Inches(1.0), [title], size=30, bold_first=True)
+    _rule(s, Inches(0.6), Inches(1.2), Inches(12.1))
     _text(s, Inches(0.6), Inches(7.0), Inches(9), Inches(0.4),
           ["P2 VMM readout: off-detector cable length (Samtec)"], size=11, color=MUTED)
     _text(s, Inches(12.2), Inches(7.0), Inches(0.8), Inches(0.4), [str(n)], size=11, color=MUTED)
@@ -261,29 +288,26 @@ def _img(slide, path, x, y, w=None, h=None):
     return slide.shapes.add_picture(path, x, y, width=w, height=h)
 
 
-def build(figs):
+def build(figs, sn):
     prs = Presentation()
     prs.slide_width, prs.slide_height = W, H
     n = 0
 
     # 1 title
     s = prs.slides.add_slide(prs.slide_layouts[6])
-    bg = s.shapes.add_shape(1, 0, 0, W, H)
-    bg.fill.solid()
-    bg.fill.fore_color.rgb = _rgb("#104281")
-    bg.line.fill.background()
     _text(s, Inches(0.9), Inches(2.3), Inches(11.5), Inches(1.5),
-          ["Longer cables and the \"broken\" edge channels"], size=40, color="#ffffff", bold_first=True)
+          ["Choosing the Samtec cable length for P2"], size=40, bold_first=True)
+    _rule(s, Inches(0.9), Inches(3.35), Inches(11.5))
     _text(s, Inches(0.9), Inches(3.6), Inches(11.5), Inches(1.5),
-          ["VMM readout of P2: external-pulser runs (June) vs Fe55 on the detector (October)",
-           "Samtec cables, 1.0 to 3.0 m total length"], size=22, color="#d9e6f7")
-    _text(s, Inches(0.9), Inches(6.3), Inches(11.5), Inches(0.6), ["8 October 2026"], size=16, color="#d9e6f7")
+          ["Signal loss and the \"broken\" edge channels: external-pulser runs (June) vs Fe55 on the detector (October)",
+           "Samtec cables, 1.0 to 3.0 m total length"], size=22, color=INK2)
+    _text(s, Inches(0.9), Inches(6.3), Inches(11.5), Inches(0.6), ["8 October 2026"], size=16, color=INK2)
 
     # 2 question
     n += 1
     s = _slide(prs, "The question", n + 1)
     _text(s, Inches(0.6), Inches(1.5), Inches(12), Inches(5), [
-        "Two measurements of the same thing: how much signal do we lose with longer cables?",
+        "P2 will use **Samtec** cables, longer than 1.5 m. **What does each extra length cost?**",
         (1, "**External pulser runs** (June): a pulse generator injects charge into the VMM channels."),
         (1, "**Fe55 runs** (October): a radioactive source gives real signals in the P2 detector."),
         "The external-pulser analysis sees the channels at the **ends of each connector** "
@@ -355,47 +379,102 @@ def build(figs):
     _text(s, Inches(9.0), Inches(1.7), Inches(4.0), Inches(5), [
         "Each channel compared with itself at 1.5 m, then with the middle channels.",
         "Fe55: edges within **0.7 %** of the middle channels.",
-        "External pulser: edges **0–3 %** lower, worst on ch 63. Part of it is a day change "
-        "(1.5 m taken on 5 June, longer cables on 8 June).",
+        "External pulser: edges **0–3 %** lower, worst on ch 63.",
+        "Small either way: no edge channel is lost.",
     ], size=18)
 
     # 9 signal vs length
     n += 1
     s = _slide(prs, "How much signal does a longer cable cost?", n + 1)
     _img(s, figs["signal"], Inches(0.5), Inches(1.4), w=Inches(8.3))
+    pf = sn["pulser"]["3V3"]
+    f1, f3 = sn["fe55"][1], sn["fe55"][3]
     _text(s, Inches(9.0), Inches(1.7), Inches(4.0), Inches(5), [
-        "External pulser: **~9 % per metre**.",
-        "Fe55: **13–17 % per metre**, but the detector gain was drifting down during the afternoon, "
-        "and the lengths were measured in increasing order: that makes long cables look worse.",
-        "Best estimate: **~10 % per metre**, the same on all channels.",
+        f"External pulser: **{-100 * pf['slope']:.0f} % per metre**.",
+        f"Fe55, corrected for the detector gain drift (next slide): **{-100 * f1['slope_cor']:.0f}–"
+        f"{-100 * f3['slope_cor']:.0f} % per metre**.",
+        f"Without the correction Fe55 gives {-100 * f1['slope']:.0f}–{-100 * f3['slope']:.0f} % per metre: "
+        "the lengths were measured one after the other while the gain was falling.",
+        "The two methods agree: **~10 % per metre**, the same on all channels.",
     ], size=18)
 
-    # 10 caveats
+    # 10 gain drift
+    n += 1
+    dr = sn["drift"]
+    s = _slide(prs, "How the detector gain drift was measured", n + 1)
+    _img(s, figs["drift"], Inches(0.5), Inches(1.4), w=Inches(8.3))
+    _text(s, Inches(9.0), Inches(1.7), Inches(4.0), Inches(5), [
+        "Each Fe55 run lasts 10 minutes and is written as ten 1-minute files.",
+        "The Fe55 peak is measured in each file: inside **8 of 9 runs it goes down**.",
+        f"Together: **{100 * dr['rate']:.1f} ± {100 * dr['err']:.1f} % per hour**, the same in every run.",
+        "Check: the same Hitachi cable measured twice, 69 min apart, lost 3.6 % (−3.1 % per hour).",
+        "The correction assumes the drift continued at the same rate between runs.",
+    ], size=17)
+
+    # 11 decision table
+    n += 1
+    s = _slide(prs, "Samtec lengths above 1.5 m: what each one costs", n + 1)
+    lens = (2.0, 2.5, 3.0)
+    pr = dict(zip(pf["L"], pf["rel"]))
+    c1, c3 = dict(zip(f1["L"], f1["rel_cor"])), dict(zip(f3["L"], f3["rel_cor"]))
+    pct = lambda v: f"−{100 * (1 - v):.0f} %"
+    rows = [["Total Samtec length", "2.0 m", "2.5 m", "3.0 m"],
+            ["Signal lost vs 1.5 m, external pulser"] + [pct(pr[L]) for L in lens],
+            ["Signal lost vs 1.5 m, Fe55 (gain-corrected)"]
+            + [f"{pct(c1[L])} / {pct(c3[L])}" if L in c1 else "not measured" for L in lens],
+            ["Edge channels on the detector", "same as the others", "same as the others", "not measured"],
+            ["Noise on the detector", "unchanged (~4 ADC)", "unchanged (~4 ADC)", "not measured"]]
+    tbl = s.shapes.add_table(len(rows), 4, Inches(0.6), Inches(1.6), Inches(12.1), Inches(3.4)).table
+    tbl.columns[0].width = Inches(4.6)
+    for j in range(1, 4):
+        tbl.columns[j].width = Inches(2.5)
+    for i, row in enumerate(rows):
+        for j, val in enumerate(row):
+            c = tbl.cell(i, j)
+            c.fill.solid()
+            c.fill.fore_color.rgb = _rgb("#ffffff" if i else "#e9e9e9")
+            c.text = val
+            for para in c.text_frame.paragraphs:
+                for r in para.runs:
+                    r.font.size = Pt(17)
+                    r.font.bold = i == 0 or j == 0
+                    r.font.color.rgb = _rgb(INK)
+    _text(s, Inches(0.6), Inches(5.3), Inches(12.1), Inches(1.6), [
+        "Fe55 values: 1 mV/fC / 3 mV/fC. Roughly **5 % of signal per extra 0.5 m**; no channel is lost at the "
+        "connector edges up to 2.5 m on the detector.",
+    ], size=17)
+
+    # 12 caveats
     n += 1
     s = _slide(prs, "What is not settled", n + 1)
     _text(s, Inches(0.6), Inches(1.5), Inches(12), Inches(5), [
-        (1, "**Where the external-pulser noise comes from** is not known: the pulser connection, the extra 50 cm cable "
-            "and joint, or the grounding of the pulser setup."),
-        (1, "The detector was measured **up to 2.5 m** only, and not in its final grounding."),
-        (1, "**Length and day are mixed:** external pulser 1.0–1.5 m on 5 June, 2.0–3.0 m on 8 June. "
-            "Fe55 lengths taken one after the other while the gain drifted."),
-        (1, "The 3.0 m cable type is not written in the logbook (assumed Samtec)."),
+        (1, "On the detector, the cables were measured **up to 2.5 m**. 3.0 m was only measured with the "
+            "external pulser, and the cable type of that run is not written in the logbook (assumed Samtec)."),
+        (1, "**Where the external-pulser noise comes from** is not known (pulser connection, extra 50 cm cable and "
+            "joint, grounding of the pulser setup). It does not appear on the detector."),
+        (1, "The Fe55 gain correction assumes a constant drift between runs. Measuring the lengths in mixed order "
+            "would remove that assumption."),
     ], size=21)
 
-    # 11 conclusions
+    # 13 conclusions
     n += 1
     s = _slide(prs, "For P2 with Samtec cables", n + 1)
-    _text(s, Inches(0.6), Inches(1.5), Inches(12), Inches(3.4), [
+    _text(s, Inches(0.6), Inches(1.6), Inches(12), Inches(5), [
         (1, "**No channel is lost** at the connector edges because of the cable length."),
-        (1, "Each extra metre costs **~10 % of the signal**, on every channel."),
-        (1, "With long cables, **watch the noise**: in a noisy environment the edge channels are the first to fire on it."),
-    ], size=23)
-    _text(s, Inches(0.6), Inches(4.7), Inches(12), Inches(2.3), [
-        "Next tests",
+        (1, "Each extra metre costs **~10 % of the signal**, on every channel: keep the cable as short as the "
+            "integration allows."),
+        (1, "On the detector, the noise does not change between 1.5 and 2.5 m."),
+    ], size=24)
+
+    # 14 backup: optional checks
+    n += 1
+    s = _slide(prs, "Backup: optional checks", n + 1)
+    _text(s, Inches(0.6), Inches(1.5), Inches(12), Inches(5), [
+        "Not needed for the length choice; they would explain the external-pulser noise.",
         (1, "External pulser, long cable, neighbour trigger off: which channel really oscillates?"),
         (1, "Pulser disconnected, cables left on; add a ground strap; remove the 50 cm joint."),
-        (1, "Retake 1.0 / 1.5 m the same day; Fe55 lengths in mixed order (1.5 → 2.5 → 2.0 → 1.5 m)."),
-    ], size=17, bold_first=True)
+        (1, "Fe55 at 3.0 m on the detector, and the lengths in mixed order (1.5 → 2.5 → 2.0 → 1.5 m)."),
+    ], size=20)
 
     path = os.path.join(OUT, "cable_length_slides.pptx")
     prs.save(path)
@@ -409,8 +488,8 @@ def main():
     g = S.pulser_peak_table(tab)
     sn = S.samtec_numbers(tab, data)
     figs = dict(spectrum=fig_spectrum(tab, g), raw_vs_gauss=fig_raw_vs_gauss(g), selftrigger=fig_selftrigger(sn),
-                noise=fig_noise(data), edge_extra=fig_edge_extra_loss(g, data), signal=fig_signal_vs_length(sn))
-    print("wrote", build(figs))
+                noise=fig_noise(data), edge_extra=fig_edge_extra_loss(g, data), signal=fig_signal_vs_length(sn), drift=fig_drift(sn))
+    print("wrote", build(figs, sn))
 
 
 if __name__ == "__main__":
