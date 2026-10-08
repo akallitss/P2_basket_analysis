@@ -11,7 +11,7 @@ Two campaigns, one observable per channel each:
            cable = 50 cm injection + X m transmission. Read from the converted
            `hits` trees (the June pcapng are owner-only). Per channel:
              * in-time amplitude: hits within +-500 ns of a pulse, the pulse
-               clock taken from clean bulk channels of the same run
+               clock taken from clean mid-connector channels of the same run
              * in-time efficiency: in-time hits per pulse
              * out-of-time rate: everything else, i.e. self-triggering
            The pulsed residue is detected from the data: the labels 3k+1/3k+2
@@ -67,7 +67,9 @@ FE55_VMMS = tuple(range(4, 14))
 INTIME_NS = 500.0
 PULSE_GAP_NS = 1000.0         # reference hits closer than this are one pulse
 MIN_PULSES = 5000             # 10 s at 1 kHz; fewer = the pulser did not run
-BULK = [c for c in range(3, 61) if not 28 <= c <= 35]
+# mid-connector channels: each VMM's 64 channels leave on two connector blocks
+# (ch 0-31, 32-63); keep >= 3 channels away from either end, i.e. ch 3-27 and 36-60
+MID = [c for c in range(3, 61) if not 28 <= c <= 35]
 
 # --- pulser runs: (cable, total length m) -> directory pattern ------------
 # total = 0.5 m injection + transmission. Logbook: June 5 and June 8 morning
@@ -139,10 +141,10 @@ def _pulser_run(d):
     live_s = (t.max() - t.min()) * 1e-9
     m = v == PULSER_VMM
     c, adc, t = c[m], adc[m].astype(float), t[m]
-    # the pulsed residue is the one whose bulk channels sit far above the rest
-    meds = [np.median(adc[(c % 3 == r) & np.isin(c, BULK)]) for r in range(3)]
+    # the pulsed residue is the one whose mid-connector channels sit far above the rest
+    meds = [np.median(adc[(c % 3 == r) & np.isin(c, MID)]) for r in range(3)]
     res = int(np.argmax(meds))
-    ref = np.sort(t[(c % 3 == res) & np.isin(c, BULK)])
+    ref = np.sort(t[(c % 3 == res) & np.isin(c, MID)])
     pulses = ref[np.r_[True, np.diff(ref) > PULSE_GAP_NS]]
     rows = []
     # neighbour-trigger readout of the unpulsed channels at pulse time: baseline + noise + crosstalk
@@ -313,12 +315,12 @@ def _run(data, kind, cable, length, gain, which=0):
 
 
 def ratio_stats(a, b):
-    """Per-channel photopeak ratio a/b: bulk median+spread, and edge/bulk per channel."""
+    """Per-channel photopeak ratio a/b: mid-connector median+spread, and edge/mid-connector per channel."""
     r = a / b
-    bulk = r[:, BULK].ravel()
-    bulk = bulk[np.isfinite(bulk)]
-    med = np.median(bulk)
-    spread = 1.4826 * np.median(abs(bulk - med))
+    mid = r[:, MID].ravel()
+    mid = mid[np.isfinite(mid)]
+    med = np.median(mid)
+    spread = 1.4826 * np.median(abs(mid - med))
     per_ch = np.nanmedian(r, axis=0) / med
     n_vmm = np.isfinite(r).sum(axis=0)
     # uncertainty on the per-channel median across VMMs: MAD / sqrt(n)
@@ -351,13 +353,13 @@ def fig_pulser_amplitude(pc, volt):
         sub = pc[pc.cable == cable]
         for length in sorted(sub.length.unique()):
             s = sub[sub.length == length].sort_values("ch")
-            bulk = np.nanmedian(s.set_index("ch").amp.reindex(BULK))
+            mid = np.nanmedian(s.set_index("ch").amp.reindex(MID))
             lab = f"{length:.1f} m" + (" (cable assumed)" if (cable, length) in ASSUMED_CABLE else "")
-            ax.plot(s.ch, s.amp / bulk, "-o", ms=3.5, lw=1.5, color=LEN_COLOR[length], label=lab)
+            ax.plot(s.ch, s.amp / mid, "-o", ms=3.5, lw=1.5, color=LEN_COLOR[length], label=lab)
         _edge_bands(ax)
         ax.set_title(f"{cable} transmission cable", color=INK, fontsize=12, loc="left")
         ax.set_xlabel("VMM channel")
-    axs[0].set_ylabel("in-time pulse amplitude / bulk")
+    axs[0].set_ylabel("in-time pulse amplitude /\nmid-connector median")
     axs[0].legend(title="total cable", fontsize=9, title_fontsize=9, loc="lower center", ncol=2)
     axs[1].legend(title="total cable", fontsize=9, title_fontsize=9, loc="lower center")
     axs[0].set_ylim(0.6, 1.15)
@@ -409,7 +411,7 @@ def fig_pulser_efficiency(pc, volt):
 
 def fig_fe55_edge_ratio(data, gain=1):
     """Top: raw per-channel photopeak ratio (the cable loss is visible).
-    Bottom: the same divided by the bulk ratio (is any channel worse than typical?)."""
+    Bottom: the same divided by the mid-connector ratio (is any channel worse than typical?)."""
     s15, s20, s25 = (_run(data, "fe55", "Samtec", L, gain) for L in (1.5, 2.0, 2.5))
     hA, hB = _run(data, "fe55", "Hitachi", 2.0, gain, 0), _run(data, "fe55", "Hitachi", 2.0, gain, 1)
     pairs = [(s20, s15, "Samtec 2.0 / 1.5 m", LEN_COLOR[2.0]),
@@ -425,21 +427,21 @@ def fig_fe55_edge_ratio(data, gain=1):
         med, spread, per_ch, err, _ = ratio_stats(data[a]["peaks"], data[b]["peaks"])
         x = np.arange(64) + (i - 1) * 0.22
         ax1.errorbar(x, np.nanmedian(r, axis=0), yerr=err * med, fmt="o", ms=3.5, lw=1, color=col,
-                     label=f"{lab}: bulk ratio {med:.3f} (all channels {med_all:.3f})")
+                     label=f"{lab}: mid-connector ratio {med:.3f} (all channels {med_all:.3f})")
         ax1.axhline(med, color=col, lw=1, ls="--")
         ax2.errorbar(x, per_ch, yerr=err, fmt="o", ms=3.5, lw=1, color=col)
     for ax in (ax1, ax2):
         _edge_bands(ax)
         ax.axhline(1, color="#c3c2b7", lw=1)
-    ax1.set_ylim(0.82, 1.04)
+    ax1.set_ylim(0.76, 1.04)
     ax1.set_ylabel("photopeak ratio\n(median over VMM 4-13)")
     ax1.legend(fontsize=8.5, loc="lower center")
     ax1.set_title(f"Fe55 on the detector, {gain} mV/fC. Top: raw ratio, the cable loss "
-                  "(dashed = bulk ratio). Bottom: divided by the bulk ratio",
+                  "(dashed = mid-connector ratio, ch 3-27 + 36-60).\nBottom: divided by the mid-connector ratio",
                   color=INK, fontsize=11, loc="left")
     ax2.set_ylim(0.95, 1.05)
     ax2.set_xlabel("VMM channel")
-    ax2.set_ylabel("ratio / bulk ratio")
+    ax2.set_ylabel("ratio / mid-connector ratio")
     _save(fig, f"fe55_edge_ratio_vs_channel_{gain}mVfC.png")
 
 
@@ -477,14 +479,14 @@ def fig_noise_compare(data, volt="3V3"):
                 if ("Samtec", L, v_) not in nb:
                     continue
                 q = hist_level_width(nb[("Samtec", L, v_)])[idx]
-                xb.append(L); bb.append(np.nanmedian(q[BULK]))
+                xb.append(L); bb.append(np.nanmedian(q[MID]))
                 eb.append(np.nanmedian(q[edge]) if idx == 0 else np.nanmax(q[edge]))
-            ax.plot(xb, bb, ls + "o", ms=7, lw=2, color=CABLE_COLOR["Samtec"], label=f"bench {v_}, bulk")
+            ax.plot(xb, bb, ls + "o", ms=7, lw=2, color=CABLE_COLOR["Samtec"], label=f"bench {v_}, mid-connector")
             ax.plot(xb, eb, ls + "o", ms=7, lw=1.2, color=CABLE_COLOR["Samtec"], mfc="white",
                     label=f"bench {v_}, edge " + ("median" if idx == 0 else "worst"))
             if idx == 0:
-                mb = [np.nanmedian(hist_mean(nb[("Samtec", L, v_)])[BULK]) for L in xb]
-                ax.plot(xb, mb, ls + "^", ms=6, lw=1, color=MUTED, label=f"bench {v_}, bulk mean")
+                mb = [np.nanmedian(hist_mean(nb[("Samtec", L, v_)])[MID]) for L in xb]
+                ax.plot(xb, mb, ls + "^", ms=6, lw=1, color=MUTED, label=f"bench {v_}, mid-connector mean")
         for gain, mk in ((3, "s"), (1, "D")):
             xd, bd, ed, md = [], [], [], []
             for L in (1.5, 2.0, 2.5):
@@ -493,17 +495,18 @@ def fig_noise_compare(data, volt="3V3"):
                     continue
                 q = hist_level_width(data[s]["h_nb"])[idx]
                 qc = np.nanmedian(q, axis=0)
-                xd.append(L); bd.append(np.nanmedian(q[:, BULK]))
+                xd.append(L); bd.append(np.nanmedian(q[:, MID]))
                 ed.append(np.nanmedian(qc[edge]) if idx == 0 else np.nanmax(qc[edge]))
-                md.append(np.nanmedian(hist_mean(data[s]["h_nb"])[:, BULK]))
-            ax.plot(xd, bd, "-" + mk, ms=7, lw=1.5, color=INK2, label=f"detector {gain} mV/fC, bulk")
+                md.append(np.nanmedian(hist_mean(data[s]["h_nb"])[:, MID]))
+            ax.plot(xd, bd, "-" + mk, ms=7, lw=1.5, color=INK2, label=f"detector {gain} mV/fC, mid-connector")
             ax.plot(xd, ed, ":" + mk, ms=7, lw=1.5, color=INK2, mfc="white",
                     label=f"detector {gain} mV/fC, edge " + ("median" if idx == 0 else "worst"))
             if idx == 0:
                 ax.plot(xd, md, ":^", ms=6, lw=1, color=MUTED, mfc="white",
-                        label=f"detector {gain} mV/fC, bulk mean")
+                        label=f"detector {gain} mV/fC, mid-connector mean")
         ax.set_ylim(*ylim)
-        ax.legend(fontsize=7, loc="lower left" if idx == 0 else "upper left", ncol=2 if idx == 0 else 1)
+        ax.legend(fontsize=6.5, loc="lower left" if idx == 0 else "upper left", ncol=2 if idx == 0 else 1,
+                  columnspacing=0.6, handlelength=1.6, handletextpad=0.4)
     axs[0, 0].set_title(f"(a) pulser bench, Samtec, {volt} (3 mV/fC)", color=INK, fontsize=12, loc="left")
     axs[0, 1].set_title("(b) detector, Samtec, Fe55 3 mV/fC", color=INK, fontsize=12, loc="left")
     axs[0, 2].set_title("(c) vs length", color=INK, fontsize=12, loc="left")
@@ -533,21 +536,21 @@ def fig_fe55_noise(data):
     ax.set_xlabel("VMM channel")
     ax.set_ylabel("over-threshold rate, no source [Hz]\n(median over VMM 4-13)")
     ax.legend(fontsize=8, ncol=2, loc="upper center")
-    ax.set_title("Fe55 setup, reference runs (1 mV/fC): edge channels as quiet as the bulk; "
+    ax.set_title("Fe55 setup, reference runs (1 mV/fC): edge channels as quiet as mid-connector ones; "
                  "same y-range as the pulser plot", color=INK, fontsize=11, loc="left")
     _save(fig, "fe55_noise_vs_channel_1mVfC.png")
 
 
-def fig_bulk_vs_length(pc3, data):
+def fig_mid_vs_length(pc3, data):
     fig, ax = plt.subplots(figsize=(8.5, 5))
-    # pulser: bulk in-time amplitude, indexed to Samtec 1.5 m
-    bulk = (pc3[pc3.ch.isin(BULK)].groupby(["cable", "length"]).amp.median())
-    ref = bulk[("Samtec", 1.5)]
+    # pulser: mid-connector in-time amplitude, indexed to Samtec 1.5 m
+    mid = (pc3[pc3.ch.isin(MID)].groupby(["cable", "length"]).amp.median())
+    ref = mid[("Samtec", 1.5)]
     for cable in ("Samtec", "Hitachi"):
-        b = bulk[cable]
+        b = mid[cable]
         ax.plot(b.index, b.values / ref, "-o", ms=8, lw=2, color=CABLE_COLOR[cable],
                 label=f"pulser, {cable}")
-    # fe55: bulk photopeak ratio, indexed to Samtec 1.5 m (1 mV/fC)
+    # fe55: mid-connector photopeak ratio, indexed to Samtec 1.5 m (1 mV/fC)
     s15 = _run(data, "fe55", "Samtec", 1.5, 1)
     pts = {}
     for s, d in data.items():
@@ -569,13 +572,13 @@ def fig_bulk_vs_length(pc3, data):
                     label=f"Fe55, {cable} (±4 % run-to-run)")
     ax.axhline(1, color="#c3c2b7", lw=1)
     ax.set_xlabel("total cable length [m]")
-    ax.set_ylabel("bulk signal / Samtec 1.5 m")
+    ax.set_ylabel("mid-connector signal / Samtec 1.5 m")
     ax.legend(fontsize=9, loc="lower left")
-    ax.set_title("Bulk signal vs cable length, both campaigns", color=INK, fontsize=12, loc="left")
+    ax.set_title("Mid-connector signal vs cable length, both campaigns", color=INK, fontsize=12, loc="left")
     ax.annotate("pulser 3.0 m: cable type\nnot in logbook (assumed Samtec)",
-                xy=(3.0, bulk[("Samtec", 3.0)] / ref), xytext=(2.6, 0.93),
+                xy=(3.0, mid[("Samtec", 3.0)] / ref), xytext=(2.6, 0.93),
                 fontsize=8, color=INK2, arrowprops=dict(arrowstyle="-", color=MUTED))
-    _save(fig, "bulk_signal_vs_length.png")
+    _save(fig, "mid_connector_signal_vs_length.png")
 
 
 def fig_gain_stability(data):
@@ -617,16 +620,16 @@ def samtec_numbers(tab, data):
         for length, s in pc.groupby("length"):
             s = s.set_index("ch")
             rows[length] = dict(
-                bulk=np.nanmedian(s.amp.reindex(BULK)),
-                edge_amp={c: s.amp.get(c, np.nan) / np.nanmedian(s.amp.reindex(BULK)) for c in EDGE},
+                mid=np.nanmedian(s.amp.reindex(MID)),
+                edge_amp={c: s.amp.get(c, np.nan) / np.nanmedian(s.amp.reindex(MID)) for c in EDGE},
                 noise_max=np.nanmax(s.noise_hz.reindex(EDGE_ZONE)),
                 # eff == 0 is a channel with no hits at all (dead / not cabled), not a loss
                 eff_min=np.nanmin(s.eff.reindex(EDGE_ZONE).replace(0, np.nan)),
                 dead=[c for c in range(64) if s.n_hits.get(c, 0) == 0])
         L = np.array(sorted(rows))
-        rel = np.array([rows[x]["bulk"] for x in L]) / rows[1.5]["bulk"]
+        rel = np.array([rows[x]["mid"] for x in L]) / rows[1.5]["mid"]
         slope = np.polyfit(L, rel, 1)[0]
-        # edge drift: edge amp/bulk at each length relative to the shortest cable
+        # edge drift: edge amp/mid-connector at each length relative to the shortest cable
         drift = {x: np.nanmedian([rows[x]["edge_amp"][c] / rows[L[0]]["edge_amp"][c]
                                   for c in EDGE]) for x in L}
         out["pulser"][volt] = dict(rows=rows, L=L, rel=rel, slope=slope, edge_drift=drift)
@@ -649,7 +652,7 @@ def samtec_numbers(tab, data):
 
 def fig_samtec_summary(sn):
     fig, axs = plt.subplots(1, 3, figsize=(16, 4.8))
-    # (a) bulk signal vs length
+    # (a) mid-connector signal vs length
     ax = axs[0]
     p = sn["pulser"]["3V3"]
     ax.plot(p["L"], p["rel"], "-o", ms=8, lw=2, color=CABLE_COLOR["Samtec"],
@@ -661,10 +664,10 @@ def fig_samtec_summary(sn):
                     label=f"Fe55 {gain} mV/fC: {100 * f['slope']:+.1f} %/m")
     ax.axhline(1, color="#c3c2b7", lw=1)
     ax.set_xlabel("total Samtec cable length [m]")
-    ax.set_ylabel("bulk signal / 1.5 m")
-    ax.set_title("(a) typical channel: signal vs length", color=INK, fontsize=12, loc="left")
+    ax.set_ylabel("mid-connector signal / 1.5 m")
+    ax.set_title("(a) mid-connector channels: signal vs length", color=INK, fontsize=12, loc="left")
     ax.legend(fontsize=9, loc="lower left")
-    # (b) edge channels relative to bulk, relative to the shortest cable
+    # (b) edge channels relative to mid-connector, relative to the shortest cable
     ax = axs[1]
     d = p["edge_drift"]
     ax.plot(list(d), list(d.values()), "-o", ms=8, lw=2, color=CABLE_COLOR["Samtec"],
@@ -675,8 +678,8 @@ def fig_samtec_summary(sn):
     ax.axhline(1, color="#c3c2b7", lw=1)
     ax.set_ylim(0.9, 1.1)
     ax.set_xlabel("total Samtec cable length [m]")
-    ax.set_ylabel("edge-channel signal / bulk,\nrelative to the shortest cable")
-    ax.set_title("(b) edge ch 0/31/32/63: extra loss vs bulk", color=INK, fontsize=12, loc="left")
+    ax.set_ylabel("edge-channel signal / mid-connector,\nrelative to the shortest cable")
+    ax.set_title("(b) edge ch 0/31/32/63 vs mid-connector", color=INK, fontsize=12, loc="left")
     ax.legend(fontsize=9, loc="upper left")
     # (c) self-triggering on the edge channels
     ax = axs[2]
@@ -727,16 +730,16 @@ def summary(tab, data):
         w(f"  {r.run}  ({r.n_pulses} pulses)")
     for volt in VOLTS:
         pc = pulser_per_channel(tab, volt)
-        w(f"\nPulser {volt}: bulk in-time ADC | edge amp/bulk | self-trigger rate [Hz] on 0,1,30,31,62,63")
+        w(f"\nPulser {volt}: mid-connector in-time ADC | edge amp/mid-connector | self-trigger rate [Hz] on 0,1,30,31,62,63")
         for (cable, length), s in pc.groupby(["cable", "length"]):
             s = s.set_index("ch")
-            b = np.nanmedian(s.amp.reindex(BULK))
+            b = np.nanmedian(s.amp.reindex(MID))
             amp = " ".join(f"{c}:{s.amp.get(c, np.nan) / b:.2f}" for c in EDGE)
             nz = " ".join(f"{s.noise_hz.get(c, np.nan):.0f}" for c in (0, 1, 30, 31, 62, 63))
             eff = " ".join(f"{s.eff.get(c, np.nan):.2f}" for c in (0, 1, 62, 63))
-            w(f"  {cable:7s} {length:.1f} m  bulk {b:5.0f} | {amp} | noise {nz} | eff 0/1/62/63 {eff}")
+            w(f"  {cable:7s} {length:.1f} m  mid-connector {b:5.0f} | {amp} | noise {nz} | eff 0/1/62/63 {eff}")
     for gain in (1, 3):
-        w(f"\nFe55 {gain} mV/fC photopeak ratios (bulk median ± per-channel spread; edge ch / bulk):")
+        w(f"\nFe55 {gain} mV/fC photopeak ratios (mid-connector median ± per-channel spread; edge ch / mid-connector):")
         s15 = _run(data, "fe55", "Samtec", 1.5, gain)
         for s, d in data.items():
             if d["kind"] != "fe55" or d["gain"] != gain or s == s15:
@@ -750,27 +753,27 @@ def summary(tab, data):
             w(f"  repeatability Hitachi 2.0 m B/A: {med:.3f}")
         h = data[s15]["h"]
         w(f"  saturated fraction (ADC>=1020), Samtec 1.5 m: {h[..., 1020:].sum() / h.sum():.3f}")
-    w("\nFe55 reference runs, over-threshold rate [Hz], median over VMMs (bulk | 0 31 32 63):")
+    w("\nFe55 reference runs, over-threshold rate [Hz], median over VMMs (mid-connector | 0 31 32 63):")
     for s, d in data.items():
         if d["kind"] != "ref":
             continue
         r = d["h"].sum(axis=2) / d["live_s"]
-        w(f"  {d['label']:20s} {d['gain']} mV/fC  {np.median(r[:, BULK]):5.2f} | "
+        w(f"  {d['label']:20s} {d['gain']} mV/fC  {np.median(r[:, MID]):5.2f} | "
           + " ".join(f"{np.median(r[:, c]):5.2f}" for c in EDGE))
     sn = samtec_numbers(tab, data)
     w("\nSAMTEC ONLY (Hitachi will not be available)")
     for volt, p in sn["pulser"].items():
-        w(f"  pulser {volt}: bulk / 1.5 m " + " ".join(f"{x:.1f}m:{r:.3f}" for x, r in zip(p["L"], p["rel"]))
+        w(f"  pulser {volt}: mid-connector / 1.5 m " + " ".join(f"{x:.1f}m:{r:.3f}" for x, r in zip(p["L"], p["rel"]))
           + f"  -> {100 * p['slope']:+.1f} %/m")
-        w("     edge amp/bulk vs 1.0 m: " + " ".join(f"{x:.1f}m:{v:.3f}" for x, v in p["edge_drift"].items()))
+        w("     edge amp/mid-connector vs 1.0 m: " + " ".join(f"{x:.1f}m:{v:.3f}" for x, v in p["edge_drift"].items()))
         w("     max self-trigger on edge zone [Hz]: " + " ".join(
             f"{x:.1f}m:{r['noise_max']:.0f}" for x, r in p["rows"].items())
           + " | min eff: " + " ".join(f"{x:.1f}m:{r['eff_min']:.2f}" for x, r in p["rows"].items())
           + " | dead ch: " + " ".join(f"{x:.1f}m:{r['dead']}" for x, r in p["rows"].items() if r["dead"]))
     for gain, f in sn["fe55"].items():
-        w(f"  Fe55 {gain} mV/fC: bulk / 1.5 m " + " ".join(f"{x:.1f}m:{r:.3f}" for x, r in zip(f["L"], f["rel"]))
+        w(f"  Fe55 {gain} mV/fC: mid-connector / 1.5 m " + " ".join(f"{x:.1f}m:{r:.3f}" for x, r in zip(f["L"], f["rel"]))
           + f"  -> {100 * f['slope']:+.1f} %/m (±4 % per point)")
-        w("     edge/bulk (0,31,32,63): " + " | ".join(
+        w("     edge/mid-connector (0,31,32,63): " + " | ".join(
             f"{x:.1f}m: " + " ".join(f"{v:.3f}" for v in f["edge"][x]) for x in f["L"]))
         w("     max ref-run rate on edge zone [Hz]: " + " ".join(f"{x:.1f}m:{v:.2f}" for x, v in sorted(f["noise_max"].items())))
     fig_samtec_summary(sn)
@@ -784,8 +787,8 @@ def summary(tab, data):
             if ("Samtec", Lb, volt) in nb:
                 m, wd, _ = hist_level_width(nb[("Samtec", Lb, volt)])
                 mn = hist_mean(nb[("Samtec", Lb, volt)])
-                parts.append(f"{volt}: median {np.nanmedian(m[BULK]):.0f} mean {np.nanmedian(mn[BULK]):.0f} "
-                             f"edge median {np.nanmedian(m[list(EDGE_ZONE)]):.0f} spread {np.nanmedian(wd[BULK]):.1f} "
+                parts.append(f"{volt}: median {np.nanmedian(m[MID]):.0f} mean {np.nanmedian(mn[MID]):.0f} "
+                             f"edge median {np.nanmedian(m[list(EDGE_ZONE)]):.0f} spread {np.nanmedian(wd[MID]):.1f} "
                              f"worst edge {np.nanmax(wd[list(EDGE_ZONE)]):.0f}")
         w(f"  bench {Lb:.1f} m | " + " | ".join(parts))
     for gain in (1, 3):
@@ -795,17 +798,17 @@ def summary(tab, data):
                 continue
             m, wd, _ = hist_level_width(data[s]["h_nb"])
             mn = hist_mean(data[s]["h_nb"])
-            w(f"  detector {gain} mV/fC {Lf:.1f} m | median {np.nanmedian(m[:, BULK]):.0f} "
-              f"mean {np.nanmedian(mn[:, BULK]):.0f} edge median {np.nanmedian(np.nanmedian(m, axis=0)[list(EDGE_ZONE)]):.0f} "
-              f"spread {np.nanmedian(wd[:, BULK]):.1f} worst edge {np.nanmax(np.nanmedian(wd, axis=0)[list(EDGE_ZONE)]):.1f}")
-    w("  bulk ratio vs all-channel ratio (Fe55, Samtec / 1.5 m):")
+            w(f"  detector {gain} mV/fC {Lf:.1f} m | median {np.nanmedian(m[:, MID]):.0f} "
+              f"mean {np.nanmedian(mn[:, MID]):.0f} edge median {np.nanmedian(np.nanmedian(m, axis=0)[list(EDGE_ZONE)]):.0f} "
+              f"spread {np.nanmedian(wd[:, MID]):.1f} worst edge {np.nanmax(np.nanmedian(wd, axis=0)[list(EDGE_ZONE)]):.1f}")
+    w("  mid-connector ratio vs all-channel ratio (Fe55, Samtec / 1.5 m):")
     for gain in (1, 3):
         s15 = _run(data, "fe55", "Samtec", 1.5, gain)
         for Lf in (2.0, 2.5):
             s = _run(data, "fe55", "Samtec", Lf, gain)
             if s:
                 r = data[s]["peaks"] / data[s15]["peaks"]
-                w(f"    {gain} mV/fC {Lf:.1f} m: bulk {ratio_stats(data[s]['peaks'], data[s15]['peaks'])[0]:.3f}"
+                w(f"    {gain} mV/fC {Lf:.1f} m: mid-connector {ratio_stats(data[s]['peaks'], data[s15]['peaks'])[0]:.3f}"
                   f"  all channels {np.nanmedian(r):.3f}")
     txt = "\n".join(L)
     with open(os.path.join(FIGS, "summary.txt"), "w") as f:
@@ -834,7 +837,7 @@ def main():
     fig_noise_compare(data, "3V3")
     fig_noise_compare(data, "1V8")
     fig_fe55_noise(data)
-    fig_bulk_vs_length(pulser_per_channel(tab, "3V3"), data)
+    fig_mid_vs_length(pulser_per_channel(tab, "3V3"), data)
     fig_gain_stability(data)
     summary(tab, data)
 
