@@ -229,7 +229,7 @@ def fig_drift(sn):
     ax.text(100 * dr["rate"] + 0.2, y[-1] - 0.75, f"average {100 * dr['rate']:.1f} ± {100 * dr['err']:.1f} % per hour",
             fontsize=12, color=INK, va="top")
     ax.set_ylim(-1.3, len(runs) - 0.5)
-    ax.set_title("Detector gain during each Fe55 run (7 October)", loc="left", color=INK)
+    ax.set_title("Detector gain during each Fe55 run (7 Oct, after 13:00)", loc="left", color=INK)
     return _save(fig, "gain_drift.png")
 
 
@@ -405,9 +405,9 @@ def build(figs, sn):
     _img(s, figs["drift"], Inches(0.5), Inches(1.4), w=Inches(8.3))
     _text(s, Inches(9.0), Inches(1.7), Inches(4.0), Inches(5), [
         "Each Fe55 run lasts 10 minutes and is written as ten 1-minute files.",
-        "The Fe55 peak is measured in each file: inside **8 of 9 runs it goes down**.",
-        f"Together: **{100 * dr['rate']:.1f} ± {100 * dr['err']:.1f} % per hour**, the same in every run.",
-        "Check: the same Hitachi cable measured twice, 69 min apart, lost 3.6 % (−3.1 % per hour).",
+        "Only runs after the HV-supply change (13:00), all in the same conditions.",
+        "The Fe55 peak is measured in each file: inside **6 of 7 runs it goes down**.",
+        f"Together: **{100 * dr['rate']:.1f} ± {100 * dr['err']:.1f} % per hour**, consistent between runs.",
         "The correction assumes the drift continued at the same rate between runs.",
     ], size=17)
 
