@@ -808,6 +808,21 @@ def hist_rms(h, nmin=30):
     return np.where(n >= nmin, np.sqrt(np.maximum(v, 0)), np.nan)
 
 
+CORE_ADC = 30
+
+
+def hist_core_rms(h, nmin=30, half=CORE_ADC):
+    """RMS of ADC histograms within +-half ADC of each histogram's median: the noise
+    of the neighbour-trigger hits without the few hits that carry real charge."""
+    n = h.sum(-1)
+    med = (np.cumsum(h, -1) < (n / 2)[..., None]).sum(-1)
+    x = np.arange(h.shape[-1])
+    w = h * (abs(x - med[..., None]) <= half)
+    nw = w.sum(-1)
+    v = (w * (x - med[..., None]) ** 2).sum(-1) / np.maximum(nw, 1)
+    return np.where(n >= nmin, np.sqrt(v), np.nan)
+
+
 def per_vmm_runs(data, gain):
     """Fe55 runs after the HV-supply change at this gain: {label: stem}, Samtec 1.5 m first."""
     runs = {}
@@ -823,13 +838,16 @@ RUN_STYLE = {"Samtec 1.5 m": dict(color=LEN_COLOR[1.5]), "Samtec 2.0 m": dict(co
              "Samtec 2.5 m": dict(color=LEN_COLOR[3.0]), "Hitachi 2.0 m": dict(color=CABLE_COLOR["Hitachi"])}
 
 
-def fig_per_vmm(data, gain, what):
-    """One panel per VMM 4-13: Mean(ADC) or RMS(ADC) of the over-threshold Fe55 hits
-    vs channel per cable (what = 'mean' / 'rms'), or their ratio to Samtec 1.5 m
-    (what = 'mean_ratio' / 'rms_ratio'). Runs after the HV-supply change only."""
+def fig_per_vmm(data, gain, what, hits="ot"):
+    """One panel per VMM 4-13: Mean(ADC) or RMS(ADC) vs channel per cable
+    (what = 'mean' / 'rms'), or their ratio to Samtec 1.5 m ('mean_ratio' / 'rms_ratio').
+    hits = 'ot': over-threshold hits (the Fe55 signal); 'nb': neighbour-trigger hits
+    (over_threshold == 0: baseline + noise, their RMS is the noise). Runs after the
+    HV-supply change only."""
     runs = per_vmm_runs(data, gain)
-    f = hist_mean if what.startswith("mean") else hist_rms
-    val = {k: f(data[s]["h"], nmin=100) for k, s in runs.items()}
+    f = {"mean": hist_mean, "rms": hist_rms, "corerms": hist_core_rms}[what.split("_")[0]]
+    key = "h" if hits == "ot" else "h_nb"
+    val = {k: f(data[s][key], nmin=100) for k, s in runs.items()}
     ratio = what.endswith("ratio")
     ref = val["Samtec 1.5 m"]
     ys = {k: (v / ref if ratio else v) for k, v in val.items() if not (ratio and k == "Samtec 1.5 m")}
@@ -858,9 +876,10 @@ def fig_per_vmm(data, gain, what):
             ax.axhline(1, color="#c3c2b7", lw=1)
         _edge_bands(ax)
         ax.set_title(f"VMM {FE55_VMMS[i]}", color=INK, fontsize=11, loc="left")
-    q = "Mean" if what.startswith("mean") else "RMS"
+    q = {"mean": "Mean", "rms": "RMS", "corerms": f"RMS within ±{CORE_ADC}"}[what.split("_")[0]]
     axs[0, 0].set_ylim(lo, hi)
-    ylab = f"{q}(ADC) / {q}(ADC)\nSamtec 1.5 m" if ratio else f"{q}(ADC) of\nover-threshold hits"
+    kind = "over-threshold hits" if hits == "ot" else "neighbour-trigger hits"
+    ylab = f"{q}(ADC) / {q}(ADC)\nSamtec 1.5 m" if ratio else f"{q}(ADC) of\n{kind}"
     for ax in axs[:, 0]:
         ax.set_ylabel(ylab)
     for ax in axs[1, :]:
@@ -870,12 +889,14 @@ def fig_per_vmm(data, gain, what):
     sub = ("dashed: median over mid-connector channels" if ratio else "grey bands: connector-edge channels")
     if n_clip:
         sub += f"; {n_clip} points beyond the axis shown as triangles on the border"
-    fig.suptitle(f"Fe55 on the detector, {gain} mV/fC, {q}(ADC) per channel"
-                 + (", ratio to Samtec 1.5 m" if ratio else "")
-                 + f"  ({sub})\nruns after the HV-supply change, 7 Oct: {times}; not corrected for gain drift",
+    head = (f"Fe55 on the detector, {gain} mV/fC, {q}(ADC) of the over-threshold hits (signal)" if hits == "ot" else
+            f"Detector noise, {gain} mV/fC, {q}(ADC) of the neighbour-trigger hits (over_threshold = 0) in the Fe55 runs")
+    fig.suptitle(head + (", ratio to Samtec 1.5 m" if ratio else "")
+                 + f"\n({sub}) runs after the HV-supply change, 7 Oct: {times}"
+                 + ("; not corrected for gain drift" if hits == "ot" else ""),
                  color=INK, fontsize=12, x=0.01, ha="left")
     fig.tight_layout()
-    _save(fig, f"fe55_per_vmm_{what}_{gain}mVfC.png")
+    _save(fig, f"{'fe55' if hits == 'ot' else 'noise'}_per_vmm_{what}_{gain}mVfC.png")
 
 
 def fe55_drift(data):
@@ -1174,6 +1195,9 @@ def main():
     for gain in (1, 3):
         for what in ("mean", "rms", "mean_ratio", "rms_ratio"):
             fig_per_vmm(data, gain, what)
+            fig_per_vmm(data, gain, what, hits="nb")
+        for what in ("corerms", "corerms_ratio"):
+            fig_per_vmm(data, gain, what, hits="nb")
     summary(tab, data, gpk)
 
 
