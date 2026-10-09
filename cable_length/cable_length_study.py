@@ -875,7 +875,7 @@ def fig_per_vmm(data, gain, what, hits="ot"):
         if ratio:
             ax.axhline(1, color="#c3c2b7", lw=1)
         _edge_bands(ax)
-        ax.set_title(f"VMM {FE55_VMMS[i]}", color=INK, fontsize=11, loc="left")
+        ax.set_title(f"VMM {FE55_VMMS[i]}", color=INK, fontsize=11, loc="left", pad=10)
     q = {"mean": "Mean", "rms": "RMS", "corerms": f"RMS within ±{CORE_ADC}"}[what.split("_")[0]]
     axs[0, 0].set_ylim(lo, hi)
     kind = "over-threshold hits" if hits == "ot" else "neighbour-trigger hits"
@@ -884,7 +884,10 @@ def fig_per_vmm(data, gain, what, hits="ot"):
         ax.set_ylabel(ylab)
     for ax in axs[1, :]:
         ax.set_xlabel("VMM channel")
-    axs[0, 0].legend(fontsize=8.5, loc="lower center")
+    hnd, lab = axs[0, 0].get_legend_handles_labels()
+    keep = [i for i, l in enumerate(lab) if not l.startswith("_")]
+    fig.legend([hnd[i] for i in keep], [lab[i] for i in keep], loc="lower center", ncol=len(keep),
+               fontsize=11, frameon=False, bbox_to_anchor=(0.5, 0.0))
     times = ", ".join(f"{k} {dt.datetime.fromtimestamp(data[s]['t_start'][0]):%H:%M}" for k, s in runs.items())
     sub = ("dashed: median over mid-connector channels" if ratio else "grey bands: connector-edge channels")
     if n_clip:
@@ -892,10 +895,10 @@ def fig_per_vmm(data, gain, what, hits="ot"):
     head = (f"Fe55 on the detector, {gain} mV/fC, {q}(ADC) of the over-threshold hits (signal)" if hits == "ot" else
             f"Detector noise, {gain} mV/fC, {q}(ADC) of the neighbour-trigger hits (over_threshold = 0) in the Fe55 runs")
     fig.suptitle(head + (", ratio to Samtec 1.5 m" if ratio else "")
-                 + f"\n({sub}) runs after the HV-supply change, 7 Oct: {times}"
+                 + f"\n{sub[0].upper() + sub[1:]}.\nRuns after the HV-supply change, 7 Oct: {times}"
                  + ("; not corrected for gain drift" if hits == "ot" else ""),
                  color=INK, fontsize=12, x=0.01, ha="left")
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.05, 1, 1))
     _save(fig, f"{'fe55' if hits == 'ot' else 'noise'}_per_vmm_{what}_{gain}mVfC.png")
 
 
