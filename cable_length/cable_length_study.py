@@ -790,12 +790,93 @@ def fig_gain_stability(data):
 EDGE_ZONE = (0, 1, 29, 30, 31, 32, 33, 34, 62, 63)   # where self-triggering shows up
 
 
+# The HV power supply was changed around 13:00 on 7 Oct: only runs started after
+# that have identical conditions (Hitachi 2.0 m 3 mV/fC + all Samtec runs).
+HV_STABLE_FROM = dt.datetime(2026, 10, 7, 13, 0)
+
+
+def _stable(d):
+    return dt.datetime.fromtimestamp(d["t_start"][0]) >= HV_STABLE_FROM
+
+
+def hist_rms(h, nmin=30):
+    """RMS (standard deviation) of ADC histograms along the last axis (NaN below nmin)."""
+    n = h.sum(-1)
+    x = np.arange(h.shape[-1])
+    m = (h * x).sum(-1) / np.maximum(n, 1)
+    v = (h * x ** 2).sum(-1) / np.maximum(n, 1) - m ** 2
+    return np.where(n >= nmin, np.sqrt(np.maximum(v, 0)), np.nan)
+
+
+def per_vmm_runs(data, gain):
+    """Fe55 runs after the HV-supply change at this gain: {label: stem}, Samtec 1.5 m first."""
+    runs = {}
+    for cable, L in (("Samtec", 1.5), ("Samtec", 2.0), ("Samtec", 2.5), ("Hitachi", 2.0)):
+        for s, d in data.items():
+            if (d["kind"] == "fe55" and d["gain"] == gain and d["cable"] == cable
+                    and d["length"] == L and _stable(d)):
+                runs[f"{cable} {L:.1f} m"] = s
+    return runs
+
+
+RUN_STYLE = {"Samtec 1.5 m": dict(color=LEN_COLOR[1.5]), "Samtec 2.0 m": dict(color=LEN_COLOR[2.0]),
+             "Samtec 2.5 m": dict(color=LEN_COLOR[3.0]), "Hitachi 2.0 m": dict(color=CABLE_COLOR["Hitachi"])}
+
+
+def fig_per_vmm(data, gain, what):
+    """One panel per VMM 4-13: Mean(ADC) or RMS(ADC) of the over-threshold Fe55 hits
+    vs channel per cable (what = 'mean' / 'rms'), or their ratio to Samtec 1.5 m
+    (what = 'mean_ratio' / 'rms_ratio'). Runs after the HV-supply change only."""
+    runs = per_vmm_runs(data, gain)
+    f = hist_mean if what.startswith("mean") else hist_rms
+    val = {k: f(data[s]["h"], nmin=100) for k, s in runs.items()}
+    ratio = what.endswith("ratio")
+    ref = val["Samtec 1.5 m"]
+    fig, axs = plt.subplots(2, 5, figsize=(22, 8), sharex=True, sharey=True)
+    for i, ax in enumerate(axs.flat):
+        for k, v in val.items():
+            if ratio and k == "Samtec 1.5 m":
+                continue
+            y = v[i] / ref[i] if ratio else v[i]
+            ax.plot(np.arange(64), y, "-o", ms=2.5, lw=1.1, label=f"{k} / Samtec 1.5 m" if ratio else k,
+                    **RUN_STYLE[k])
+            if ratio:
+                ax.axhline(np.nanmedian(y[MID]), lw=0.8, ls="--", **RUN_STYLE[k])
+        if ratio:
+            ax.axhline(1, color="#c3c2b7", lw=1)
+        _edge_bands(ax)
+        ax.set_title(f"VMM {FE55_VMMS[i]}", color=INK, fontsize=11, loc="left")
+    q = "Mean" if what.startswith("mean") else "RMS"
+    if ratio:
+        lo, hi = (0.75, 1.15) if q == "Mean" else (0.7, 1.3)
+        axs[0, 0].set_ylim(lo, hi)
+        ylab = f"{q}(ADC) / {q}(ADC)\nSamtec 1.5 m"
+    else:
+        axs[0, 0].set_ylim((0, 450) if gain == 1 else (0, 900)) if q == "Mean" else \
+            axs[0, 0].set_ylim((0, 200) if gain == 1 else (0, 400))
+        ylab = f"{q}(ADC) of\nover-threshold hits"
+    for ax in axs[:, 0]:
+        ax.set_ylabel(ylab)
+    for ax in axs[1, :]:
+        ax.set_xlabel("VMM channel")
+    axs[0, 0].legend(fontsize=8.5, loc="lower center")
+    times = ", ".join(f"{k} {dt.datetime.fromtimestamp(data[s]['t_start'][0]):%H:%M}" for k, s in runs.items())
+    sub = ("dashed: median over mid-connector channels" if ratio else "grey bands: connector-edge channels")
+    fig.suptitle(f"Fe55 on the detector, {gain} mV/fC, {q}(ADC) per channel"
+                 + (", ratio to Samtec 1.5 m" if ratio else "")
+                 + f"  ({sub})\nruns after the HV-supply change, 7 Oct: {times}; not corrected for gain drift",
+                 color=INK, fontsize=12, x=0.01, ha="left")
+    fig.tight_layout()
+    _save(fig, f"fe55_per_vmm_{what}_{gain}mVfC.png")
+
+
 def fe55_drift(data):
     """Gas-gain drift of the detector, measured inside each Fe55 run: slope of the
-    mid-connector photopeak over the run's 1-min files, combined over all runs."""
+    mid-connector photopeak over the run's 1-min files, combined over the runs taken
+    after the HV-supply change (same conditions as the length comparison)."""
     rows = []
     for s, d in data.items():
-        if d["kind"] != "fe55" or len(d["file_peaks"]) < 3:
+        if d["kind"] != "fe55" or len(d["file_peaks"]) < 3 or not _stable(d):
             continue
         y = np.array([np.nanmedian(fp[:, MID]) for fp in d["file_peaks"]], float)
         t = (np.array(d["t_start"]) - d["t_start"][0]) / 3600
@@ -1082,6 +1163,9 @@ def main():
     fig_fe55_noise(data)
     fig_mid_vs_length(pulser_per_channel(tab, "3V3"), data)
     fig_gain_stability(data)
+    for gain in (1, 3):
+        for what in ("mean", "rms", "mean_ratio", "rms_ratio"):
+            fig_per_vmm(data, gain, what)
     summary(tab, data, gpk)
 
 
