@@ -832,14 +832,26 @@ def fig_per_vmm(data, gain, what):
     val = {k: f(data[s]["h"], nmin=100) for k, s in runs.items()}
     ratio = what.endswith("ratio")
     ref = val["Samtec 1.5 m"]
+    ys = {k: (v / ref if ratio else v) for k, v in val.items() if not (ratio and k == "Samtec 1.5 m")}
+    allv = np.concatenate([y[np.isfinite(y)] for y in ys.values()])
+    if ratio:
+        # range from the data; the few extreme (low-statistics) channels beyond it
+        # are drawn as triangles on the border instead of stretching the axis
+        lo = min(0.9, np.percentile(allv, 0.5) - 0.02)
+        hi = max(1.1, np.percentile(allv, 99.5) + 0.02)
+    else:
+        lo, hi = 0, allv.max() * 1.05
     fig, axs = plt.subplots(2, 5, figsize=(22, 8), sharex=True, sharey=True)
+    n_clip = 0
     for i, ax in enumerate(axs.flat):
-        for k, v in val.items():
-            if ratio and k == "Samtec 1.5 m":
-                continue
-            y = v[i] / ref[i] if ratio else v[i]
-            ax.plot(np.arange(64), y, "-o", ms=2.5, lw=1.1, label=f"{k} / Samtec 1.5 m" if ratio else k,
-                    **RUN_STYLE[k])
+        for k, yall in ys.items():
+            y = yall[i]
+            ax.plot(np.arange(64), np.clip(y, lo, hi), "-o", ms=2.5, lw=1.1,
+                    label=f"{k} / Samtec 1.5 m" if ratio else k, **RUN_STYLE[k])
+            for side, m, mk in ((y > hi, hi, "^"), (y < lo, lo, "v")):
+                c = np.flatnonzero(side)
+                n_clip += len(c)
+                ax.plot(c, np.full(len(c), m), mk, ms=8, mfc="white", mew=1.5, clip_on=False, **RUN_STYLE[k])
             if ratio:
                 ax.axhline(np.nanmedian(y[MID]), lw=0.8, ls="--", **RUN_STYLE[k])
         if ratio:
@@ -847,14 +859,8 @@ def fig_per_vmm(data, gain, what):
         _edge_bands(ax)
         ax.set_title(f"VMM {FE55_VMMS[i]}", color=INK, fontsize=11, loc="left")
     q = "Mean" if what.startswith("mean") else "RMS"
-    if ratio:
-        lo, hi = (0.75, 1.15) if q == "Mean" else (0.7, 1.3)
-        axs[0, 0].set_ylim(lo, hi)
-        ylab = f"{q}(ADC) / {q}(ADC)\nSamtec 1.5 m"
-    else:
-        axs[0, 0].set_ylim((0, 450) if gain == 1 else (0, 900)) if q == "Mean" else \
-            axs[0, 0].set_ylim((0, 200) if gain == 1 else (0, 400))
-        ylab = f"{q}(ADC) of\nover-threshold hits"
+    axs[0, 0].set_ylim(lo, hi)
+    ylab = f"{q}(ADC) / {q}(ADC)\nSamtec 1.5 m" if ratio else f"{q}(ADC) of\nover-threshold hits"
     for ax in axs[:, 0]:
         ax.set_ylabel(ylab)
     for ax in axs[1, :]:
@@ -862,6 +868,8 @@ def fig_per_vmm(data, gain, what):
     axs[0, 0].legend(fontsize=8.5, loc="lower center")
     times = ", ".join(f"{k} {dt.datetime.fromtimestamp(data[s]['t_start'][0]):%H:%M}" for k, s in runs.items())
     sub = ("dashed: median over mid-connector channels" if ratio else "grey bands: connector-edge channels")
+    if n_clip:
+        sub += f"; {n_clip} points beyond the axis shown as triangles on the border"
     fig.suptitle(f"Fe55 on the detector, {gain} mV/fC, {q}(ADC) per channel"
                  + (", ratio to Samtec 1.5 m" if ratio else "")
                  + f"  ({sub})\nruns after the HV-supply change, 7 Oct: {times}; not corrected for gain drift",
