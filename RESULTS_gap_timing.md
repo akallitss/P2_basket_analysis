@@ -1,6 +1,6 @@
 # Results: P2 gain–timing map and low-field timing
 
-Answer to `HANDOFF_gap_timing_2026-10-15.md`. Status 2026-10-15: **A1 and A2 done, B not started.**
+Answer to `HANDOFF_gap_timing_2026-10-15.md`. Status 2026-10-16: **A1, A2 and B done.** SPS products of B are still to be uploaded to EOS.
 
 ## Where the code and the products are
 
@@ -173,6 +173,39 @@ For the timing side, the simulation needs to reproduce:
 
 **Verdict B (SPS):** the low-field degradation is **static on the scale of minutes and independent of scan direction**, so a charging-up of a dielectric surface during the scan is not supported. On top of that, there is a **slow, day-scale worsening at intermediate fields common to both chambers**. Suggested next test, simulation side: the attachment coefficient needed to reproduce the yield-vs-field curve above, and the matching drift-time cut-off.
 
-### Cosmic (not done yet)
+### Cosmic (done 2026-10-16)
 
-The det1 drift-scan sub-runs at 465 / 515 V (handoff §4.2) are still to do. The LaCie, which holds the cosmic input, was disconnected during this session.
+- **Code:** `cosmic_bench_analysis/25_drift_scan_time_slices.py`, commit `63f61b1`, run as `python3 25_drift_scan_time_slices.py det1_driftscan2`.
+- **Products:** `data/Cosmic_Bench/Analysis/det1/p2_det1_drift_scan_7-19-26/drift_scan/25_drift_scan_time_slices/`, suffix `_without_connectors_1_2_10_spark_vetoed`:
+  - `time_slices*.png`
+  - `time_slices*.csv` and `time_trends*.csv`
+  - `summary*.txt` and `inputs*.txt`
+- **Setup:** det1, Ar/iso 95/5, mesh 415 V, drift 415 → 965 V (0–1375 V/cm). Each sub-run is 30 min with about 10k triggers, cut into 6 slices of 5 min.
+- **Estimators**, the same as stage 16's `time_res_ns`: the leading pad (≥ 300 ADC), its `time_of_max`, and σ = (p84 − p16)/2. Hot pads are dropped and the spark veto is applied. The yield proxy is signal events per trigger.
+
+1. **Flat inside every sub-run, at low field too:**
+
+   | field (V/cm) | σ in the 6 slices (ns) | median in the 6 slices (ns) | yield proxy |
+   |---|---|---|---|
+   | 125 | 78.9, 81.0, 78.0, 81.5, 87.4, 84.9 (± 3–4 each) | 566–577 (± 4–6 each) | 0.32–0.36 |
+   | 250 | 26.7–29.5 (± 1) | 460–467 | 0.36–0.39 |
+   | 375 | 20.7–22.3 (± 0.8) | 446–450 | 0.37–0.41 |
+
+   - The first-to-last changes are all below 2σ and point in opposite directions at different fields: 125 V/cm gives +6 ± 5 ns width and +11 ± 6 ns median; 375 V/cm gives −2.6 ± 1.3 ns median.
+   - Over all 11 sub-runs, χ²/ndf against "no change" is 0.97 for σ and 1.54 for the median.
+2. **The drift HV is at its setpoint within 0.5 V from the first slice** at every field. The only exception is the 0 V/cm point, where it ramps up from about 398 V during the first 5 min, so the scan ran upward from 0 V/cm.
+3. **Cosmic and SPS behave differently at 125 V/cm.**
+   - Cosmic (Ar/iso): the signal is **late (median +120 ns relative to 375 V/cm) and broad (σ ≈ 82 ns), and still present**. The yield proxy is 0.34, against 0.39 at 250–375 V/cm.
+   - SPS (Ar/CO2/iso, MID–OUT coincidences): the signal at 125 V/cm is nearly gone (relative yield about 0.15) and only about 11 ns late.
+   - The two yield measures differ (300 ADC on a single detector against a 60 ADC coincidence), so compare the trends, not the numbers.
+   - At face value, in Ar/iso the electrons from the whole gap still arrive, slowly, while in the beam gas those from the upper gap are lost. That fits an attachment or loss mechanism specific to the beam gas or setup, rather than one common cause. It is not proven: the beam rate, the electronics and the selection all differ.
+
+**Verdict B, overall:**
+- In both setups the low-field timing is **constant over minutes to half an hour after an HV step**.
+- At the SPS it is **independent of scan direction**.
+- The drift HV is at its setpoint.
+- So a dynamic charging-up of a surface is not supported by the data.
+- What remains is static:
+  - in Ar/iso (cosmic), late and broad signals that are still collected;
+  - in the beam gas (SPS), a strong loss of the electrons from the upper gap, plus a day-scale worsening at intermediate fields.
+- Suggested next step, simulation side: compare the cosmic 125 V/cm median shift (+120 ns) and width (82 ns) with Magboltz v_d and diffusion for Ar/iso 95/5. For the SPS, fit an attachment rate to the yield-vs-field curve.
