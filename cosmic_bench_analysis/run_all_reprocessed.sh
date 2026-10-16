@@ -7,8 +7,7 @@
 #
 # Excluded on purpose: det1_long2, det4_long1(+_stable), det2_fe55scan1,
 # det3_fe55scan1 -- their raw is gone or was never on rays, so they still
-# carry the pre-August reconstruction and are not comparable. Also excluded:
-# det1_long5_pre/_post, whose whole purpose is a time window.
+# carry the pre-August reconstruction and are not comparable.
 #
 #   ./run_all_reprocessed.sh [-n] [-o OUTDIR] [key ...]
 #     -n   dry run: print what would be run
