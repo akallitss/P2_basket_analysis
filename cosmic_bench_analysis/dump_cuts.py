@@ -26,7 +26,7 @@ OLD_RECO_KEYS = {
     'det2_fe55scan1':    'banco bench Fe55; raw never on rays',
     'det3_fe55scan1':    'banco bench Fe55; raw never on rays',
 }
-WINDOWED_KEYS = {'det1_long5_pre', 'det1_long5_post', 'det4_long1_stable'}
+WINDOWED_KEYS = {'det4_long1_stable'}
 
 SCAN_KINDS = {'hv_scan': 'mesh scan', 'drift_scan': 'drift scan',
               'mesh_scan': 'mesh scan', 'fe55_scan': 'Fe55 scan'}
