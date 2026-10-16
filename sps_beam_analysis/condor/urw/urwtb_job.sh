@@ -74,6 +74,15 @@ cd "$SCRATCH/sps_beam_analysis/urw_reference"
 python3 urw_p2_efficiency.py --run "$RUN" --data-root "$SCRATCH/data" \
     --sub-run "$SUB" --time-bins "$TBINS" --out "$SCRATCH/out" || fail "stage failed (exit 2)" 
 OUT_BASE=$EBASE/analysis/urw_timebins/$RUN/$SUB
+# version stamp from pack_urwcode.sh, with this job's identity appended
+if [ -f "$SCRATCH/CODE_VERSION.txt" ]; then
+  { cat "$SCRATCH/CODE_VERSION.txt"
+    echo "job:       $RUN/$SUB time_bins=$TBINS on $(hostname -f) at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "$SCRATCH/out/CODE_VERSION.txt"
+  cp "$SCRATCH"/CODE_DIFF*.patch "$SCRATCH/out/" 2>/dev/null || true
+else
+  say "WARNING: urwcode.tgz carries no CODE_VERSION.txt -- products unstamped"
+fi
 NUP=0
 for f in "$SCRATCH"/out/*; do
   [ -f "$f" ] || continue
