@@ -52,6 +52,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 import p2_qa_config as qa
+import p2_io as p2io
 import p2_mapping as pmap
 import p2_sparks as ps
 import p2_waveforms as pw
@@ -111,6 +112,20 @@ def main():
     print(f'  decoded files: {len(files)} '
           f'(chunks {sorted(files["chunk"].unique())}, FEUs {sorted(files["feu"].unique())})')
 
+    # Run time window (cfg.T_MIN_H / T_MAX_H, e.g. det1_long5_pre): the decoded
+    # files carry no run clock, so take the events inside the window from the
+    # combined hits, with the same first-trigger t0 as every other stage, and
+    # keep only those (eventId is continuous across chunks).
+    in_window = None
+    if cfg.T_MAX_H is not None or cfg.T_MIN_H is not None:
+        in_window = set()
+        for d in p2io.iter_hits(cfg.combined_hits_dir, ['eventId'], feus,
+                                progress=False, t_max_h=cfg.T_MAX_H,
+                                t_min_h=cfg.T_MIN_H):
+            in_window.update(d['eventId'].unique().tolist())
+        print(f'  time window {cfg.T_MIN_H or 0:g}-{cfg.T_MAX_H or "end"} h: '
+              f'{len(in_window):,} events with hits')
+
     # ---------------- hit extraction ----------------
     parts, wparts = [], []
     for feu, gf in files.groupby('feu'):
@@ -121,6 +136,9 @@ def main():
               f'noise median {np.median(rms):.2f} ADC')
         for _, row in gf.iterrows():
             df, wv = pw.extract_hits(row['path'], ped, rms)
+            if in_window is not None:
+                keep = df['eventId'].isin(in_window).to_numpy()
+                df, wv = df[keep].reset_index(drop=True), wv[keep]
             df['feu'] = feu
             df['chunk'] = row['chunk']
             parts.append(df)
