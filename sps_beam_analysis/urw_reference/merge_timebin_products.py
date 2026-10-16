@@ -22,7 +22,7 @@ DEF_SRC = os.path.expanduser(
     '~/Documents/PostDocSaclay/data/SPS_Beam_Test/mpgd26_workspace/'
     'products/urw_timebins_x/urw_timebins')
 DEF_OUT = ('/media/ak271430/LaCie/Extras/Physics/Post-Doc-Saclay/data/'
-           'SPS_Beam_Test/TB_July2026_H4/analysis/urw_referenced_efficiency')
+           'SPS_beam_test/TB_July2026_H4/analysis/combined/urw_referenced_efficiency')
 
 
 def main():
