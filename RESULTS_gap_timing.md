@@ -1,6 +1,6 @@
 # Results: P2 gain–timing map and low-field timing
 
-Answer to `HANDOFF_gap_timing_2026-10-15.md`. Status 2026-10-16: **A1, A2 and B done.** SPS products of B are still to be uploaded to EOS.
+Answer to `HANDOFF_gap_timing_2026-10-15.md`. Status 2026-10-16: **A1, A2 and B done.**
 
 ## Where the code and the products are
 
@@ -117,12 +117,12 @@ For the timing side, the simulation needs to reproduce:
 
 **Drift foil (Alexandra):** the aluminium side **faces the gas**. A bare mylar surface charging up on the gas side is therefore not the mechanism.
 
-### SPS (done 2026-10-16; products to be uploaded to EOS)
+### SPS (done 2026-10-16)
 
 - **Code:** `sps_beam_analysis/32_low_field_timing.py`, commit `f85a439` and later. It has two modes:
   - `extract` runs on lxplus straight off EOS and keeps the leading hit per station for every trigger.
   - `analyse` runs locally.
-- **Products:** going to EOS `p2_sps_july/analysis/low_field_timing/`, with `inputs.txt` and `CODE_VERSION.txt`. They are pending the upload; the lxplus link dropped.
+- **Products:** EOS `p2_sps_july/analysis/low_field_timing/`, with `inputs.txt` and `CODE_VERSION.txt`. The per-trigger tables are in `extract/` (163 `.npz` files, with their own `CODE_VERSION.txt`).
   - `low_field_timing_vs_field.png` and `low_field_timing_within_subrun.png`
   - `low_field_timing_subruns.csv`, `low_field_timing_slices.csv`, `low_field_timing_trends.csv`
   - `low_field_timing_summary.txt`
