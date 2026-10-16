@@ -10,7 +10,7 @@ Three trees matter:
 |---|---|
 | **figure producers** | `P2_basket_analysis/mpgd2026/make_talk_figs.py` (cross-campaign), `P2_basket_analysis/sps_beam_analysis/mpgd26_figs/fig_*.py` (beam), `P2_basket_analysis/cosmic_bench_analysis/22_conference_figures.py` (bench), `nTof_x17/mpgd26/make_coincidence.py` (3D) |
 | **stage products** | EOS `/eos/experiment/ntof/data/x17/p2_sps_july/analysis/`, mirrored into the figure workspace `data/SPS_Beam_Test/mpgd26_workspace/products/analysis/` |
-| **uRWELL-referenced results** | LaCie `…/TB_July2026_H4/analysis/urw_referenced_efficiency/<run>/urw_p2_efficiency_<run>.csv` |
+| **uRWELL-referenced results** | LaCie `…/TB_July2026_H4/analysis/combined/urw_referenced_efficiency/<run>/urw_p2_efficiency_<run>.csv` |
 
 ---
 
@@ -55,6 +55,6 @@ Extra, produced 2026-08-17/18 and not on the wish list:
 | the uRWELL condor pipeline | `sps_beam_analysis/condor/urw/README.md` |
 | the DREAM stage pipeline | `sps_beam_analysis/PIPELINE_OVERVIEW_2026-07-26.md`, `condor/README_CONDOR.md` |
 | bench pipeline and its conference figures | `cosmic_bench_analysis/22_conference_figures.py`, `run_p2_pipeline.sh` |
-| campaign logbook notes | LaCie `…/TB_July2026_H4/analysis/2026-07-*.md` (also on EOS `analysis/`) |
+| campaign logbook notes | LaCie `…/TB_July2026_H4/analysis/logbook/2026-07-*.md` (also on EOS `analysis/`) |
 | the full written report | `reports/mpgd26_sps_beam_2026-08/index.html` |
 | the deck | `cern-site/notes/2026-08-17-mpgd26-talk-draft-deck.html` |
