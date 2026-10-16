@@ -42,11 +42,20 @@ klist -s 2>/dev/null || { echo "No Kerberos ticket -- run: kinit akallits@CERN.C
 
 # --- 1. pack the code ------------------------------------------------------
 echo "== packing code from $REPO"
+CODE_PATHS=(sps_beam_analysis cosmic_bench_analysis
+            Detector_Mapping/P2_BASKET/P2_BASKET_mapping.csv)
+# Version stamp: job.sh copies it into every product directory on EOS.
+STAMP="$HERE/stamp"
+rm -rf "$STAMP"; mkdir -p "$STAMP"
+"$HERE/code_version.sh" "$REPO" "$STAMP/CODE_DIFF.patch" "${CODE_PATHS[@]}" \
+    > "$STAMP/CODE_VERSION.txt"
+sed 's/^/   /' "$STAMP/CODE_VERSION.txt"
 tar --exclude=__pycache__ --exclude='*.pyc' --exclude=logbook \
-    --exclude=patches --exclude=condor \
+    --exclude=patches --exclude=condor --exclude=mpgd26_figs \
+    --exclude=vmm_dream_matching --exclude=dream_vmm_comparison \
     -czf "$HERE/p2code.tgz" \
-    -C "$REPO" sps_beam_analysis cosmic_bench_analysis \
-    Detector_Mapping/P2_BASKET/P2_BASKET_mapping.csv
+    -C "$REPO" "${CODE_PATHS[@]}" \
+    -C "$STAMP" $(ls "$STAMP")
 echo "   p2code.tgz  $(du -h "$HERE/p2code.tgz" | cut -f1)"
 
 # --- 2. build the joblist from EOS -----------------------------------------
