@@ -112,7 +112,7 @@ def main():
     print(f'  decoded files: {len(files)} '
           f'(chunks {sorted(files["chunk"].unique())}, FEUs {sorted(files["feu"].unique())})')
 
-    # Run time window (cfg.T_MIN_H / T_MAX_H, e.g. det1_long5_pre): the decoded
+    # Run time window (cfg.T_MIN_H / T_MAX_H, e.g. det4_long1_stable): the decoded
     # files carry no run clock, so take the events inside the window from the
     # combined hits, with the same first-trigger t0 as every other stage, and
     # keep only those (eventId is continuous across chunks).
