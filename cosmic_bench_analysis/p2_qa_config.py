@@ -240,7 +240,7 @@ class _Config:
         # of the same sub_run (e.g. the pre-discharge hours only) never
         # overwrites the full-run products.
         self.ANALYSIS_ROOT = ANALYSIS_ROOT
-        self.OUT_TAG = out_tag       # windowed-variant tag (e.g. pre_drop)
+        self.OUT_TAG = out_tag       # windowed-variant tag (e.g. stable0-2.2h)
         self.OUT_BASE = os.path.join(ANALYSIS_ROOT, self.DET_TAG, run,
                                      sub_run + (f'_{out_tag}' if out_tag else ''))
 
@@ -698,28 +698,6 @@ RUNS = {
         match_r=40.0,
         min_amp=0.0),
 
-    # det1_long5 split around the FEU6 (conns 3/4/5) readout dropout at ~06:54
-    # on 7-20 (11.5 h into the run, at fixed HV; a spark hung the FEU6 front
-    # end). Two windows to characterise before vs after the drop:
-    #   PRE  = 0 -> 11.3 h  (06:42, healthy full detector ~80% eff)
-    #   POST = 11.7 h -> end (07:06+, FEU6 half dark ~54% eff)
-    # The transition 11.3-11.7 h is excluded from both. out_tag puts products
-    # in separate _pre_drop / _post_drop dirs so they don't overwrite det1_long5.
-    'det1_long5_pre': _Config(
-        'det1_long5_pre',
-        run='p2_det1_long_run_efficiency_7-19-26',
-        sub_run='long_run_det1_415_615',
-        det_name='P2_1', det_tag='det1', spark_channel='1:2',
-        dead_connectors=(1, 10), match_r=40.0, min_amp=0.0,
-        t_max_h=11.3, out_tag='pre_drop'),
-    'det1_long5_post': _Config(
-        'det1_long5_post',
-        run='p2_det1_long_run_efficiency_7-19-26',
-        sub_run='long_run_det1_415_615',
-        det_name='P2_1', det_tag='det1', spark_channel='1:2',
-        dead_connectors=(1, 10), match_r=40.0, min_amp=0.0,
-        t_min_h=11.7, out_tag='post_drop'),
-
     # det4 (P2_4) long run 7-20-26 21:56, now at the far plane (z=702) on FEUs
     # 6+7 (moved from p1_z/FEUs 3+4). Connectors 3,4,5,6,8,9 wired -> dead
     # (1,2,7,10). Mesh 410 / drift 610 V, mesh on CAEN 1:0. Fresh pedestal at
@@ -832,7 +810,7 @@ RUNS = {
 #                    quality cut -- a 2-point fit is exact and carries a
 #                    denormal chi2 that slips through any chi2 threshold.
 #
-# Configs with an OUT_TAG (windowed variants such as det1_long5_pre) are left
+# Configs with an OUT_TAG (windowed variants such as det4_long1_stable) are left
 # untouched: a time window IS their purpose, and stripping it would just
 # duplicate the parent run under a different name.
 MINIMAL_CUT_FIELDS = {
