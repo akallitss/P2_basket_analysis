@@ -330,6 +330,27 @@ def cmd_analyse(args):
             f'| {r.rel_yield_1ch:13.3f} {ip["rel_yield_1ch"]:6.3f} | {r.amp_mid:10.0f} '
             f'{ip["amp_mid"]:6.0f}{"  (same HV)" if exact else ""}')
 
+    # ---- the same mesh 450 V points, day by day ----
+    # (the up/down pair above is also a 07-25 vs 07-26 pair; the later up
+    # scans tell direction from day)
+    day = {'drift_scan_1': '07-24 up', 'drift_scan_2': '07-24 up',
+           'drift_mesh_scan_1': '07-25 up', 'mesh_drift_scan_up_1': '07-26 down',
+           'drift_mesh_2d_2': '07-27 up', 'p2_mesh_drift_eff_1': '07-28 up'}
+    dd = m450[m450.run.isin(day) & ~m450.sub_run.str.startswith('eff_')].copy()
+    dd['day'] = dd.run.map(day)
+    for q, name in [('sigma1', 'sigma1 [ns]'), ('amp_mid', 'median MID amplitude [ADC]')]:
+        piv = dd.pivot_table(index='field_v_cm', columns='day', values=q)
+        piv = piv[piv.drop(columns='07-26 down', errors='ignore').notna().any(axis=1)]
+        log(f'\n{name} at mesh 450 V, by day (fields of the up scans; the 07-26 down '
+            'scan interpolated):')
+        if '07-26 down' in piv:
+            d6 = dd[dd.day == '07-26 down'].sort_values('field_v_cm')
+            piv['07-26 down'] = np.interp(piv.index, d6.field_v_cm, d6[q],
+                                          left=np.nan, right=np.nan)
+        log('  ' + f'{"E":>6s} ' + ' '.join(f'{c:>11s}' for c in piv.columns))
+        for e, r in piv.iterrows():
+            log(f'  {e:6.0f} ' + ' '.join(f'{v:11.1f}' for v in r.values))
+
     # ---- drift_mesh_2d_2: alternating row direction ----
     g2 = t[(t.run == 'drift_mesh_2d_2') & t.sigma1.notna()].copy()
     if len(g2):
