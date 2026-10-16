@@ -115,8 +115,64 @@ For the timing side, the simulation needs to reproduce:
 
 ## B: low field
 
-**Drift foil (Alexandra):** the aluminium side **faces the gas**. A bare mylar surface charging up on the gas side is therefore not the mechanism. Charging would need another dielectric, for example at the frame edges.
+**Drift foil (Alexandra):** the aluminium side **faces the gas**. A bare mylar surface charging up on the gas side is therefore not the mechanism.
 
-Hysteresis and time-dependence analysis: not started yet.
-- SPS products will go to EOS `p2_sps_july/analysis/low_field_timing/`, with a `CODE_VERSION.txt` and an `inputs.txt`.
-- The cosmic part will go to the det1 drift-scan Analysis tree.
+### SPS (done 2026-10-16; products to be uploaded to EOS)
+
+- **Code:** `sps_beam_analysis/32_low_field_timing.py`, commit `f85a439` and later. It has two modes:
+  - `extract` runs on lxplus straight off EOS and keeps the leading hit per station for every trigger.
+  - `analyse` runs locally.
+- **Products:** going to EOS `p2_sps_july/analysis/low_field_timing/`, with `inputs.txt` and `CODE_VERSION.txt`. They are pending the upload; the lxplus link dropped.
+  - `low_field_timing_vs_field.png` and `low_field_timing_within_subrun.png`
+  - `low_field_timing_subruns.csv`, `low_field_timing_slices.csv`, `low_field_timing_trends.csv`
+  - `low_field_timing_summary.txt`
+- **Sample:** 8 runs, 166 sub-runs, all in Ar/CO2/iso 93/5/2.
+- **Selection:**
+  - leading hit per station with amplitude ≥ 60 ADC, not saturated or truncated, inside the 960 ns window;
+  - a **P2_MID–P2_OUT time coincidence**, |Δt − median| < 150 ns. Accidentals are negligible: sidebands hold ≤ 10⁻³ of the peak, even at 60 ADC.
+  - The width is the 68 % half-width of (MID − OUT)/√2. The time is the median of MID.
+  - The 200 ADC cut of the simulation session was not used. At low field the median amplitude falls to about 150 ADC, so that cut keeps only the high tail.
+- **Excluded:**
+  - `mesh_drift_scan_up_1/drift2_11`: the decode hung, so P2_IN and P2_OUT are missing.
+  - `drift_mesh_scan_1/drift_700`: coincidences only in the last sixth of the sub-run.
+
+1. **No time dependence inside sub-runs.**
+   - Each sub-run is 7–17 min, split into 6 slices, the first of which covers about the first minute after the HV step.
+   - The width, the median time and the yield are flat. Over the 27 sub-runs at ≤ 400 V/cm, χ²/ndf against "no change" is **0.60 for the width and 0.94 for the median**.
+   - The weighted mean change from the first to the last slice is −0.06 ns for the width and −0.23 ns for the median.
+   - At 375–500 V/cm the sub-runs are flat to better than 1 ns and 2 %.
+   - This rules out a charging-up with a time constant between about 1 and 10 minutes.
+2. **No dependence on scan direction.**
+   - **`drift_mesh_2d_2`** alternates direction row by row (mesh 330–450 V, 375–1125 V/cm). Each down row differs from the mean of its two up neighbours by **at most 2 ns, and mostly ≤ 0.8 ns**.
+   - **The downward scan** (`mesh_drift_scan_up_1`, 07-26, 1062 → 25 V/cm) matches the upward scans of 07-27 and 07-28 at mesh 450 V within about 1 ns: for example 36.8 / 33.8 / 33.4 ns at 375 V/cm and 19.0 / 18.5 / 18.1 ns at 750 V/cm.
+   - **At the one point with identical HV** (125 V/cm, mesh 450), up (07-25) and down (07-26) agree: width 43.2 ± 0.5 vs 45.0 ± 0.7 ns, median 278.0 vs 277.5 ns, relative yield 0.155 vs 0.153.
+3. **A day-scale change, not a direction effect.**
+   - 07-25 is better than every later day, but only at intermediate fields. At 375 V/cm the width is 28.4 ns against 33.4–36.8 ns, and the MID amplitude 293 ADC against 234–264 ADC.
+   - At ≥ 875 V/cm all days agree: width 17.1–17.8 ns, MID amplitude 372–391 ADC. So it is not a change of gain.
+   - P2_OUT shows the same extra low-field loss on the later days.
+   - The later curves look like the 07-25 curve shifted by about +100 V/cm, which is about 40 V on the drift.
+   - **This points to a slow change common to both chambers**, for example gas purity (electron attachment grows with drift time) or a small effective drift-field offset. It does not point to fast charging. I have not tested which; 07-24 cannot help, because P2_MID ran at low gain that day (amplitude about 97 ADC).
+4. **What the low-field signal looks like** (mesh 450 V, 07-26 down scan):
+   - The single-chamber relative yield, √(coincidences per trigger over the run's plateau), falls steeply below about 500 V/cm:
+
+     | field (V/cm) | 1000 | 750 | 625 | 500 | 375 | 250 | 125 |
+     |---|---|---|---|---|---|---|---|
+     | 07-26 | 1.00 | 0.93 | 0.82 | 0.63 | 0.36 | 0.15 | 0.15 |
+
+     07-25 gives 0.98, 0.93, 0.82, 0.57, 0.22 and 0.16 at 750–125 V/cm.
+   - The median MID time is only **+11 ns** later than the plateau at 125 V/cm, +34 ns at about 250 V/cm, and **−35 ns at 0 V/cm**.
+   - At zero drift field about 1,000 coincidences remain. They are narrow (17 ns) and early, so they must be charges produced at the mesh.
+   - As the field falls, the surviving signal comes more and more from near the mesh. The yield loss is the electrons from the upper part of the gap that never arrive, as the handoff suspected.
+   - Strong electron attachment, or a field strongly reduced over most of the gap, would both produce this. The flat time behaviour and the lack of a direction effect argue against a dynamic screening charge.
+   - The relative yield is a proxy, not an efficiency. It assumes the muon fraction of the triggers is stable within a run, and the 60 ADC floor plus zero suppression bias it at the lowest fields.
+5. **A P2_MID-only anomaly at 200–250 V/cm** on both days. Its amplitude halves (137–172 ADC against 260 at 162 V/cm), and its median arrives about 25 ns late, while P2_OUT stays smooth.
+   - On 07-26 it spans `drift2_07`–`10`. The logbook reports sparklets on the MID mesh, worst in `drift2_08`.
+   - On 07-25 it is the single 250 V/cm point.
+   - Not understood. I flag it rather than explain it.
+- **Caveat:** the `run_time.txt` of `drift_mesh_scan_1/drift_450` (0 V/cm) records a 3 s run, about 9 h after the rest. The hits in its file span the full sub-run (2.74 M triggers), so `run_time.txt` was probably overwritten by an aborted retake. Its timing within the day is uncertain.
+
+**Verdict B (SPS):** the low-field degradation is **static on the scale of minutes and independent of scan direction**, so a charging-up of a dielectric surface during the scan is not supported. On top of that, there is a **slow, day-scale worsening at intermediate fields common to both chambers**. Suggested next test, simulation side: the attachment coefficient needed to reproduce the yield-vs-field curve above, and the matching drift-time cut-off.
+
+### Cosmic (not done yet)
+
+The det1 drift-scan sub-runs at 465 / 515 V (handoff §4.2) are still to do. The LaCie, which holds the cosmic input, was disconnected during this session.
