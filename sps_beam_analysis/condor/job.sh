@@ -283,6 +283,21 @@ if [ ${#failed_stages[@]} -gt 0 ]; then
     say "STAGE FAILURES: $RUN/$SUB: ${failed_stages[*]}"
 fi
 
+# --- 5b. Stamp every product directory with the code that made it ----------
+# CODE_VERSION.txt (+ CODE_DIFF.patch if packed from a dirty tree) comes from
+# submit.sh inside p2code.tgz; this job's identity is appended.
+if [ -f "$CODE/CODE_VERSION.txt" ]; then
+    while IFS= read -r d; do
+        { cat "$CODE/CODE_VERSION.txt"
+          echo "job:       $RUN/$SUB group=$GROUP src=$SRC" \
+               "on $(hostname -f) at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        } > "$d/CODE_VERSION.txt"
+        [ -f "$CODE/CODE_DIFF.patch" ] && cp "$CODE/CODE_DIFF.patch" "$d/"
+    done < <(find "$SPS_ANALYSIS_ROOT" -type f -printf '%h\n' | sort -u)
+else
+    say "WARNING: p2code.tgz carries no CODE_VERSION.txt -- products unstamped"
+fi
+
 # --- 6. Push products back to EOS ------------------------------------------
 # Products are PNG/CSV/JSON (a few MB per sub_run). The layout mirrors the DAQ
 # GUI's Analysis tab: <analysis>/<det_tag>/<run>/<sub_run>/<stage>/...
