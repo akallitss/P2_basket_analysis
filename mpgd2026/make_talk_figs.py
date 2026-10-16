@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
 BENCH = ('/local/home/ak271430/Documents/PostDocSaclay/data/'
          'Cosmic_Bench/Analysis')
 BEAM = ('/media/ak271430/LaCie/Extras/Physics/Post-Doc-Saclay/data/'
-        'SPS_Beam_Test/TB_July2026_H4/analysis/urw_referenced_efficiency')
+        'SPS_beam_test/TB_July2026_H4/analysis/combined/urw_referenced_efficiency')
 VMM = ('/local/home/ak271430/Documents/PostDocSaclay/P2_basket_analysis/'
        'sps_beam_analysis/vmm_dream_matching')
 NOV = ('/local/home/ak271430/Documents/PostDocSaclay/data/'
