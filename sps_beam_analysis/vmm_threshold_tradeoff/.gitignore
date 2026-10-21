@@ -1,0 +1,12 @@
+# bulky or re-fetchable inputs; kept locally next to the scripts (see README)
+thrscan/
+eff/
+logimg/
+snrimg/
+*.npz
+*.npy
+*.csv
+*.png
+*.bak
+o30.txt
+o45.txt
