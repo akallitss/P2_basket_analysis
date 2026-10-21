@@ -1,0 +1,269 @@
+=== run_46/p2b-config-cern-ext_gain4.5_peaktime200.txt
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi2   Field sg  1 # 1 mV/fC
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi2   Field sg  1 # 1 mV/fC
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi1   Field sdt 44 # 
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi2   Field sdt  6 # 300
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi1   Field sdt 44 # 
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi2   Field sdt  6 # 1023
+Sys 0 Bec 0 Hyb 1 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 1 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 2 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 2 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 3 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 3 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 4 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 4 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 5 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 5 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 6 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 6 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 7 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 7 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 8 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 8 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 9 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 9 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 1 Vmm 0 Reg bank1spi1   Field sdt 32
+Sys 0 Bec 0 Hyb 1 Vmm 0 Reg bank1spi2   Field sdt  3 # 224
+Sys 0 Bec 0 Hyb 1 Vmm 1 Reg bank1spi1   Field sdt 32
+Sys 0 Bec 0 Hyb 1 Vmm 1 Reg bank1spi2   Field sdt  3 # 224
+Sys 0 Bec 0 Hyb 2 Vmm 0 Reg bank1spi1   Field sdt 44
+Sys 0 Bec 0 Hyb 2 Vmm 0 Reg bank1spi2   Field sdt  4 # 300
+Sys 0 Bec 0 Hyb 2 Vmm 1 Reg bank1spi1   Field sdt  0
+Sys 0 Bec 0 Hyb 2 Vmm 1 Reg bank1spi2   Field sdt  4 # 256
+Sys 0 Bec 0 Hyb 3 Vmm 0 Reg bank1spi1   Field sdt 32
+Sys 0 Bec 0 Hyb 3 Vmm 0 Reg bank1spi2   Field sdt  3 # 224
+Sys 0 Bec 0 Hyb 3 Vmm 1 Reg bank1spi1   Field sdt  32
+Sys 0 Bec 0 Hyb 3 Vmm 1 Reg bank1spi2   Field sdt  4 # 288
+Sys 0 Bec 0 Hyb 4 Vmm 0 Reg bank1spi1   Field sdt 32
+Sys 0 Bec 0 Hyb 4 Vmm 0 Reg bank1spi2   Field sdt  3 # 224
+Sys 0 Bec 0 Hyb 4 Vmm 1 Reg bank1spi1   Field sdt  0
+Sys 0 Bec 0 Hyb 4 Vmm 1 Reg bank1spi2   Field sdt  4 # 2256
+Sys 0 Bec 0 Hyb 5 Vmm 0 Reg bank1spi1   Field sdt 32
+Sys 0 Bec 0 Hyb 5 Vmm 0 Reg bank1spi2   Field sdt  3 # 224
+Sys 0 Bec 0 Hyb 5 Vmm 1 Reg bank1spi1   Field sdt 32
+Sys 0 Bec 0 Hyb 5 Vmm 1 Reg bank1spi2   Field sdt  3 # 224
+Sys 0 Bec 0 Hyb 6 Vmm 0 Reg bank1spi1   Field sdt  0
+Sys 0 Bec 0 Hyb 6 Vmm 0 Reg bank1spi2   Field sdt  4 # 256
+Sys 0 Bec 0 Hyb 6 Vmm 1 Reg bank1spi1   Field sdt 32
+Sys 0 Bec 0 Hyb 6 Vmm 1 Reg bank1spi2   Field sdt  3 # 224
+Sys 0 Bec 0 Hyb 7 Vmm 0 Reg bank1spi1   Field sdt 32
+Sys 0 Bec 0 Hyb 7 Vmm 0 Reg bank1spi2   Field sdt  3 # 224
+Sys 0 Bec 0 Hyb 7 Vmm 1 Reg bank1spi1   Field sdt 32
+Sys 0 Bec 0 Hyb 7 Vmm 1 Reg bank1spi2   Field sdt  3 # 224
+Sys 0 Bec 0 Hyb 8 Vmm 0 Reg bank1spi1   Field sdt 32
+Sys 0 Bec 0 Hyb 8 Vmm 0 Reg bank1spi2   Field sdt  3 # 224
+Sys 0 Bec 0 Hyb 8 Vmm 1 Reg bank1spi1   Field sdt 32
+Sys 0 Bec 0 Hyb 8 Vmm 1 Reg bank1spi2   Field sdt  3 # 224
+Sys 0 Bec 0 Hyb 9 Vmm 0 Reg bank1spi1   Field sdt 32
+Sys 0 Bec 0 Hyb 9 Vmm 0 Reg bank1spi2   Field sdt  3 # 224
+Sys 0 Bec 0 Hyb 9 Vmm 1 Reg bank1spi1   Field sdt 32
+Sys 0 Bec 0 Hyb 9 Vmm 1 Reg bank1spi2   Field sdt  3 # 224
+=== run_48/p2b-config-cern-ext_gain4.5_peaktime200_opt.txt
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi2   Field sg  1 # 1 mV/fC
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi2   Field sg  1 # 1 mV/fC
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi1   Field sdt 44 # 
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi2   Field sdt  6 # 300
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi1   Field sdt 44 # 
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi2   Field sdt  6 # 1023
+Sys 0 Bec 0 Hyb 1 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 1 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 2 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 2 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 3 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 3 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 4 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 4 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 5 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 5 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 6 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 6 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 7 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 7 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 8 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 8 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 9 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 9 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 1 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 1 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 1 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 1 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 2 Vmm 0 Reg bank1spi1   Field sdt 44
+Sys 0 Bec 0 Hyb 2 Vmm 0 Reg bank1spi2   Field sdt  4 # 300
+Sys 0 Bec 0 Hyb 2 Vmm 1 Reg bank1spi1   Field sdt 53
+Sys 0 Bec 0 Hyb 2 Vmm 1 Reg bank1spi2   Field sdt  3 # 245
+Sys 0 Bec 0 Hyb 3 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 3 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 3 Vmm 1 Reg bank1spi1   Field sdt 29
+Sys 0 Bec 0 Hyb 3 Vmm 1 Reg bank1spi2   Field sdt  4 # 285
+Sys 0 Bec 0 Hyb 4 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 4 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 4 Vmm 1 Reg bank1spi1   Field sdt 44
+Sys 0 Bec 0 Hyb 4 Vmm 1 Reg bank1spi2   Field sdt  4 # 300
+Sys 0 Bec 0 Hyb 5 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 5 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 5 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 5 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 6 Vmm 0 Reg bank1spi1   Field sdt 63
+Sys 0 Bec 0 Hyb 6 Vmm 0 Reg bank1spi2   Field sdt  3 # 255
+Sys 0 Bec 0 Hyb 6 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 6 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 7 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 7 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 7 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 7 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 8 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 8 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 8 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 8 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 9 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 9 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 9 Vmm 1 Reg bank1spi1   Field sdt  9
+Sys 0 Bec 0 Hyb 9 Vmm 1 Reg bank1spi2   Field sdt  4 # 265
+=== run_52/p2b-config-cern-ext_gain4.5_peaktime200_opt.txt
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi2   Field sg  1 # 1 mV/fC
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi2   Field sg  1 # 1 mV/fC
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi1   Field sdt 44 # 
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi2   Field sdt  6 # 300
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi1   Field sdt 44 # 
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi2   Field sdt  6 # 1023
+Sys 0 Bec 0 Hyb 1 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 1 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 2 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 2 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 3 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 3 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 4 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 4 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 5 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 5 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 6 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 6 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 7 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 7 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 8 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 8 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 9 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 9 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 1 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 1 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 1 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 1 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 2 Vmm 0 Reg bank1spi1   Field sdt 44
+Sys 0 Bec 0 Hyb 2 Vmm 0 Reg bank1spi2   Field sdt  4 # 300
+Sys 0 Bec 0 Hyb 2 Vmm 1 Reg bank1spi1   Field sdt 53
+Sys 0 Bec 0 Hyb 2 Vmm 1 Reg bank1spi2   Field sdt  3 # 245
+Sys 0 Bec 0 Hyb 3 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 3 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 3 Vmm 1 Reg bank1spi1   Field sdt 29
+Sys 0 Bec 0 Hyb 3 Vmm 1 Reg bank1spi2   Field sdt  4 # 285
+Sys 0 Bec 0 Hyb 4 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 4 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 4 Vmm 1 Reg bank1spi1   Field sdt 44
+Sys 0 Bec 0 Hyb 4 Vmm 1 Reg bank1spi2   Field sdt  4 # 300
+Sys 0 Bec 0 Hyb 5 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 5 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 5 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 5 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 6 Vmm 0 Reg bank1spi1   Field sdt 63
+Sys 0 Bec 0 Hyb 6 Vmm 0 Reg bank1spi2   Field sdt  3 # 255
+Sys 0 Bec 0 Hyb 6 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 6 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 7 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 7 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 7 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 7 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 8 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 8 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 8 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 8 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 9 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 9 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 9 Vmm 1 Reg bank1spi1   Field sdt  9
+Sys 0 Bec 0 Hyb 9 Vmm 1 Reg bank1spi2   Field sdt  4 # 265
+=== run_53/p2b-config-cern-ext_gain4.5_peaktime200_deflt.txt
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi2   Field sg  1 # 1 mV/fC
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi2   Field sg  1 # 1 mV/fC
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi1   Field sdt 44 # 
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi2   Field sdt  6 # 300
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi1   Field sdt 44 # 
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi2   Field sdt  6 # 1023
+Sys 0 Bec 0 Hyb 1 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 1 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 2 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 2 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 3 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 3 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 4 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 4 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 5 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 5 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 6 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 6 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 7 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 7 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 8 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 8 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 9 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 9 Vmm 1 Reg bank1spi2   Field sg  3
+=== run_66/p2b-config-cern-ext_gain4.5_peaktime200_opt.txt
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi2   Field sg  1 # 1 mV/fC
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi2   Field sg  1 # 1 mV/fC
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi1   Field sdt 44 # 
+Sys 0 Bec 0 Hyb 0 Vmm 0 Reg bank1spi2   Field sdt  6 # 300
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi1   Field sdt 44 # 
+Sys 0 Bec 0 Hyb 0 Vmm 1 Reg bank1spi2   Field sdt  6 # 1023
+Sys 0 Bec 0 Hyb 1 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 1 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 2 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 2 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 3 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 3 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 4 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 4 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 5 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 5 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 6 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 6 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 7 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 7 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 8 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 8 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 9 Vmm 0 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 9 Vmm 1 Reg bank1spi2   Field sg  3
+Sys 0 Bec 0 Hyb 1 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 1 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 1 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 1 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 2 Vmm 0 Reg bank1spi1   Field sdt 44
+Sys 0 Bec 0 Hyb 2 Vmm 0 Reg bank1spi2   Field sdt  4 # 300
+Sys 0 Bec 0 Hyb 2 Vmm 1 Reg bank1spi1   Field sdt 53
+Sys 0 Bec 0 Hyb 2 Vmm 1 Reg bank1spi2   Field sdt  3 # 245
+Sys 0 Bec 0 Hyb 3 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 3 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 3 Vmm 1 Reg bank1spi1   Field sdt 29
+Sys 0 Bec 0 Hyb 3 Vmm 1 Reg bank1spi2   Field sdt  4 # 285
+Sys 0 Bec 0 Hyb 4 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 4 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 4 Vmm 1 Reg bank1spi1   Field sdt 44
+Sys 0 Bec 0 Hyb 4 Vmm 1 Reg bank1spi2   Field sdt  4 # 300
+Sys 0 Bec 0 Hyb 5 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 5 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 5 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 5 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 6 Vmm 0 Reg bank1spi1   Field sdt 63
+Sys 0 Bec 0 Hyb 6 Vmm 0 Reg bank1spi2   Field sdt  3 # 255
+Sys 0 Bec 0 Hyb 6 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 6 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 7 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 7 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 7 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 7 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 8 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 8 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 8 Vmm 1 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 8 Vmm 1 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 9 Vmm 0 Reg bank1spi1   Field sdt 38
+Sys 0 Bec 0 Hyb 9 Vmm 0 Reg bank1spi2   Field sdt  3 # 230
+Sys 0 Bec 0 Hyb 9 Vmm 1 Reg bank1spi1   Field sdt  9
+Sys 0 Bec 0 Hyb 9 Vmm 1 Reg bank1spi2   Field sdt  4 # 265
