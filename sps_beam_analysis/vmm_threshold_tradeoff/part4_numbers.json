@@ -1,0 +1,89 @@
+{
+ "baseline": {
+  "2": {
+   "base": 208.1,
+   "run_spread": 1.4,
+   "sys": 5.7
+  },
+  "3": {
+   "base": 182.2,
+   "run_spread": 0.0,
+   "sys": 6.2
+  },
+  "4": {
+   "base": 197.8,
+   "run_spread": 1.6,
+   "sys": 7.9
+  },
+  "5": {
+   "base": 211.7,
+   "run_spread": 0.9,
+   "sys": 5.9
+  },
+  "7": {
+   "base": 200.6,
+   "run_spread": 0.9,
+   "sys": 7.3
+  },
+  "8": {
+   "base": 196.7,
+   "run_spread": 0.9,
+   "sys": 5.9
+  },
+  "9": {
+   "base": 191.1,
+   "run_spread": 0.0,
+   "sys": 8.2
+  },
+  "10": {
+   "base": 210.0,
+   "run_spread": 0.0,
+   "sys": 5.7
+  },
+  "11": {
+   "base": 204.1,
+   "run_spread": 1.4,
+   "sys": 5.7
+  },
+  "12": {
+   "base": 210.6,
+   "run_spread": 0.9,
+   "sys": 6.1
+  },
+  "13": {
+   "base": 187.8,
+   "run_spread": 0.9,
+   "sys": 6.0
+  },
+  "14": {
+   "base": 201.1,
+   "run_spread": 0.0,
+   "sys": 5.8
+  },
+  "15": {
+   "base": 179.6,
+   "run_spread": 0.5,
+   "sys": 6.2
+  },
+  "16": {
+   "base": 198.5,
+   "run_spread": 0.5,
+   "sys": 5.8
+  },
+  "17": {
+   "base": 186.7,
+   "run_spread": 0.9,
+   "sys": 6.1
+  },
+  "18": {
+   "base": 182.6,
+   "run_spread": 0.5,
+   "sys": 6.1
+  },
+  "19": {
+   "base": 204.3,
+   "run_spread": 0.5,
+   "sys": 6.5
+  }
+ }
+}
