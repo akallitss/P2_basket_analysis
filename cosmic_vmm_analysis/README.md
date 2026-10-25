@@ -32,12 +32,13 @@ Outputs are kept outside the repo, under `data/Lab_Measurements/VMM-cosmics/vmm_
 | `tag_and_probe_pads.py` | geometric tag-and-probe with the pad map (method of `sps_beam_analysis/22_tag_probe_efficiency.py`) |
 | `muon_signal_check.py` | ADC by event class and chip-pair time coincidences (map independent) |
 | `dump_candidates.py` | keep the hits of small multi-chamber groups (input of the mapping / orientation studies) |
+| `orientation_check.py` | channel order per connector (adjacency, smoothness, straight tracks) and rotation/mirror scan between chambers |
+| `straight_track_rate.py` | straight three-chamber tracks above chance per run (group and chip-preserving nulls) |
 | `vmm_qa_path.py` | puts `vmm_stations` on `sys.path` |
 
 ## Status (2026-10-25)
 
-The geometric tag-and-probe does not find tracks yet: the time coincidences between chambers are real (narrow
-peaks) but spread over all chip pairs, and the SPS channel order inside the connector halves does not hold for
-every half with the Samtec cables (the top halves of c5 / c6 do follow it; the P2_IN ribbon overrides needed with
-the Hitachi cables do not). Next: per-half channel-order scan on clean events, then the chamber-to-chamber
-rotation + mirror scan (as `cosmic_bench_analysis/03_m3_alignment.py`), then the efficiency.
+No measurable muon signal at any threshold setting (DAQ repo `docs/LAB_COSMICS_OBSERVATIONS.md` items 61-64): the
+SPS map is the best wiring found (no alternative beats it on held-out events, no mirror), the time coincidences
+between chambers are shared noise (chip-level), the bursts are whole-chamber events, and the low-threshold
+"tracks" are a fixed pattern of hot channels. Next: HV / gas at the lab vs SPS, and a source test.
