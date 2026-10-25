@@ -36,6 +36,12 @@ Outputs are kept outside the repo, under `data/Lab_Measurements/VMM-cosmics/vmm_
 | `straight_track_rate.py` | straight three-chamber tracks above chance per run (group and chip-preserving nulls) |
 | `vmm_qa_path.py` | puts `vmm_stations` on `sys.path` |
 
+## The CERN-site note
+
+`note/` holds the generator of the unlisted note "Measuring the VMM noise threshold with cosmic muons: what we did and
+what we saw" (cern-site `notes/unlisted/2026-10-22-...html`): `note/build_note.sh` rebuilds it from the analysis outputs,
+then `scripts/build_hub.py` + `scripts/deploy.sh` in cern-site publish it. Figures are inline SVG written by the parts.
+
 ## Status (2026-10-25)
 
 No measurable muon signal at any threshold setting (DAQ repo `docs/LAB_COSMICS_OBSERVATIONS.md` items 61-64): the
