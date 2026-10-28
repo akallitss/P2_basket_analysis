@@ -49,13 +49,26 @@ then `scripts/build_hub.py` + `scripts/deploy.sh` in cern-site publish it. Figur
 
 ## Map for the lab runs
 
-Runs 1-111: read-out on c4-c6, SPS map (`--conn-shift 0`). From run_112: c3-c5 (`--conn-shift -1`), and the top halves of
-P2_IN c3 (VMM 3) and c5 (VMM 7) are LINEAR, not reversed (`--order 'P2_IN:3=bot:rev|top:lin' --order 'P2_IN:5=bot:rev|top:lin'`),
-found by `half_order_scan.py` on run_121 and confirmed on run_124; all other connectors keep the SPS order.
+Found from the data (`straight_track_rate.py` connector-shift scan, `half_order_scan.py` with held-out halves). The
+run_config.json texts say c4-c6 for runs 1-111, which is NOT what the data show:
+
+| runs | hybrids H1-H3 / H4-H6 / H7-H9 on | options |
+|---|---|---|
+| 1-111 | c5-c7 | `--conn-shift 1 --order 'P2_IN:5=bot:rev\|top:lin'` |
+| 112- | c3-c5 | `--conn-shift -1 --order 'P2_IN:3=bot:rev\|top:lin' --order 'P2_IN:5=bot:rev\|top:lin'` |
+
+The linear top halves belong to det3 (P2_IN) connectors c3 and c5, whichever hybrid reads them (c5 top is linear when
+read by VMM 3 in runs 1-111 and by VMM 7 from run_112); all other halves keep the SPS order. On the c4-c6 map the old
+runs show nothing (about 10 straight tracks/h against 511 +- 10/h at shift +1, pooled 76-91): the 25 Oct "no muon
+signal" was this map error. Always scan the connector shift before trusting a null result.
 
 Discharges: check repeated pad triplets before trusting a track count. In run_121 det3 VMM 2 ch 27 and VMM 6 ch 44
 fire saturated every few seconds and induce small hits on fixed det2/det1 channels: 131 identical fake "tracks" that
-pass both chance nulls (`--veto 2:27,6:44`). Run_124 has none.
+pass both chance nulls (`--veto 2:27,6:44`). Run_124 has none. Runs 76-91: det2 VMM 11 ch 35 saturated with pickup on
+VMM 4 ch 9 and VMM 18 ch 10 (`--veto 11:35,18:10,4:9`).
+
+Tag-and-probe trap: noise firing two chambers at once passes the off-time subtraction and has a cosmic-like tag angle
+distribution (run_76 on the wrong map: 98 % "purity", 2 % efficiency).
 
 ## Status (2026-10-28)
 
