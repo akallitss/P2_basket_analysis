@@ -109,7 +109,21 @@ def nearest_hit(px, py, pt, hx, hy, ht, lo, hi):
     return out
 
 
-def probe(p, ta_d, tb_d, cl, hits, live_pads, a):
+def time_since_previous(times_by_key, keys, t):
+    """for each (key, t): t minus the last time of that key strictly before t (inf if none)."""
+    out = np.full(len(t), np.inf)
+    for k in set(keys.tolist()):
+        tt = times_by_key.get(k)
+        if tt is None or not len(tt):
+            continue
+        m = np.nonzero(keys == k)[0]
+        idx = np.searchsorted(tt, t[m]) - 1
+        ok = idx >= 0
+        out[m[ok]] = t[m[ok]] - tt[idx[ok]]
+    return out
+
+
+def probe(p, ta_d, tb_d, cl, hits, live_pads, a, chip_times=None, chan_times=None):
     (xa, ya, ta, aa), (xb, yb, tb, ab) = cl[ta_d], cl[tb_d]
     i, j = pairs(ta, tb, -a.off_hi - 300, a.off_hi + 300)
     dt = tb[j] - ta[i]
@@ -149,7 +163,7 @@ def probe(p, ta_d, tb_d, cl, hits, live_pads, a):
     dmin = nearest_hit(px, py, pt, hx, hy, ht, lat - a.win, lat + a.win)
     smin = nearest_hit(px, py, pt, hx, hy, ht, lat - a.win + a.sideband, lat + a.win + a.sideband)
 
-    def est(mask_extra=None, probe_r=a.probe_r):
+    def est(mask_extra=None, probe_r=a.probe_r, dmin=dmin):
         m = fid if mask_extra is None else fid & mask_extra
         n_on, n_off = int((m & on).sum()), int((m & off).sum())
         k_on, k_off = int((m & on & (dmin < probe_r)).sum()), int((m & off & (dmin < probe_r)).sum())
@@ -178,6 +192,30 @@ def probe(p, ta_d, tb_d, cl, hits, live_pads, a):
     out['vs_tan_theta'] = {f'{lo}-{hi}': est((slope >= lo) & (slope < hi)) for lo, hi in zip(edges[:-1], edges[1:])}
     tag_adc = np.minimum(aa[i], ab[j])
     out['vs_tag_adc'] = {str(c): est(tag_adc >= c) for c in (0, 100, 150, 200, 300, 400, 600, 1000)}
+    # probe criteria: time window, and a hit anywhere in the probe chamber (position ignored)
+    out['vs_win_ns'] = {str(w): est(dmin=nearest_hit(px, py, pt, hx, hy, ht, lat - w, lat + w)) for w in (50, 100, 300, 1000)}
+    out['any_position'] = est(probe_r=np.inf)
+    # time of the probe hits within --probe-r of the prediction, relative to tag + latency (on minus scaled off)
+    edges_t = np.arange(-2000, 2001, 25)
+    h_on, h_off = np.zeros(len(edges_t) - 1), np.zeros(len(edges_t) - 1)
+    for k in np.nonzero(fid & (on | off))[0]:
+        s0, e0 = np.searchsorted(ht, pt[k] + lat - 2000), np.searchsorted(ht, pt[k] + lat + 2000)
+        q = np.hypot(hx[s0:e0] - px[k], hy[s0:e0] - py[k]) < a.probe_r
+        hh = np.histogram(ht[s0:e0][q] - pt[k] - lat, bins=edges_t)[0]
+        if on[k]:
+            h_on += hh
+        else:
+            h_off += hh
+    out['probe_dt_hist'] = {'edges_ns': edges_t.tolist(), 'on': h_on.tolist(), 'off_scaled': (r_scale * h_off).tolist()}
+    # dead time: time since the previous hit (any ADC, also noise) on the chip / the channel of the predicted pad
+    if chip_times is not None:
+        t_ref = pt + lat - a.win
+        g_chip = time_since_previous(chip_times, cv[near], t_ref)
+        g_chan = time_since_previous(chan_times, cv[near] * 64 + cc[near], t_ref)
+        gb = (0, 1e3, 1e4, 1e5, 1e6, 1e7, np.inf)
+        lab = ('<1us', '1-10us', '10-100us', '0.1-1ms', '1-10ms', '>10ms')
+        out['vs_prev_chip_hit'] = {l: est((g_chip >= lo) & (g_chip < hi)) for l, lo, hi in zip(lab, gb[:-1], gb[1:])}
+        out['vs_prev_channel_hit'] = {l: est((g_chan >= lo) & (g_chan < hi)) for l, lo, hi in zip(lab, gb[:-1], gb[1:])}
     out['per_chip'] = {str(v): est(cv[near] == v) for v in sorted(set(cv.tolist()))}
     pads = []
     for q in np.unique(near[fid]):
@@ -246,8 +284,14 @@ def main():
                               for d in live_pads}}
     print(f'{a.title}: {len(T)} hits in {span / 60:.1f} min; clean clusters', res['clean_clusters'],
           '; live channels', res['live_channels'])
+    key = V * 64 + C
+    o = np.argsort(key, kind='stable')
+    ks, starts = np.unique(key[o], return_index=True)
+    To = T[o]
+    chan_times = {int(k): To[s0:e0] for k, s0, e0 in zip(ks, starts, list(starts[1:]) + [len(o)])}
+    chip_times = {int(v): T[V == v] for v in np.unique(V)}
     for p, tags in ((2, (3, 1)), (1, (3, 2)), (3, (2, 1))):
-        r = probe(p, tags[0], tags[1], cl, hits, live_pads, a)
+        r = probe(p, tags[0], tags[1], cl, hits, live_pads, a, chip_times, chan_times)
         res[f'probe_det{p}'] = r
         s = r['all']
         print(f'{NAME[p]} (tags {r["tags"][0]} + {r["tags"][1]}): on {s["n_on"]} off {s["n_off"]} -> tags {s["n_sig"]} '
@@ -255,6 +299,12 @@ def main():
               f'{s.get("acc")}); dt0 {r["dt0_ns"]:.0f} ns, lat {r["latency_ns"]:.0f} ns, offset '
               f'{np.round(r["offset_mm"], 1)} mm', flush=True)
         print('   vs probe-r:', {k: v['eff'] for k, v in r['vs_probe_r'].items()})
+        print('   vs window +-ns:', {k: v['eff'] for k, v in r['vs_win_ns'].items()},
+              '| hit anywhere in the chamber:', r['any_position']['eff'])
+        print('   vs time since previous CHIP hit: eff (tags):',
+              {k: (v['eff'], v['n_sig']) for k, v in r['vs_prev_chip_hit'].items()})
+        print('   vs time since previous CHANNEL hit: eff (tags):',
+              {k: (v['eff'], v['n_sig']) for k, v in r['vs_prev_channel_hit'].items()})
         print('   vs smaller tag ADC >= cut: eff (tags):', {k: (v['eff'], v['n_sig']) for k, v in r['vs_tag_adc'].items()})
         print('   vs tan(theta) of the tag pair: eff (tags):',
               {k: (v['eff'], v['n_sig']) for k, v in r['vs_tan_theta'].items()})
