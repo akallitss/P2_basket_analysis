@@ -14,7 +14,10 @@ acceptance), so across threshold settings its maximum marks the best setting. Th
 A run spec may end with @f when only a fraction f of its capture files was decoded (the span from the first to
 the last hit is then multiplied by f).
 
+From run_112 on the chambers are read on connectors c3-c5 instead of c4-c6: --conn-shift -1.
+
 Usage: straight_track_rate.py OUT.json run_76:cand76.npz[,more.npz] run_95:cand95.npz@0.25 ... [--tol 30] [--max-hits 12]
+       [--conn-shift -1]
 """
 import argparse
 import json
@@ -26,7 +29,13 @@ import pandas as pd
 import orientation_check as O
 
 
-def groups(files, max_hits, X, Y):
+def parse_veto(s):
+    """'2:27,6:44' -> {(2, 27), (6, 44)}"""
+    return {tuple(int(x) for x in p.split(':')) for p in s.split(',')} if s else set()
+
+
+def groups(files, max_hits, X, Y, veto=()):
+    """veto: (vmm, ch) whose groups are dropped whole (a discharging channel and the pickup it induces elsewhere)."""
     out = []
     span = 0.0
     off = 0
@@ -40,6 +49,9 @@ def groups(files, max_hits, X, Y):
         h['ch'] = h['ch'].astype(int)
         g = h.groupby('ev')
         h = h[(g['det'].transform('nunique') == 3) & (g['vmm'].transform('size') <= max_hits)]
+        if veto:
+            bad = pd.Series([(v, c) in veto for v, c in zip(h['vmm'], h['ch'])], index=h.index)
+            h = h[~bad.groupby(h['ev']).transform('any')]
         h = h.assign(x=X[h['vmm'], h['ch']], y=Y[h['vmm'], h['ch']]).dropna(subset=['x'])
         out.append(h)
     return pd.concat(out, ignore_index=True), span
@@ -70,15 +82,19 @@ def main():
     ap.add_argument('--tol', type=float, default=30)
     ap.add_argument('--max-hits', type=int, default=12)
     ap.add_argument('--n-shuffle', type=int, default=10)
+    ap.add_argument('--conn-shift', type=int, default=0, help='-1 for runs >= 112 (read-out on c3-c5)')
+    ap.add_argument('--order', action='append', help="channel order of one connector, e.g. 'P2_IN:3=bot:rev|top:lin'")
+    ap.add_argument('--veto', default='', help='vmm:ch,... whose groups are dropped, e.g. 2:27,6:44')
     a = ap.parse_args()
-    X, Y = O.Mapper().xy_table()
+    X, Y = O.Mapper(a.conn_shift).xy_table(O.parse_orders(a.order))
+    veto = parse_veto(a.veto)
     rng = np.random.default_rng(5)
     res = {'params': vars(a), 'runs': {}}
     print(f'{"run":>8} {"span h":>7} {"groups/h":>9} {"straight/h":>11} {"chance/h":>9} {"signal/h":>9} {"+-":>5}')
     for spec in a.runs:
         name, files = spec.split(':', 1)
         files, _, frac = files.partition('@')
-        h, span = groups(files.split(','), a.max_hits, X, Y)
+        h, span = groups(files.split(','), a.max_hits, X, Y, veto)
         span *= float(frac) if frac else 1.0
         hours = span / 3600
         g, rx, ry, ng = count_straight(h, a.tol)
