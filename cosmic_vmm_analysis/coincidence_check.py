@@ -31,8 +31,9 @@ def gray(g):
     return b
 
 
-def read_times(path, state, with_adc=False):
-    """yields per packet (vmm, t_ns, ch) arrays, plus adc as a 4th array when with_adc."""
+def read_times(path, state, with_adc=False, max_bytes=None):
+    """yields per packet (vmm, t_ns, ch) arrays, plus adc as a 4th array when with_adc.
+    max_bytes: stop after that many bytes of the file (a sample of a large capture)."""
     tick = 1e-9
     out = []
     with open(path, 'rb', buffering=16 << 20) as f:
@@ -41,6 +42,8 @@ def read_times(path, state, with_adc=False):
             raise SystemExit(f'{path}: not a little-endian pcapng')
         f.seek(0)
         while True:
+            if max_bytes is not None and f.tell() > max_bytes:
+                break
             hdr = f.read(8)
             if len(hdr) < 8:
                 break
