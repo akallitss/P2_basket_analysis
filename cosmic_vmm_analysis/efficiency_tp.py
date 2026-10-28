@@ -160,7 +160,9 @@ def probe(p, ta_d, tb_d, cl, hits, live_pads, a):
         if n_sig <= 0:
             return {'n_on': n_on, 'n_off': n_off, 'k_on': k_on, 'k_off': k_off, 'n_sig': n_sig, 'eff': None}
         e_raw = k_sig / n_sig
-        e = (e_raw - acc) / (1 - acc) if acc < 1 else float('nan')
+        if not acc < 1:
+            return {'n_on': n_on, 'n_off': n_off, 'k_on': k_on, 'k_off': k_off, 'n_sig': n_sig, 'acc': acc, 'eff': None}
+        e = (e_raw - acc) / (1 - acc)
         # error: binomial on the signal plus the Poisson spread of the subtraction
         var = (e_raw * (1 - e_raw) / n_sig if 0 <= e_raw <= 1 else 0) + \
               (r_scale ** 2 * (k_off + e_raw ** 2 * n_off)) / n_sig ** 2
