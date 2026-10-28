@@ -9,7 +9,7 @@ hits taken from another group (chance, --n-shuffle times). Groups are split in t
 the option is chosen on one half and its score is reported on the other, so a free choice among ~40 options cannot
 fit noise.
 
-Usage: half_order_scan.py cand.npz OUT.json [--conn-shift -1] [--tol 20] [--max-hits 12] [--connectors P2_MID:3,...]
+Usage: half_order_scan.py cand.npz[,more.npz] OUT.json [--conn-shift -1] [--tol 20] [--max-hits 12] [--connectors P2_MID:3,...]
        [--veto 2:27,6:44]
 """
 import argparse
@@ -52,7 +52,7 @@ def main():
         keys = [k for k in keys if k in want]
 
     X, Y = mp.xy_table()
-    h, _ = groups([a.cand], a.max_hits, X, Y, veto)
+    h, _ = groups(a.cand.split(','), a.max_hits, X, Y, veto)
     evs = np.unique(h['ev'].to_numpy())
     half = {e: i % 2 for i, e in enumerate(evs)}
     base = {p: score(h[h['ev'].map(half) == p], a.tol, rng, a.n_shuffle) for p in (0, 1)}
@@ -62,7 +62,7 @@ def main():
         res = {}
         for name in O.OPTIONS:
             Xc, Yc = mp.xy_table({key: name})
-            hc, _ = groups([a.cand], a.max_hits, Xc, Yc, veto)
+            hc, _ = groups(a.cand.split(','), a.max_hits, Xc, Yc, veto)
             hp = hc['ev'].map(half)
             res[name] = [score(hc[hp == p], a.tol, rng, a.n_shuffle)[0] for p in (0, 1)]
         best_a = max(res, key=lambda k: res[k][0])
