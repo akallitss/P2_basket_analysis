@@ -1,0 +1,14 @@
+{
+ "_what": "Facts that override the run_config.json texts on EOS (the operator's word, recorded after the runs were taken).",
+ "runs_112_on_hv": {
+  "runs": "112-",
+  "wrong_text": "lab_hv_state_declared: 'The detector-side HV connectors were MOVED from 4,5,6 to 2,3,4 on all three chambers'",
+  "fact": "HV connectors NOT moved. Only the voltages changed on 2026-10-26: P2_IN (det3) mesh 420 / drift 720 V; P2_MID (det2) and P2_OUT (det1) mesh 430 / drift 730 V. Before (runs 57-111): mesh 410 / drift 710 V presumed.",
+  "source": "Alexandra, 2026-10-26"
+ },
+ "runs_112_on_readout": {
+  "runs": "112-",
+  "fact": "Read-out connectors moved from c4-c6 to c3-c5 (3 of the 10 connectors of each chamber), same hybrids and VMMs: H1/H4/H7 on c3, H2/H5/H8 on c4, H3/H6/H9 on c5. The same VMM channels read different pads. The cabling_note and the connector table of run_config.json (c3/c4/c5) are correct.",
+  "source": "Alexandra, 2026-10-26; run_config.json of runs 112-121"
+ }
+}
