@@ -57,6 +57,18 @@ OPTIONS = connector_options()
 SPS = 'bot:rev|top:rev'
 
 
+def parse_orders(specs):
+    """['P2_IN:3=bot:rev|top:lin', ...] -> {('P2_IN', 3): 'bot:rev|top:lin'} (connector numbers as read out)."""
+    out = {}
+    for s in specs or []:
+        k, name = s.split('=', 1)
+        st, n = k.split(':')
+        if name not in OPTIONS:
+            raise SystemExit(f'unknown order {name!r}')
+        out[(st, int(n))] = name
+    return out
+
+
 def load(files, max_hits):
     out = []
     off = 0
@@ -74,13 +86,14 @@ def load(files, max_hits):
 
 
 class Mapper:
-    def __init__(self):
+    def __init__(self, conn_shift=0):
+        """conn_shift: added to the SPS connector number of every hybrid (-1 from run_112 on: c4-c6 -> c3-c5)."""
         self.pad = pd.read_csv(VS.MAP_CSV).set_index('channel_id').sort_index()
         self.halves = VS.vmm_half_map('bot')
         # connectors: (station, n) -> (bottom vmm, top vmm)
         self.conn = {}
         for v, (st, n, half) in self.halves.items():
-            self.conn.setdefault((st, n), {})[half] = v
+            self.conn.setdefault((st, n + conn_shift), {})[half] = v
         self.choice = {k: SPS for k in self.conn}
 
     def xy_table(self, choice=None):
