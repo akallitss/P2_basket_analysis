@@ -24,8 +24,10 @@ Map: read-out connectors shifted by --conn-shift, per-connector channel order fr
 channel and what it induces).
 
 Output OUT.json: per probe chamber the counts, eff with error, acc, the dependence on --probe-r and on the inclination
-tan(theta) of the tag pair (fake tags from noise firing two chambers at once are uniform in position, i.e. steep), per
-chip and per pad.
+tan(theta) of the tag pair, and on the pulse height of the tags (the smaller of the two clusters' largest ADC): noise
+firing two chambers at once passes the off-time subtraction and has a cosmic-like angle distribution (run_76 shows both),
+but sits near threshold, so the efficiency rising with the tag ADC cut and levelling off measures the real one; per chip
+and per pad.
 
 Usage: efficiency_tp.py f1.pcapng[,f2,...] OUT.json --conn-shift -1 --order 'P2_IN:3=bot:rev|top:lin' ...
        [--veto 2:27,6:44] [--dead-vmm 4,7,9] [--title run_124]
@@ -49,23 +51,23 @@ for _v, _d in CHAMBER.items():
 
 def load(files):
     state = {}
-    V, T, C = [], [], []
+    V, T, C, A = [], [], [], []
     for p in files.split(','):
-        for v, t, ch in read_times(p, state):
-            V.append(v); T.append(t); C.append(ch)
-    V, T, C = np.concatenate(V), np.concatenate(T), np.concatenate(C)
+        for v, t, ch, adc in read_times(p, state, with_adc=True):
+            V.append(v); T.append(t); C.append(ch); A.append(adc)
+    V, T, C, A = np.concatenate(V), np.concatenate(T), np.concatenate(C), np.concatenate(A)
     o = np.argsort(T, kind='stable')
-    return V[o].astype(int), T[o], C[o].astype(int)
+    return V[o].astype(int), T[o], C[o].astype(int), A[o].astype(int)
 
 
 def split_groups(t, gap):
     return np.concatenate([[0], np.cumsum(np.diff(t) > gap)]) if len(t) else np.zeros(0, int)
 
 
-def chamber_clusters(d, V, T, C, X, Y, live, bad_hit, burst_hit, a):
-    """clean clusters of chamber d: arrays x, y, t."""
+def chamber_clusters(d, V, T, C, A, X, Y, live, bad_hit, burst_hit, a):
+    """clean clusters of chamber d: arrays x, y, t, largest ADC."""
     m = DET[V] == d
-    v, t, c, x, y = V[m], T[m], C[m], X[m], Y[m]
+    v, t, c, x, y, adc = V[m], T[m], C[m], X[m], Y[m], A[m]
     ok_hit = live[v, c]
     g = split_groups(t, a.gap)
     ng = int(g[-1]) + 1 if len(g) else 0
@@ -81,8 +83,10 @@ def chamber_clusters(d, V, T, C, X, Y, live, bad_hit, burst_hit, a):
     np.maximum.at(spread, g, np.where(ok_hit, r, 0))
     t0 = np.full(ng, np.inf)
     np.minimum.at(t0, g, t)
+    amax = np.zeros(ng, int)
+    np.maximum.at(amax, g, adc)
     clean = (n_live >= 1) & (n_all <= a.max_tag) & (n_live == n_all) & (spread <= a.cluster_r) & ~bad
-    return mx[clean], my[clean], t0[clean]
+    return mx[clean], my[clean], t0[clean], amax[clean]
 
 
 def pairs(ta, tb, lo, hi):
@@ -106,7 +110,7 @@ def nearest_hit(px, py, pt, hx, hy, ht, lo, hi):
 
 
 def probe(p, ta_d, tb_d, cl, hits, live_pads, a):
-    (xa, ya, ta), (xb, yb, tb) = cl[ta_d], cl[tb_d]
+    (xa, ya, ta, aa), (xb, yb, tb, ab) = cl[ta_d], cl[tb_d]
     i, j = pairs(ta, tb, -a.off_hi - 300, a.off_hi + 300)
     dt = tb[j] - ta[i]
     near0 = np.abs(dt) < 200
@@ -170,6 +174,8 @@ def probe(p, ta_d, tb_d, cl, hits, live_pads, a):
     slope = np.hypot(xb[j] - xa[i], yb[j] - ya[i]) / abs(Z[tb_d] - Z[ta_d])
     edges = (0, 0.1, 0.2, 0.3, 0.5, 0.8, 1.5, 10)
     out['vs_tan_theta'] = {f'{lo}-{hi}': est((slope >= lo) & (slope < hi)) for lo, hi in zip(edges[:-1], edges[1:])}
+    tag_adc = np.minimum(aa[i], ab[j])
+    out['vs_tag_adc'] = {str(c): est(tag_adc >= c) for c in (0, 100, 150, 200, 300, 400, 600, 1000)}
     out['per_chip'] = {str(v): est(cv[near] == v) for v in sorted(set(cv.tolist()))}
     pads = []
     for q in np.unique(near[fid]):
@@ -206,7 +212,7 @@ def main():
     X, Y = O.Mapper(a.conn_shift).xy_table(O.parse_orders(a.order))
     veto = parse_veto(a.veto)
     dead = {int(v) for v in a.dead_vmm.split(',') if v}
-    V, T, C = load(a.files)
+    V, T, C, A = load(a.files)
     span = float(T[-1] - T[0]) * 1e-9
     counts = np.zeros((32, 64), int)
     np.add.at(counts, (V, C), 1)
@@ -222,7 +228,7 @@ def main():
     g = split_groups(T, a.gap)
     burst_hit = (np.bincount(g)[g] > a.burst)
     HX, HY = X[V, C], Y[V, C]
-    cl = {d: chamber_clusters(d, V, T, C, HX, HY, live, bad_hit, burst_hit, a) for d in (3, 2, 1)}
+    cl = {d: chamber_clusters(d, V, T, C, A, HX, HY, live, bad_hit, burst_hit, a) for d in (3, 2, 1)}
     hits, live_pads = {}, {}
     for d in (3, 2, 1):
         m = (DET[V] == d) & live[V, C]
@@ -247,6 +253,7 @@ def main():
               f'{s.get("acc")}); dt0 {r["dt0_ns"]:.0f} ns, lat {r["latency_ns"]:.0f} ns, offset '
               f'{np.round(r["offset_mm"], 1)} mm', flush=True)
         print('   vs probe-r:', {k: v['eff'] for k, v in r['vs_probe_r'].items()})
+        print('   vs smaller tag ADC >= cut: eff (tags):', {k: (v['eff'], v['n_sig']) for k, v in r['vs_tag_adc'].items()})
         print('   vs tan(theta) of the tag pair: eff (tags):',
               {k: (v['eff'], v['n_sig']) for k, v in r['vs_tan_theta'].items()})
         print('   per chip:', {k: (v['eff'], v.get('err')) for k, v in r['per_chip'].items() if v['eff'] is not None})
