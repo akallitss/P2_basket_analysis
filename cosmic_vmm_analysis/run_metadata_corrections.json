@@ -10,5 +10,10 @@
   "runs": "112-",
   "fact": "Read-out connectors moved from c4-c6 to c3-c5 (3 of the 10 connectors of each chamber), same hybrids and VMMs: H1/H4/H7 on c3, H2/H5/H8 on c4, H3/H6/H9 on c5. The same VMM channels read different pads. The cabling_note and the connector table of run_config.json (c3/c4/c5) are correct.",
   "source": "Alexandra, 2026-10-26; run_config.json of runs 112-121"
+ },
+ "runs_1_111_on_readout": {
+  "runs": "1-111",
+  "fact": "The DATA place hybrids H1-H3 / H4-H6 / H7-H9 on connectors c5-c7 (Gerber numbering of the pad map), not c4-c6 as the cabling_note says: 511 +- 10 straight tracks/h above the chip-preserving chance level at --conn-shift 1, about 10/h at every other shift (runs 76-91 pooled). From run_112 the data say c3-c5 (--conn-shift -1), i.e. a move of two connectors in that numbering.",
+  "source": "straight_track_rate.py connector-shift scan, 2026-10-29"
  }
 }
