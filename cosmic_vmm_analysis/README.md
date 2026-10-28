@@ -33,7 +33,12 @@ Outputs are kept outside the repo, under `data/Lab_Measurements/VMM-cosmics/vmm_
 | `muon_signal_check.py` | ADC by event class and chip-pair time coincidences (map independent) |
 | `dump_candidates.py` | keep the hits of small multi-chamber groups (input of the mapping / orientation studies) |
 | `orientation_check.py` | channel order per connector (adjacency, smoothness, straight tracks) and rotation/mirror scan between chambers |
-| `straight_track_rate.py` | straight three-chamber tracks above chance per run (group and chip-preserving nulls) |
+| `straight_track_rate.py` | straight three-chamber tracks above chance per run (group and chip-preserving nulls); `--conn-shift`, `--order`, `--veto` |
+| `event_display.py` | event displays of random straight / unselected groups, det2 residual against chance |
+| `residual_diagnostics.py` | what widens the det2 residual: pad size, z spacing, rotation, per connector half |
+| `half_order_scan.py` | channel order per connector from straight tracks, chosen on half the groups, scored on the other half |
+| `inventory_runs.py` | one row per sub-run: settings, masks, HV declaration, connectors, sampled hit rate per VMM |
+| `run_metadata_corrections.json` | facts that override the run_config.json texts (HV connectors NOT moved on 26 Oct) |
 | `vmm_qa_path.py` | puts `vmm_stations` on `sys.path` |
 
 ## The CERN-site note
@@ -41,6 +46,24 @@ Outputs are kept outside the repo, under `data/Lab_Measurements/VMM-cosmics/vmm_
 `note/` holds the generator of the unlisted note "Measuring the VMM noise threshold with cosmic muons: what we did and
 what we saw" (cern-site `notes/unlisted/2026-10-22-...html`): `note/build_note.sh` rebuilds it from the analysis outputs,
 then `scripts/build_hub.py` + `scripts/deploy.sh` in cern-site publish it. Figures are inline SVG written by the parts.
+
+## Map for the lab runs
+
+Runs 1-111: read-out on c4-c6, SPS map (`--conn-shift 0`). From run_112: c3-c5 (`--conn-shift -1`), and the top halves of
+P2_IN c3 (VMM 3) and c5 (VMM 7) are LINEAR, not reversed (`--order 'P2_IN:3=bot:rev|top:lin' --order 'P2_IN:5=bot:rev|top:lin'`),
+found by `half_order_scan.py` on run_121 and confirmed on run_124; all other connectors keep the SPS order.
+
+Discharges: check repeated pad triplets before trusting a track count. In run_121 det3 VMM 2 ch 27 and VMM 6 ch 44
+fire saturated every few seconds and induce small hits on fixed det2/det1 channels: 131 identical fake "tracks" that
+pass both chance nulls (`--veto 2:27,6:44`). Run_124 has none.
+
+## Status (2026-10-28)
+
+Muons are seen in run_121 and run_124 (HV P2_IN 420/720, P2_MID/OUT 430/730, c3-c5): straight tracks above the
+chip-preserving chance level 604 +- 43 /h (run_121, VMM 4/7/9 parked, discharge vetoed) and 813 +- 49 /h (run_124, all
+chips live). det2 residual core 5.7 / 7.8 mm against 4.1 / 4.3 mm from the pads alone; det2 ~9 mm from half way in z,
+rotations < 0.4 deg. Outputs: `data/Lab_Measurements/VMM-cosmics/vmm_threshold_scan/analysis_run121`, `analysis_run124`,
+`analysis_inventory`. Next: efficiency per chamber, run by run.
 
 ## Status (2026-10-25)
 
