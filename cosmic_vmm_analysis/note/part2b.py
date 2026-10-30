@@ -48,11 +48,12 @@ def card(svg, caption):
 BODY = f'''
 <div class="tldr"><strong>In one minute.</strong>
 <ul>
+<li><strong>Update, 26&ndash;30 October (section 15): the chambers do see muons, and they always did.</strong> The &ldquo;no muon signal&rdquo; of 25 October was an error in our analysis: the hybrids were read on connectors c5&ndash;c7, not c4&ndash;c6 as the run files say, so every hit was placed one connector away. With the right map the old runs show about 600 straight tracks per hour, like the new ones. A run with scintillators (run_130) gives an independent reference: at the safe thresholds each chamber is about <strong>65&ndash;72&nbsp;% efficient</strong> (det2 as good as with DREAM, det1 about 0.15 below). Lowering the threshold below the safe setting does not add much, because the noise takes over. The efficiencies from the chambers alone are lower bounds, because some of their &ldquo;tags&rdquo; are shared noise. The items below this one are the story as it was written at the time; the corrections are marked where they apply.</li>
 <li><strong>The question:</strong> how low can we set the threshold of each VMM chip before electronic noise takes over? The beam test could only <em>guess</em> the answer. Here, with cosmic muons, we can <em>measure</em> it.</li>
 <li><strong>What we did, in order:</strong> (1) a first test, which showed a flood of data from a few chips; (2) a noise scan with the chamber voltage on; (3) the same scan with the voltage <em>off</em>, to separate the detector from the electronics; (4) a closer look at single channels; (5) a direct measurement of the baseline of each channel, using a chip setting where a firing channel makes its neighbours report; (6) the same scans with the three chips we had masked (VMM 4, 7, 9) switched back on; (7) the first measurements with the high voltage on: a health check, and the neighbour read-out with cosmic muons, which gave a baseline for 97&nbsp;% of the channels.</li>
 <li><strong>What we found:</strong> the chips do <em>not</em> start to be noisy at the same threshold, and this spread stays when the voltage is off, so it comes from the electronics, not the chambers. Three chips (VMM 4, 7, 9) have noisy channels that also stay with the voltage off; when we switch them back on they show two kinds of noise: an ordinary smooth onset like the other chips, plus bursts that jump up and down with each new configuration, even at very high thresholds. And each channel has a noise peak of its own, so the channels inside one chip differ too. The baselines we could measure directly (about half of the channels so far) are mostly 45 to 65 ADC counts, not the 38 used so far for every channel, and they differ from chip to chip. With the voltage on we now have a baseline for 97&nbsp;% of the channels, the voltage does not change them, and VMM 4, 7 and 9 each have a large block of channels with baselines of 100 to several hundred, next to the channels that burst.</li>
 <li><strong>What this means for the next step:</strong> one threshold per chip is not enough. We need the baseline of <em>every channel</em> (half is done), in threshold units (millivolts, not yet done), and then to correct each channel. Then we repeat the scan and, only then, measure efficiency. The measurement with muon tracks (reference run and threshold scan, high voltage on) is running now, with a global threshold for each chip read from the noise scans; the reference run (8 hours) and the threshold scan are done and show a steady muon rate of about 21 per minute for the stack, but also bursts that carry a quarter of the hits and have to be cut. An interleaved 24-hour run at four thresholds is taking the statistics for the efficiency.</li>
-<li><strong>Update, Sunday 25 October evening (step 10c):</strong> the tag-and-probe analysis, with the beam-test pad map, shows that the &ldquo;muon-like&rdquo; events are <em>not</em> muon tracks: their hits do not line up in a straight line through the three chambers. Counting the events that do form a straight line, minus what chance gives, leaves about 16 per hour at the safe setting, where muons should give hundreds to thousands. Below the safe setting the extra &ldquo;tracks&rdquo; are a fixed pattern of a few hot channels. The pad map itself is fine (no other wiring does better, no chamber is flipped). So the stack sees almost no cosmic muons above the noise at these settings, and the best threshold cannot be chosen from efficiency yet. The long run was stopped at 21:34 (runs 96&ndash;111). Next: check the high voltage and the gas against the beam test, and a source test.</li>
+<li><strong>Update, Sunday 25 October evening (step 10c), corrected on 29 October (section 15):</strong> the tag-and-probe analysis, with the beam-test pad map, shows that the &ldquo;muon-like&rdquo; events are <em>not</em> muon tracks: their hits do not line up in a straight line through the three chambers. Counting the events that do form a straight line, minus what chance gives, leaves about 16 per hour at the safe setting, where muons should give hundreds to thousands. Below the safe setting the extra &ldquo;tracks&rdquo; are a fixed pattern of a few hot channels. The pad map itself is fine (no other wiring does better, no chamber is flipped). So the stack sees almost no cosmic muons above the noise at these settings, and the best threshold cannot be chosen from efficiency yet. The long run was stopped at 21:34 (runs 96&ndash;111). Next: check the high voltage and the gas against the beam test, and a source test.</li>
 </ul></div>
 
 <h2>0. The idea in one picture</h2>
@@ -253,7 +254,10 @@ BODY = f'''
   'The three-chamber coincidences are shared noise, not muons. The efficiency, and so the best threshold, cannot be measured until the chambers show a muon signal.',
   'check the high voltage and the gas against the beam test, and do a source test (step 12b).')}
 
+<div class="callout warn"><strong>Correction (29 October, section 15).</strong> Step 10c is wrong in its conclusion. The pad map we tested was right <em>inside</em> each connector, but it assumed the hybrids sat on connectors c4&ndash;c6, as the run files say; the data show they were on c5&ndash;c7. Every hit was placed one connector away, so straight tracks could not line up and the search for a better wiring could not find it (it only changed the order inside a connector). With the right connectors the same runs show about 600 straight tracks per hour above chance at the safe setting, and the chambers are efficient. The &ldquo;muon-like&rdquo; events of section 10 were mostly real muons after all. The text above is kept as it was written.</div>
+
 <h2>11. What we know, and what we do not</h2>
+<div class="callout warn"><strong>Read with section 15.</strong> Two items below are corrected there: the chambers do see muons (about 600 straight tracks per hour, efficiency about 65&ndash;72&nbsp;% per chamber with the scintillator reference), and the beam-test map is right only once the hybrids are put on connectors c5&ndash;c7.</div>
 <div class="two">
 <div><h3>We know</h3><ul>
 <li>With no voltage, the electronics are silent at d = 50.</li>
@@ -320,7 +324,7 @@ BODY = f'''
 
 <h2>13. All runs at a glance, and the words we use</h2>
 <p>This is the map of the whole campaign so far: which run numbers belong to which measurement, and what the names mean. The same overview now opens the logbook.</p>
-{card(fig_run_timeline(), 'From the logbook. 111 run numbers in four days; numbers 33 and 34 were lost in the run-counter incident of Friday afternoon.')}
+{card(fig_run_timeline(), 'From the logbook. 130 run numbers in nine days; numbers 33 and 34 were lost in the run-counter incident of Friday afternoon. From run_112 on, the new voltages and read-out connectors (section 15).')}
 
 <h3>The words</h3>
 <dl class="gloss">
@@ -361,7 +365,82 @@ BODY = f'''
 <tr><td>Tables used for the figures</td><td><code>analysis_noise_scan/</code> and <code>analysis_noise_scan_hvoff/</code> (chip tables, per-channel CSV, voltage on/off comparison), <code>analysis_n479_hvoff/</code> and <code>analysis_hvon/</code> (rate and hot channels of VMM 4, 7, 9 with the voltage off and on; baselines with the voltage on), <code>analysis_health/</code> (pulse-height spectra of the health check), <code>analysis_sng1_hvoff/</code> (baseline of every covered channel, coverage per capture, baseline against noise peak)</td></tr>
 <tr><td>Chip settings</td><td>4.5&nbsp;mV/fC, 200&nbsp;ns peaking time; only the threshold lines and the masks change between files</td></tr>
 <tr><td>Code and feedback notes</td><td>branch <code>lab-cosmics-oct26</code>, <code>docs/LAB_COSMICS_OBSERVATIONS.md</code> (items 1&ndash;64); the analysis scripts moved on 25 October from the DAQ repo&rsquo;s <code>quick_scripts/</code> to <code>P2_basket_analysis/cosmic_vmm_analysis/</code></td></tr>
+<tr><td>New voltages and connectors, 26&ndash;30 Oct (section 15)</td><td><code>run_112</code> &hellip; <code>run_118</code> (VMM 4, 7, 9 ladder, 2 min), <code>run_119</code> &hellip; <code>run_125</code> (30 min at the safe setting, with VMM 4, 7, 9 parked in 120&ndash;122), <code>run_126</code> &hellip; <code>run_130</code> (scintillators on hybrid H0; <code>run_128</code> first wiring, <code>run_130</code> the coincidence, 60 min). Analysed so far: 121, 124, 128, 130</td></tr>
+<tr><td>Section 15 analysis</td><td>Code in <code>P2_basket_analysis/cosmic_vmm_analysis/</code>: <code>straight_track_rate.py</code> (<code>--conn-shift</code>, <code>--order</code>, <code>--veto</code>), <code>half_order_scan.py</code>, <code>residual_diagnostics.py</code>, <code>event_display.py</code>, <code>efficiency_tp.py</code>, <code>run_efficiency_batch.sh</code>, <code>summarize_eff_runs.py</code>, <code>eff_maps.py</code>, <code>scint_efficiency.py</code>, <code>eff_vs_baseline.py</code>, <code>inventory_runs.py</code>; the map for each period and the traps are in its README. Results in <code>analysis_run121/</code>, <code>analysis_run124/</code>, <code>analysis_run130/</code>, <code>analysis_runs76_111/</code>, <code>analysis_inventory/</code></td></tr>
 </table>
+
+<h2>15. 26&ndash;30 October: the muons were there all along</h2>
+<p>This section corrects the conclusion of step 10c. It is long because the path mattered: each step below was needed to trust the next one.</p>
+
+<h3>15a. What changed on Monday 26 October</h3>
+<p>You raised the chamber voltages (P2_IN 420&nbsp;V mesh / 720&nbsp;V drift, P2_MID and P2_OUT 430 / 730) and moved the read-out cables of all three chambers to other connectors; the hybrids and chips stayed the same. The high-voltage connectors were <em>not</em> moved (the run files from run_112 on say they were; that sentence is wrong).</p>
+<p>The first new run that we analysed (run_121, 30 minutes) had VMM 4, 7 and 9 parked at the highest threshold. With the pad map moved to the new connectors, it showed a clear excess of straight tracks. We then checked it, one possible fake at a time.</p>
+
+{stepcard(15, 'Muons in the new runs, and how we convinced ourselves',
+  'run_121 and run_124 (30 minutes each, safe setting, the second with all chips on). Straight tracks above chance, the position of the det2 hit relative to the line through the other two, event displays drawn at random, and every possible channel order per connector, chosen on half of the events and tested on the other half.',
+  'About 600 (run_121) and 800 (run_124) straight tracks per hour above the strict chance level. det2 sits on the line: the core of its residual is 6 to 8&nbsp;mm wide, close to what the 12&nbsp;mm pads allow (4&nbsp;mm), and the hits of a track arrive within a few tens of nanoseconds. Two connector halves of det3 read their channels in the opposite order (c3 top and c5 top); everything else follows the beam-test order. One fake had to be removed: in run_121 a det3 channel discharging every few seconds (VMM 2 ch 27, also VMM 6 ch 44, always at the ADC limit) makes small signals on fixed channels of the other two chambers, which drew the same &ldquo;track&rdquo; 131 times. Real tracks almost never repeat the same three pads.',
+  'The chambers see cosmic muons, and the analysis can find them. The two reversed halves belong to det3&rsquo;s connectors, whichever hybrid reads them. A repeated identical track is the sign of a discharge, and must be checked before any count is trusted.',
+  'ask why the old runs showed nothing (15b).')}
+<div class="viz-card"><img src="2026-10-22-measuring-the-vmm-noise-threshold-with-cosmic-muons-what-we-did-and-what-we-saw_files/ed124_random.png" alt="Eight three-chamber events of run_124 drawn at random: most are three hits on a straight line" style="width:100%;height:auto;display:block;border-radius:6px;background:#fff"><p class="caption">Real data, run_124: eight groups with a hit in each chamber, drawn at random, with no selection. For each: the pads seen from above (grey = pads read out), and two side views. Most are three single pads on an inclined straight line within a few tens of nanoseconds; the x marks where det2 should be. The others are noise.</p></div>
+
+<h3>15b. The old runs, read on the right connectors</h3>
+<p>If the new runs show muons at about the same rate as a few days before, why did runs 76&ndash;111 show nothing? A gain change of 10&ndash;20&nbsp;V could not explain it: the muon pulses of run_124, scaled down to the old gain, would still be above the threshold 96&ndash;98&nbsp;% of the time. So we asked the data which connectors the hybrids were really on.</p>
+{card(fig_shift_scan(), 'Real data. Only one placement gives tracks: the hybrids on connectors c5&ndash;c7. With the placement of the run files (c4&ndash;c6) there is nothing, which is what step 10c saw. The new runs, in the same way, are on c3&ndash;c5, which is where the run files say: the move was two connectors in the numbering of the pad map.')}
+<p>With the right connectors, the channel order inside each connector was scanned again (the order found in step 10c was tested on the wrong connectors). The result: c5 top of det3 is reversed here too (now read by VMM 3), and every other half follows the beam-test order. The discharge test also found one in the old runs: det2 VMM 11 ch 35, at the ADC limit, with small signals on VMM 4 ch 9 and VMM 18 ch 10. Those groups are removed.</p>
+{card(fig_eff_per_run(), 'Real data, every run on its own (none are added together). From 16 DAC above the safe setting down to the safe setting, the efficiency rises slowly (about 0.05 to 0.10 per chamber). Below it, the noise floods the tags and this method cannot measure (the faint dots). Over the 8 hours of runs 76&ndash;91 all three chambers drift down (det2 from 0.51 to 0.41) and are back up the next afternoon: the gain moves with time.')}
+<p>The number of straight tracks per hour, which needs no tags, says the same: 430 per hour at safe + 16, 420&ndash;530 at safe + 8, 580&ndash;700 at the safe setting, and only 580&ndash;730 at 4 and 6 DAC below it, while the noise rises by orders of magnitude. Within the range the noise allows, lowering the threshold gives little.</p>
+
+{stepcard(16, 'The old runs, read on the right connectors',
+  'A scan of the connectors the hybrids could be on, for runs 76&ndash;91 together (only to choose the map); then every run from 76 to 111 analysed on its own with that map: efficiency of each chamber (chambers alone) and straight tracks per hour.',
+  'The hybrids were on c5&ndash;c7 (511 &plusmn; 10 tracks per hour against about 10 for every other placement). With that map every run sees muons. Efficiency at the safe setting: det3 0.23&ndash;0.34, det2 0.41&ndash;0.51, det1 0.27&ndash;0.36 (chambers alone); +8 and +16 DAC are a little lower; below the safe setting the method is swamped.',
+  'There was never a detector or gas problem: it was our map. The threshold scan of 24&ndash;25 October is usable, and it says the efficiency changes slowly with the threshold around the safe setting.',
+  'check the efficiency with a reference that does not depend on the chambers (15c).')}
+
+<h3>15c. A reference that does not depend on the chambers: scintillators</h3>
+<p>Tag-and-probe with the chambers alone has a weak point: if noise fires two chambers at the same moment, it makes a &ldquo;tag&rdquo; that no muon made, and the probe chamber is blamed for missing it. Our correction for chance only removes tags made at random times, not noise that is shared between chambers. So you put scintillator paddles above and below the stack, and fed their signals to the trigger hybrid (H0).</p>
+<p>The first try (run_128) did not work as a reference. The paddle signals were partly sent as TTL pulses, which have the wrong sign and size for a VMM input, and there was no coincidence unit, so each channel carried one paddle&rsquo;s singles. One channel fired 1300 times per second and only 0.1&nbsp;% of its pulses came with a chamber hit. For run_130 the paddles were rewired: two on top, one below, all NIM, and the coincidence of the three in its own channel.</p>
+{trig_table()}
+<p>The coincidence fires about 1000 times per hour. For each one we ask whether each chamber has a hit at the right moment (random hits in the same window: below 0.1&nbsp;%). The cleanest number takes the coincidences where the two <em>other</em> chambers also have one clean cluster each: then a muon certainly crossed the area that is read out, and the probe chamber has no excuse.</p>
+{card(fig_scint(), 'Real data. With the scintillators the efficiency is higher than the chambers alone said, most for det3. det2 reaches its DREAM value; det1 stays about 0.15 below.')}
+{scint_table()}
+<p>The first column is lower because some coincidences cross the paddles outside the area that is read out. The 15&nbsp;mm column is too strict for det3 and det1: their position is predicted by extending a line, which misses by more than 15&nbsp;mm about a third of the time, so for them the 50&nbsp;mm or the &ldquo;anywhere&rdquo; column is the right one.</p>
+
+{stepcard(17, 'The scintillator reference',
+  'run_130: 60 minutes, same thresholds and voltages as run_124, scintillator coincidence on hybrid H0 (VMM 0 channel 40). The efficiency of each chamber on the coincidences, with and without the condition that the other two chambers have a clean cluster.',
+  'With the scintillator and the two other chambers as the tag: det3 0.72, det2 0.69, det1 0.69 (&plusmn;0.03) for a hit anywhere, 0.63&ndash;0.66 within 50&nbsp;mm. The chambers alone gave 0.42&ndash;0.59 within 50&nbsp;mm in run_124, and only 0.24 for det2 in run_130 itself.',
+  'The chambers are about 65&ndash;72&nbsp;% efficient at the safe thresholds. The tag-and-probe with the chambers alone underestimates this, by up to 0.25, because some of its tags are shared noise; its numbers, including the threshold curve of 15b, are lower bounds, good for comparing settings with each other. det2 is as good as with DREAM; det1 is 0.12&ndash;0.18 below its DREAM value.',
+  'look at what still limits the efficiency, channel by channel (15d), and repeat the threshold scan with the scintillators.')}
+
+<h3>15d. Channel by channel, and the noise in run_130</h3>
+<p><strong>Does a channel&rsquo;s baseline set its efficiency?</strong> All channels of a chip share one threshold, so a channel resting higher should need less signal. We compared the efficiency of every channel (runs 76&ndash;91 added, about 40 tags per channel) with its baseline from section 8b. For the ordinary channels there is no link: the efficiency is the same (0.33&ndash;0.37) from 6 ADC counts below the chip&rsquo;s median baseline to 6 above, on every chip. A spread of &plusmn;6 counts is about &plusmn;7 DAC, and the threshold scan already showed that this much threshold changes little. So correcting each channel would not raise the efficiency much. The exception is the block of very high baselines on the three burst chips:</p>
+{card(fig_block_eff(), 'Real data. The channels whose baseline sits 100 to 200 ADC counts high respond <em>less</em>, not more. This is a fault of these three chips (or their hybrids), next to the bursts, worth reporting to the people who built them.')}
+<p><strong>Why the chambers alone did so badly in run_130.</strong> Six channels that were quiet in run_124 fire tens to hundreds of times per second in run_130: VMM 5 ch 46 (350 per second), VMM 18 ch 50 (530), VMM 12 ch 28 and ch 50 (36 each), VMM 15 ch 42 and ch 1 (22 each). Their small, isolated hits make false clean clusters in det3 and det1, which are exactly the tags for det2. Something on the set-up that changed between the two runs (the paddles, their cables or their high voltage) is the first suspect. Masking those six channels removes the problem.</p>
+
+{stepcard(18, 'Channel by channel',
+  'Efficiency of every channel against its baseline (runs 76&ndash;91); the hit rate of every channel in run_124 and run_130.',
+  'No link between baseline and efficiency for ordinary channels. The high-baseline blocks of VMM 4, 7 and 9 are 0.10&ndash;0.20 efficient against 0.18&ndash;0.37 for the other channels of the same chips. Six channels became noisy between run_124 and run_130.',
+  'Per-channel trims would not gain much efficiency at these settings. The three burst chips have a measurable defect. The noise of a run can change the chamber-only efficiency a lot, which is one more reason to use the scintillators.',
+  'repeat the threshold scan with the scintillator reference, with the six noisy channels masked (section 15e).')}
+
+<h3>15e. What we know now, and what comes next</h3>
+<div class="two">
+<div><h3>We know</h3><ul>
+<li>The chambers see cosmic muons, in the old runs (read on c5&ndash;c7) and in the new ones (c3&ndash;c5).</li>
+<li>Two connector halves of det3 (c3 top, c5 top) read their channels in reversed order; all others follow the beam-test map.</li>
+<li>At the safe thresholds the chambers are about 65&ndash;72&nbsp;% efficient (scintillator reference). det2 equals its DREAM value; det1 is about 0.15 below.</li>
+<li>Around the safe setting the efficiency changes slowly with the threshold; below it the noise takes over.</li>
+<li>The efficiency is not lost to timing (a window of &plusmn;100&nbsp;ns or &plusmn;1&nbsp;&micro;s gives the same) nor to dead time after earlier hits.</li>
+<li>Channel baselines do not predict efficiency, except the high-baseline blocks of VMM 4, 7, 9, which lose muons.</li>
+<li>Discharges (det3 in run_121, det2 VMM 11 ch 35 in the old runs) draw repeated fake tracks; new noisy channels appeared in run_130.</li>
+</ul></div>
+<div><h3>Next</h3><ul>
+<li>A threshold scan <strong>with the scintillator reference</strong> (safe + 8, safe, safe &minus; 2, &minus;4), with the six new noisy channels masked: the efficiency curve this campaign set out to measure.</li>
+<li>Why det1 stays below its DREAM value (gain against threshold on that chamber, or its connectors).</li>
+<li>Report to the hybrid developers: the high-baseline blocks of VMM 4, 7, 9 are less efficient, as well as bursting.</li>
+<li>Correct the run files: the read-out connectors of runs 1&ndash;111 and the sentence about the high-voltage connectors from run_112 on.</li>
+<li>Runs 122, 123, 125&ndash;127 and 129 are not analysed yet.</li>
+</ul></div>
+</div>
 '''
 
 html = open(NOTE).read()
@@ -371,8 +450,10 @@ html = html[:a] + CSS + html[b:]
 a = html.index('<div class="note-body">')
 b = html.index('</div>\n  </article>') + len('</div>')
 html = html[:a] + '<div class="note-body">' + BODY + '</div>' + html[b:]
-html = _re.sub(r'(<meta name="updated" content=")[^"]*(">)', r'\g<1>2026-10-25\2', html)
+html = _re.sub(r'(<meta name="updated" content=")[^"]*(">)', r'\g<1>2026-10-30\2', html)
 html = _re.sub(r'(<meta name="description" content=")[^"]*(">)',
-               r'\g<1>A picture book of the lab threshold scans on the three-chamber cosmic stand: what we did step by step, with the chamber voltage on and off, and what we found per chip.\2', html)
+               r'\g<1>A picture book of the lab threshold scans on the three-chamber cosmic stand: what we did step by step, what we found per chip, and (section 15) how the muons were found after all, with efficiencies checked against scintillators.\2', html)
+html = _re.sub(r'(<header class="note-header">\s*<h1>[^<]*</h1>\s*<p class="muted">)[^<]*(</p>)',
+               r'\g<1>A picture book of the lab threshold scans on the three-chamber cosmic stand: the noise per chip, and (section 15, updated 30 October) the muons found after all, with efficiencies checked against scintillators.\2', html)
 open(NOTE, 'w').write(html)
 print('written', NOTE, len(html))
