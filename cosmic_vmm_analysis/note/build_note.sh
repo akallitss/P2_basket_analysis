@@ -7,5 +7,5 @@
 set -e
 cd "$(dirname "$0")"
 NOTE=${1:-$HOME/Documents/PostDocSaclay/cern-site/notes/unlisted/2026-10-22-measuring-the-vmm-noise-threshold-with-cosmic-muons-what-we-did-and-what-we-saw.html}
-cat head2.py part2a.py part3.py part4.py part5.py part2b.py > /tmp/build_vmm_cosmic_note.py
+cat head2.py part2a.py part3.py part4.py part5.py part6.py part2b.py > /tmp/build_vmm_cosmic_note.py
 python3 /tmp/build_vmm_cosmic_note.py "$NOTE"
