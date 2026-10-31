@@ -14,7 +14,12 @@ first hit after the trigger); random hits from the same window --sideband ns bef
 
 Map as in efficiency_tp.py (--conn-shift, --order, --veto, --dead-vmm). Output OUT.json.
 
+The trigger is either one channel (--trig, the hardware coincidence) or built offline from the paddle singles
+(--top 0:41,0:45 --bottom 0:44: any top paddle with the bottom one within --coinc-win ns; in run_130 this gives 2.8
+times the three-chamber-confirmed events of the hardware triple).
+
 Usage: scint_efficiency.py f1.pcapng[,...] OUT.json --trig 0:40 --conn-shift -1 --order ... [--title run_130]
+       scint_efficiency.py ... --top 0:41,0:45 --bottom 0:44
 """
 import argparse
 import json
@@ -37,6 +42,9 @@ def main():
     ap.add_argument('files')
     ap.add_argument('out_json')
     ap.add_argument('--trig', default='0:40')
+    ap.add_argument('--top', default='', help='offline trigger instead of --trig: top paddle channels, e.g. 0:41,0:45 (OR)')
+    ap.add_argument('--bottom', default='', help='bottom paddle channel(s), e.g. 0:44')
+    ap.add_argument('--coinc-win', type=float, default=60)
     ap.add_argument('--conn-shift', type=int, default=-1)
     ap.add_argument('--order', action='append')
     ap.add_argument('--veto', default='')
@@ -59,8 +67,19 @@ def main():
     o = np.argsort(T, kind='stable')
     V, T, C = V[o].astype(int), T[o], C[o].astype(int)
     span = (T[-1] - T[0]) * 1e-9
-    tv, tc = (int(x) for x in a.trig.split(':'))
-    trig = T[(V == tv) & (C == tc)]
+    if a.top and a.bottom:
+        # offline coincidence: any top paddle with the bottom paddle within --coinc-win ns, one trigger per 300 ns
+        def times(spec):
+            return np.sort(np.concatenate([T[(V == int(s.split(':')[0])) & (C == int(s.split(':')[1]))] for s in spec.split(',')]))
+        top, bot = times(a.top), times(a.bottom)
+        s = np.searchsorted(bot, top - a.coinc_win)
+        e = np.searchsorted(bot, top + a.coinc_win)
+        trig = top[e > s]
+        trig = trig[np.concatenate([[True], np.diff(trig) > 300])] if len(trig) else trig
+        a.trig = f'({a.top}) AND ({a.bottom})'
+    else:
+        tv, tc = (int(x) for x in a.trig.split(':'))
+        trig = T[(V == tv) & (C == tc)]
     counts = np.zeros((32, 64), int)
     np.add.at(counts, (V, C), 1)
     live = np.isfinite(X) & (counts > 0)
@@ -95,8 +114,10 @@ def main():
                 cx[k], cy[k], clean[k] = mx, my, True
         ev[d] = {'has': has, 'acc': acc, 's': s, 'e': e, 'ht': ht, 'hx': hx, 'hy': hy, 'cx': cx, 'cy': cy, 'clean': clean}
         eff = (has.mean() - acc) / (1 - acc)
+        mapped = np.isfinite(X) & (DET[:, None] == d)
         res['chambers'][NAME[d]] = {'latency_ns': lat, 'any_hit': float(eff), 'any_hit_err': float(np.sqrt(eff * (1 - eff) / len(trig))),
-                                    'random': acc, 'clean_cluster_frac': float(clean.mean())}
+                                    'random': acc, 'clean_cluster_frac': float(clean.mean()),
+                                    'live_pad_frac': float(live[mapped].sum() / mapped.sum())}
         print(f'{NAME[d]}: latency {lat:.0f} ns; hit anywhere {eff:.3f} +- {np.sqrt(eff * (1 - eff) / len(trig)):.3f} '
               f'(random {acc:.4f}); one clean cluster {clean.mean():.3f}')
     allthree = ev[3]['has'] & ev[2]['has'] & ev[1]['has']
