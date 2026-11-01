@@ -43,7 +43,8 @@ CHIPS = range(2, 20)
 def load_group(d, min_nb):
     out = {}
     for r in csv.DictReader(open(d + '/neighbor_baseline.csv')):
-        if int(r['n_nb']) >= min_nb:
+        # a masked channel is still read out as a neighbour, with ADC 0: not a baseline
+        if int(r['n_nb']) >= min_nb and float(r['adc_nb_median'] or 0) >= 20:
             out[(int(r['vmm']), int(r['ch']))] = float(r['adc_nb_median'])
     return out
 
