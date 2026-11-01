@@ -24,6 +24,7 @@ import sys
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.ticker  # noqa: E402
 import numpy as np  # noqa: E402
 
 from event_display import style, INK, MUTED, COL  # noqa: E402
@@ -65,6 +66,8 @@ def main():
         style(nx)
         style(bx)
         bx2 = bx.twinx()
+        drawn = []                                   # (x, baseline, err_hi, colour) of every point of the top panel
+        spreads, rates = [], []
         for i, (g, D) in enumerate(G.items()):
             rows = [D.get((v, c)) for c in ch]
             ok = np.array([r is not None and r['n_nb'] >= a.min_nb for r in rows])
@@ -83,25 +86,53 @@ def main():
                 e = 1.25 * sd / np.sqrt(np.maximum(nnb, 1))
                 err = np.vstack([e, e])
             ax.errorbar(x[ok], med[ok], yerr=err[:, ok], fmt='o', ms=3.5, color=GCOL[g], lw=1, label=f'{GLAB[g]} ({ok.sum()} ch)')
-            nx.plot(x[ok], nnb[ok], 'o', ms=3, color=GCOL[g])
+            drawn += [(xx, mm, ee, GCOL[g]) for xx, mm, ee in zip(x[ok], med[ok], err[1, ok])]
+            nx.plot(x[ok], nnb[ok], 'o', ms=3, color=GCOL[g], clip_on=False)
             ax.axhline(np.median(med[ok]), color=GCOL[g], lw=0.8, ls='--')
-            bx.plot(x[ok], sd[ok], 'o', ms=3.5, color=GCOL[g])
-            bx2.plot(x[ok], (nov / np.maximum(nnb, 1))[ok], 'x', ms=4, color=GCOL[g], alpha=0.7)
+            spreads += [(xx, ss, GCOL[g]) for xx, ss in zip(x[ok], sd[ok])]
+            rr = (nov / np.maximum(nnb, 1))[ok]
+            rates += list(rr)
+            bx2.plot(x[ok], rr, 'x', ms=4, color=GCOL[g], alpha=0.7, clip_on=False)
         ax.axhline(38, color=INK, lw=0.8, ls=':')
         ax.set_ylabel('baseline [ADC] (median of the neighbour read-outs)', fontsize=8)
-        top = max([np.nanmax([G[g][(v, c)]['med'] for c in ch if (v, c) in G[g] and G[g][(v, c)]['n_nb'] >= a.min_nb] or [60])
-                   for g in G])
-        ax.set_ylim(25, min(max(top + 5, 80), 260))
-        ax.legend(fontsize=7.5, frameon=False, ncol=4, loc='upper left')
-        ax.set_title(f'VMM {v}: baseline of every channel (bars: 68 % interval of the median + 0.5 ADC steps; dashed: group median; '
-                     f'dotted: 38)', fontsize=10, color=INK)
+        vals = np.array([d[1] for d in drawn]) if drawn else np.array([50.0])
+        far = vals > 120
+        cap = vals.max() + 10 if far.sum() > 5 else max(vals[~far].max() + 6 if (~far).any() else 80, 70)
+        lo_lim = max(0, min(vals.min() - 6, 35))
+        stack = {}
+        for xx, mm, ee, cc in drawn:
+            if mm > cap:
+                k = stack.get(round(xx), 0)
+                stack[round(xx)] = k + 1
+                ax.plot(xx, cap, '^', ms=7, color=cc, clip_on=False)
+                ax.annotate(f'{mm:.0f}', (xx, cap), xytext=(0, -12 - 9 * k), textcoords='offset points', ha='center',
+                            fontsize=7, color=cc)
+        if far.sum() > 5:                            # a block of high-baseline channels: log scale shows both groups
+            ax.set_yscale('log')
+            ax.set_yticks([t for t in (30, 40, 50, 60, 80, 100, 150, 200, 300, 500, 700) if lo_lim <= t <= cap])
+            ax.yaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter())
+            ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+            lo_lim = max(lo_lim, 20)
+        ax.set_ylim(lo_lim, cap)
+        ax.legend(fontsize=7.5, frameon=False, ncol=4, loc='lower left', bbox_to_anchor=(0, 1.0), borderaxespad=0.2)
+        fig.suptitle(f'VMM {v}: baseline of every channel (bars: 68 % interval of the median + 0.5 ADC steps; dashed: group median; '
+                     f'dotted: 38; arrows: beyond the axis, with their value)', fontsize=10, color=INK)
         nx.set_yscale('log')
         nx.axhline(a.min_nb, color=INK, lw=0.8, ls=':')
         nx.set_ylabel('read-outs', fontsize=8)
+        sv = np.array([q[1] for q in spreads]) if spreads else np.array([1.0])
+        scap = max(np.percentile(sv, 97) * 1.3, 15)
+        for xx, ss, cc in spreads:
+            if ss > scap:
+                bx.plot(xx, scap, '^', ms=6, color=cc, clip_on=False)
+                bx.annotate(f'{ss:.0f}', (xx, scap), xytext=(0, -11), textcoords='offset points', ha='center', fontsize=6.5, color=cc)
+            else:
+                bx.plot(xx, ss, 'o', ms=3.5, color=cc, clip_on=False)
+        bx.set_ylim(0, scap)
         bx.set_ylabel('spread of the neighbour read-outs [ADC] (dots)', fontsize=8)
         bx2.set_ylabel('own hits per neighbour read-out (x)', fontsize=8)
         bx2.set_yscale('symlog', linthresh=0.01)
-        bx2.set_ylim(0, None)
+        bx2.set_ylim(0, max(max(rates, default=1) * 3, 1))
         bx.axhline(a.noisy_std, color=INK, lw=0.8, ls=':')
         bx.set_xlabel('channel', fontsize=8)
         bx.set_xticks(range(0, 64, 4))
