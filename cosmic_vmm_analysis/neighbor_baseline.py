@@ -19,7 +19,10 @@ channel = d2>>8 & 0x3F; over-threshold flag = d2>>14 & 1.
 Usage:  neighbor_baseline.py <file.pcapng[,file2.pcapng,...]> <out_dir> [--mb 100] [--min-nb 50] [--shared 38]
         Several files (comma separated) are accumulated; the CSV then also says in which file each channel
         was first covered (>= --min-nb neighbour read-outs), and the JSON gives the coverage after each file.
-Writes: <out_dir>/neighbor_baseline.csv   vmm,ch,n_over,n_nb,adc_nb_median,adc_nb_mean,adc_nb_std,adc_over_median,first_file
+Writes: <out_dir>/neighbor_baseline.csv   vmm,ch,n_over,n_nb,adc_nb_median,adc_nb_mean,adc_nb_std,adc_over_median,first_file,
+                                           adc_nb_mad, adc_nb_median_lo68, adc_nb_median_hi68
+        (mad: median absolute deviation; lo68/hi68: the values at ranks n/2 -+ sqrt(n)/2, a 68 % interval of the
+        median that assumes no shape, so a tail of real signal in the read-outs does not inflate it)
         <out_dir>/neighbor_baseline.json  per-chip summary
 and prints a per-chip table: hits, neighbour fraction, channels covered, spread of the baselines.
 """
@@ -202,6 +205,16 @@ def main():
 
     n_nb, med_nb, mean_nb, sd_nb = stats(H_nb)
     n_ov, med_ov, _, _ = stats(H_ov)
+    # uncertainty of the median without assuming a shape: the values at ranks n/2 -+ sqrt(n)/2 of the sorted
+    # read-outs bracket the median with 68 % probability (order statistics); and the median absolute deviation
+    cum = H_nb.cumsum(axis=1)
+    half = np.sqrt(n_nb) / 2
+    med_lo = (cum >= np.maximum(n_nb / 2 - half, 1)[:, None]).argmax(axis=1)
+    med_hi = (cum >= np.minimum(n_nb / 2 + half, n_nb)[:, None]).argmax(axis=1)
+    dev = np.abs(bins[None, :] - med_nb[:, None])
+    order = np.argsort(dev, axis=1, kind='stable')
+    cum_dev = np.take_along_axis(H_nb, order, axis=1).cumsum(axis=1)
+    mad = np.take_along_axis(dev, order, axis=1)[np.arange(len(n_nb)), (cum_dev >= (n_nb / 2)[:, None]).argmax(axis=1)]
     rows, per = [], {}
     for k in range(32 * 64):
         if n_nb[k] + n_ov[k] == 0:
@@ -210,10 +223,12 @@ def main():
         rows.append([v, c, int(n_ov[k]), int(n_nb[k]),
                      int(med_nb[k]) if n_nb[k] else '', round(float(mean_nb[k]), 2) if n_nb[k] else '',
                      round(float(sd_nb[k]), 2) if n_nb[k] else '', int(med_ov[k]) if n_ov[k] else '',
-                     int(first_file[k])])
+                     int(first_file[k]), int(mad[k]) if n_nb[k] else '', int(med_lo[k]) if n_nb[k] else '',
+                     int(med_hi[k]) if n_nb[k] else ''])
     with open(os.path.join(a.out_dir, 'neighbor_baseline.csv'), 'w', newline='') as f:
         w = csv.writer(f)
-        w.writerow(['vmm', 'ch', 'n_over', 'n_nb', 'adc_nb_median', 'adc_nb_mean', 'adc_nb_std', 'adc_over_median', 'first_file'])
+        w.writerow(['vmm', 'ch', 'n_over', 'n_nb', 'adc_nb_median', 'adc_nb_mean', 'adc_nb_std', 'adc_over_median', 'first_file',
+                    'adc_nb_mad', 'adc_nb_median_lo68', 'adc_nb_median_hi68'])
         w.writerows(rows)
     print(f'{len(files)} file(s): ' + ('first %g MB of each' % a.mb if a.mb else 'whole files') + f', {span:.2f} s of capture in total')
     print(f'{"VMM":>4} {"hits":>10} {"nb %":>6} {"covered":>8} {"median":>7} {"min":>5} {"max":>5} {"std":>6} {"|med-shared|>3":>15}')
