@@ -143,7 +143,7 @@ def main():
         for lab, ok in (('any_position', P['has']), (f'within_{a.probe_r:.0f}mm', dmin < a.probe_r), ('within_50mm', dmin < 50)):
             k = int((sel & ok).sum())
             e = (k / n - acc) / (1 - acc) if n else float('nan')
-            r[lab] = {'k': k, 'eff': e, 'err': float(np.sqrt(max(e * (1 - e), 0) / n)) if n else None}
+            r[lab] = {'k': k, 'eff': e, 'err': float(np.sqrt(max(e * (1 - e), 0) / n)) if n else float('nan')}
         res[f'probe_{NAME[p]}'] = r
         print(f'scintillator-confirmed tag-and-probe, probe {NAME[p]} (clean clusters in {NAME[ta]} and {NAME[tb]}: {n}): '
               + ', '.join(f'{lab} {v["eff"]:.3f} +- {v["err"]:.3f}' for lab, v in r.items() if isinstance(v, dict) and 'eff' in v))
