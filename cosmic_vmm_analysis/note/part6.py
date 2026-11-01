@@ -89,8 +89,8 @@ def cartoon_scan_procedure():
     # ---- panel 1: one point
     o.append('<text class="t" x="12" y="42" font-size="11.5" font-weight="600">1. One point of the scan</text>')
     x0, y0 = 30, 56
-    o.append(f'<rect x="{x0 + 10}" y="{y0}" width="60" height="8" rx="2" fill="var(--s2)"/><rect x="{x0 + 80}" y="{y0}" width="60" height="8" rx="2" fill="var(--s2)"/>'
-             f'<text class="m" x="{x0 + 150}" y="{y0 + 8}" font-size="9.5">two paddles on top</text>')
+    o.append(f'<rect x="{x0 + 20}" y="{y0 - 8}" width="110" height="7" rx="2" fill="var(--s2)"/><rect x="{x0 + 20}" y="{y0 + 1}" width="110" height="7" rx="2" fill="var(--s2)"/>'
+             f'<text class="m" x="{x0 + 150}" y="{y0 + 5}" font-size="9.5">two paddles on top, stacked</text>')
     for i, (nm, col) in enumerate((('det3 P2_IN', 'var(--s1)'), ('det2 P2_MID', 'var(--s1)'), ('det1 P2_OUT', 'var(--s1)'))):
         y = y0 + 22 + i * 24
         o.append(f'<rect x="{x0}" y="{y}" width="150" height="10" rx="2" fill="{col}" opacity="0.85"/><text class="m" x="{x0 + 158}" y="{y + 9}" font-size="9.5">{nm}</text>')
@@ -125,7 +125,7 @@ def cartoon_scan_procedure():
                  f'<rect x="{x + 2 + w * 0.08:.1f}" y="{py + 12}" width="{w * 0.08:.1f}" height="26" fill="var(--c2)"/>'
                  f'<rect x="{x + 3 + w * 0.16:.1f}" y="{py + 12}" width="{w * 0.8:.1f}" height="26" rx="2" fill="var(--s1)"/>'
                  f'<text class="x3" x="{x + 3 + w * 0.56:.1f}" y="{py + 29}" font-size="10" text-anchor="middle">K 0</text>')
-    o.append(f'<text class="f" x="{l}" y="{py + 50}" font-size="9">each point: two 2-minute runs (light), then 3 hours (dark); 33 hours in all</text>')
+    o.append(f'<text class="f" x="{l}" y="{py + 50}" font-size="9">each point: 2-minute probes that find and mask the noisy channels (light), then 3 hours of data (dark)</text>')
     # the gain falling underneath
     gy0, gy1 = py + 72, py + 118
     pts = ' '.join(f'{l + (r_ - l) * f:.1f},{gy0 + (gy1 - gy0) * g:.1f}'
@@ -153,6 +153,129 @@ def cartoon_scan_procedure():
              f'<text class="f" x="{l}" y="{qy + 63}" font-size="9">spread over the whole day, so a slow drift touches all points alike and a sudden change is seen within one cycle.</text>')
     o.append('</svg>')
     return '\n'.join(o)
+
+
+# the threshold chain: numbers used in section 15f
+SAFE_SDT = {2: 232, 3: 217, 4: 229, 5: 247, 6: 230, 7: 234, 8: 229, 9: 226, 10: 236, 11: 232, 12: 248, 13: 220, 14: 239,
+            15: 222, 16: 229, 17: 219, 18: 212, 19: 242}
+ADC_PER_DAC, MV_PER_DAC, MV_PER_FC = 0.9, 0.801, 4.5
+D_STEPS = [50, 40, 34, 30, 27, 24, 22, 20, 18, 16]
+WK_PASSES = [('pass 1', '+64, +24, 0, &minus;8, &minus;12, &minus;16', '3 h'), ('pass 2', '0, +40, +12, &minus;4, &minus;10, &minus;14, &minus;18', '3 h'),
+             ('pass 3', '0, &minus;6, &minus;8, &minus;12', '4 h')]
+
+
+def cartoon_threshold_chain():
+    W, H = 640, 320
+    o = [f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="The threshold chain: register value, voltage, ADC counts and charge">']
+    o.append('<text class="t" x="12" y="18" font-size="13" font-weight="600">One threshold number per chip, and what it means</text>')
+    o.append('<text class="m" x="12" y="34" font-size="11">The chip compares every channel&rsquo;s pulse with one voltage, set by the register sdt. Each box is one way to read that number.</text>')
+    boxes = [('register', 'sdt = 64 &middot; spi2 + spi1', '10 bits: 0 &hellip; 1023', 'one value per chip,', 'shared by its 64 channels'),
+             ('voltage', '&asymp; 0.80 mV per sdt step', 'nominal: 0.801 &middot; sdt + 25 mV', 'same scale as the ADC:', 'the chip reads absolute volts'),
+             ('ADC counts', '&asymp; 0.9 ADC per sdt step', 'measured (edge of the spectra)', 'baseline of a channel:', '45&ndash;65 ADC (measured)'),
+             ('charge', '&asymp; 0.18 fC per sdt step', 'at 4.5 mV/fC', '&asymp; 1100 electrons', 'per sdt step')]
+    bw, gap, y = 135, 18, 58
+    for i, (h, a, b, c, d) in enumerate(boxes):
+        x = 14 + i * (bw + gap)
+        o.append(f'<rect x="{x}" y="{y}" width="{bw}" height="112" rx="8" fill="var(--c0)" stroke="var(--border)"/>'
+                 f'<text class="t" x="{x + bw / 2}" y="{y + 20}" font-size="12" font-weight="600" text-anchor="middle">{h}</text>'
+                 f'<text class="t" x="{x + bw / 2}" y="{y + 44}" font-size="10.5" text-anchor="middle">{a}</text>'
+                 f'<text class="m" x="{x + bw / 2}" y="{y + 62}" font-size="9.5" text-anchor="middle">{b}</text>'
+                 f'<text class="m" x="{x + bw / 2}" y="{y + 84}" font-size="9.5" text-anchor="middle">{c}</text>'
+                 f'<text class="m" x="{x + bw / 2}" y="{y + 98}" font-size="9.5" text-anchor="middle">{d}</text>')
+        if i < 3:
+            o.append(f'<text class="t" x="{x + bw + gap / 2}" y="{y + 60}" font-size="16" text-anchor="middle">&#8594;</text>')
+    # a channel: baseline, threshold, pulse
+    y2 = 200
+    l, r_ = 60, 600
+
+    def Y(adc):
+        return y2 + 100 - (adc - 30) * 0.8
+    base, thr = 52, 52 + 30
+    o.append(f'<line x1="{l}" x2="{r_}" y1="{Y(base):.1f}" y2="{Y(base):.1f}" stroke="var(--fg-faint)" stroke-dasharray="4 3"/>'
+             f'<text class="m" x="{l - 6}" y="{Y(base) + 3:.1f}" font-size="9.5" text-anchor="end">baseline</text>'
+             f'<line x1="{l}" x2="{r_}" y1="{Y(thr):.1f}" y2="{Y(thr):.1f}" stroke="var(--alert)" stroke-width="1.6"/>'
+             f'<text class="m" x="{l - 6}" y="{Y(thr) + 3:.1f}" font-size="9.5" text-anchor="end">threshold</text>')
+    pts = ' '.join(f'{l + 40 + i * 3:.1f},{Y(base + (95 if 30 < i < 70 else 0) * max(0, 1 - abs(i - 45) / 25) ** 1.5 + ((i * 7) % 5 - 2)):.1f}' for i in range(0, 120))
+    o.append(f'<polyline points="{pts}" fill="none" stroke="var(--s1)" stroke-width="1.6"/>')
+    o.append(f'<text class="m" x="{l + 200}" y="{Y(120):.1f}" font-size="9.5">a muon pulse: recorded, because it crosses the threshold</text>')
+    pts = ' '.join(f'{l + 380 + i * 1.0:.1f},{Y(base + 22 * max(0, 1 - abs(i - 40) / 25) ** 1.5):.1f}' for i in range(0, 90))
+    o.append(f'<polyline points="{pts}" fill="none" stroke="var(--s1)" stroke-width="1.6"/>'
+             f'<text class="m" x="{l + 380}" y="{Y(base + 45):.1f}" font-size="9.5">a small pulse: lost</text>')
+    o.append(f'<line x1="{r_ - 6}" x2="{r_ - 6}" y1="{Y(base):.1f}" y2="{Y(thr):.1f}" stroke="var(--fg)" stroke-width="1.2"/>'
+             f'<text class="t" x="{r_ - 6}" y="{Y(base) + 15:.1f}" font-size="9.5" text-anchor="end">what matters: threshold &minus; baseline</text>')
+    o.append('</svg>')
+    return '\n'.join(o)
+
+
+def cartoon_safe_k():
+    W, H = 640, 300
+    o = [f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="From the noise onset to the safe setting to the scan points K, for one chip">']
+    o.append('<text class="t" x="12" y="18" font-size="13" font-weight="600">For one chip: noise scan &#8594; onset &#8594; safe &#8594; scan points</text>')
+    o.append('<text class="m" x="12" y="34" font-size="11">Example VMM 3 (July baseline estimate 182, onset 209, safe 217). To the right: lower threshold, more noise.</text>')
+    l, r_ = 40, 620
+    lo, hi = 186, 290
+
+    def X(s):
+        return r_ - (r_ - l) * (s - lo) / (hi - lo)
+    y = 120
+    # noise rate curve
+    pts = []
+    for s in range(lo, hi + 1, 2):
+        rate = 1 / (1 + 2.718 ** ((s - 207) / 3.5))
+        pts.append(f'{X(s):.1f},{y - 60 * rate:.1f}')
+    o.append(f'<polyline points="{" ".join(pts)}" fill="none" stroke="var(--alert)" stroke-width="2"/>'
+             f'<text class="m" x="{X(200):.1f}" y="{y - 66}" font-size="9.5" text-anchor="end">noise rate of the chip</text>')
+    o.append(f'<line x1="{l}" x2="{r_}" y1="{y}" y2="{y}" stroke="var(--fg-faint)"/>')
+    for s in (190, 210, 230, 250, 270, 290):
+        o.append(f'<text class="f" x="{X(s):.1f}" y="{y + 13}" font-size="9" text-anchor="middle">{s}</text>')
+    o.append(f'<text class="f" x="{r_}" y="{y + 26}" font-size="9" text-anchor="end">threshold register sdt</text>')
+    # noise-scan steps d (relative to the July baseline estimate 208 for VMM 2)
+    for d in D_STEPS:
+        o.append(f'<line x1="{X(182 + d):.1f}" x2="{X(182 + d):.1f}" y1="{y - 4}" y2="{y + 4}" stroke="var(--s1)" stroke-width="2"/>')
+    o.append(f'<text class="m" x="{X(282):.1f}" y="{y - 10}" font-size="9">blue ticks: noise-scan steps, sdt = 182 + d, d = 50 &hellip; 16</text>')
+    # onset, safe
+    onset, safe = 209, 217
+    for s, lab, col in ((onset, 'onset (1 kHz)', 'var(--alert)'), (safe, 'safe = onset + 8', 'var(--s1)')):
+        o.append(f'<line x1="{X(s):.1f}" x2="{X(s):.1f}" y1="{y - 40}" y2="{y + 50}" stroke="{col}" stroke-dasharray="3 3"/>')
+    o.append(f'<text class="t" x="{X(onset) + 4:.1f}" y="{y + 44}" font-size="9.5">onset</text>'
+             f'<text class="t" x="{X(safe) - 4:.1f}" y="{y + 44}" font-size="9.5" text-anchor="end">safe</text>')
+    # scan points
+    y3 = 200
+    o.append(f'<text class="t" x="{l}" y="{y3 - 12}" font-size="11" font-weight="600">Scan points: every chip at its own safe value + K</text>')
+    for k in (64, 40, 24, 12, 0, -4, -6, -8, -10, -12, -14, -16, -18):
+        s = safe + k
+        if lo <= s <= hi:
+            o.append(f'<circle cx="{X(s):.1f}" cy="{y3 + 10}" r="3.6" fill="{"var(--s1)" if k else "var(--fg)"}"/>'
+                     f'<text class="m" x="{X(s):.1f}" y="{y3 + 30 + (12 if k in (-6, -10, -14, -18) else 0)}" font-size="8.5" text-anchor="middle">{k:+d}</text>')
+    o.append(f'<text class="f" x="{l}" y="{y3 + 64}" font-size="9">Coarse steps above safe (+64, +40, +24, +12), where only the loss of efficiency is expected; steps of 2 DAC below it,</text>'
+             f'<text class="f" x="{l}" y="{y3 + 77}" font-size="9">where the noise grows by orders of magnitude per few steps. K = 0 opens every pass of the scan as a check.</text>')
+    o.append('</svg>')
+    return '\n'.join(o)
+
+
+def k_units_table():
+    rows = ''
+    for k in (64, 40, 24, 12, 8, 0, -4, -8, -12, -16):
+        adc = k * ADC_PER_DAC
+        fc = k * MV_PER_DAC / MV_PER_FC
+        rows += (f'<tr><th>{k:+d}</th><td>{k * MV_PER_DAC:+.0f}</td><td>{adc:+.0f}</td><td>{fc:+.1f}</td>'
+                 f'<td>{fc * 6241.5:+,.0f}</td><td>{SAFE_SDT[2] + k}</td><td>{SAFE_SDT[18] + k}</td></tr>')
+    return ('<div style="overflow-x:auto"><table class="bltab"><tr><th>K [sdt steps]</th><th>&asymp; mV</th><th>&asymp; ADC</th><th>&asymp; fC</th>'
+            '<th>&asymp; electrons</th><th>VMM 2 sdt</th><th>VMM 18 sdt (planned)</th></tr>' + rows + '</table></div>')
+
+
+def safe_table():
+    out = ''
+    for part in ((2, 11), (11, 20)):
+        vs = list(range(*part))
+        out += ('<tr><th>VMM</th>' + ''.join(f'<th>{v}</th>' for v in vs) + '</tr><tr><th>safe sdt</th>' +
+                ''.join(f'<td>{SAFE_SDT[v]}</td>' for v in vs) + '</tr>')
+    return f'<div style="overflow-x:auto"><table class="bltab">{out}</table></div>'
+
+
+def passes_table():
+    rows = ''.join(f'<tr><th>{a}</th><td style="text-align:left">{b}</td><td>{c}</td></tr>' for a, b, c in WK_PASSES)
+    return ('<table class="bltab"><tr><th>planned</th><th>K values, in this order</th><th>per point</th></tr>' + rows + '</table>')
 
 
 def trig_or_table():
