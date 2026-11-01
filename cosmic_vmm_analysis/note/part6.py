@@ -82,6 +82,79 @@ def fig_weekend_timeline():
     return '\n'.join(o)
 
 
+def cartoon_scan_procedure():
+    W, H = 640, 470
+    o = [f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="How a threshold scan is run: one point, the weekend scan in sequence, and the planned scan in rotation">']
+    o.append('<text class="t" x="12" y="18" font-size="13" font-weight="600">How a threshold scan is run</text>')
+    # ---- panel 1: one point
+    o.append('<text class="t" x="12" y="42" font-size="11.5" font-weight="600">1. One point of the scan</text>')
+    x0, y0 = 30, 56
+    o.append(f'<rect x="{x0 + 10}" y="{y0}" width="60" height="8" rx="2" fill="var(--s2)"/><rect x="{x0 + 80}" y="{y0}" width="60" height="8" rx="2" fill="var(--s2)"/>'
+             f'<text class="m" x="{x0 + 150}" y="{y0 + 8}" font-size="9.5">two paddles on top</text>')
+    for i, (nm, col) in enumerate((('det3 P2_IN', 'var(--s1)'), ('det2 P2_MID', 'var(--s1)'), ('det1 P2_OUT', 'var(--s1)'))):
+        y = y0 + 22 + i * 24
+        o.append(f'<rect x="{x0}" y="{y}" width="150" height="10" rx="2" fill="{col}" opacity="0.85"/><text class="m" x="{x0 + 158}" y="{y + 9}" font-size="9.5">{nm}</text>')
+    yb = y0 + 22 + 3 * 24
+    o.append(f'<rect x="{x0 + 20}" y="{yb}" width="110" height="8" rx="2" fill="var(--s2)"/><text class="m" x="{x0 + 150}" y="{yb + 8}" font-size="9.5">one paddle below</text>')
+    o.append(f'<line x1="{x0 + 40}" y1="{y0 - 4}" x2="{x0 + 95}" y2="{yb + 14}" stroke="var(--fg)" stroke-width="1.4" stroke-dasharray="4 3"/>'
+             f'<text class="f" x="{x0 + 98}" y="{yb + 22}" font-size="9">a muon</text>')
+    # threshold bars: every chip at its own safe value + the same K
+    bx = 330
+    o.append(f'<text class="m" x="{bx}" y="{y0 + 6}" font-size="10">every chip: its own safe threshold + the same offset K</text>')
+    safe = [232, 217, 247, 230, 229, 236, 248, 239, 229, 219]
+    for i, s in enumerate(safe):
+        x = bx + 8 + i * 27
+        hs = (s - 190) * 1.25
+        o.append(f'<rect x="{x}" y="{y0 + 120 - hs:.1f}" width="16" height="{hs:.1f}" rx="2" fill="var(--c2)"/>'
+                 f'<rect x="{x}" y="{y0 + 120 - hs - 16:.1f}" width="16" height="16" rx="2" fill="var(--s2)" opacity="0.85"/>')
+    o.append(f'<line x1="{bx}" x2="{bx + 280}" y1="{y0 + 120}" y2="{y0 + 120}" stroke="var(--fg-faint)"/>'
+             f'<text class="f" x="{bx + 145}" y="{y0 + 134}" font-size="9" text-anchor="middle">chips (threshold in DAC); blue = safe, orange = + K (here K = +12)</text>')
+    # ---- panel 2: weekend, in sequence
+    py = 225
+    o.append(f'<text class="t" x="12" y="{py}" font-size="11.5" font-weight="600">2. The weekend scan: the points one after the other</text>')
+    seq = [64, 24, 0, -8, -12, 0, 40, 12, -4, -10]
+    l, r_ = 30, 620
+    w = (r_ - l) / len(seq)
+    for i, k in enumerate(seq):
+        x = l + i * w
+        o.append(f'<rect x="{x + 1:.1f}" y="{py + 12}" width="{w * 0.08:.1f}" height="26" fill="var(--c2)"/>'
+                 f'<rect x="{x + 2 + w * 0.08:.1f}" y="{py + 12}" width="{w * 0.08:.1f}" height="26" fill="var(--c2)"/>'
+                 f'<rect x="{x + 3 + w * 0.16:.1f}" y="{py + 12}" width="{w * 0.8:.1f}" height="26" rx="2" fill="var(--s1)"/>'
+                 f'<text class="x3" x="{x + 3 + w * 0.56:.1f}" y="{py + 29}" font-size="10" text-anchor="middle">K {k:+d}' + '</text>' if k else
+                 f'<rect x="{x + 1:.1f}" y="{py + 12}" width="{w * 0.08:.1f}" height="26" fill="var(--c2)"/>'
+                 f'<rect x="{x + 2 + w * 0.08:.1f}" y="{py + 12}" width="{w * 0.08:.1f}" height="26" fill="var(--c2)"/>'
+                 f'<rect x="{x + 3 + w * 0.16:.1f}" y="{py + 12}" width="{w * 0.8:.1f}" height="26" rx="2" fill="var(--s1)"/>'
+                 f'<text class="x3" x="{x + 3 + w * 0.56:.1f}" y="{py + 29}" font-size="10" text-anchor="middle">K 0</text>')
+    o.append(f'<text class="f" x="{l}" y="{py + 50}" font-size="9">each point: two 2-minute runs (light), then 3 hours (dark); 33 hours in all</text>')
+    # the gain falling underneath
+    gy0, gy1 = py + 72, py + 118
+    pts = ' '.join(f'{l + (r_ - l) * f:.1f},{gy0 + (gy1 - gy0) * g:.1f}'
+                   for f, g in ((0, 0), (0.03, 0.05), (0.15, 0.35), (0.3, 0.62), (0.45, 0.85), (0.55, 1), (1, 1)))
+    o.append(f'<polyline points="{pts}" fill="none" stroke="var(--alert)" stroke-width="2.2"/>'
+             f'<text class="m" x="{l + (r_ - l) * 0.33:.1f}" y="{gy0 + 6}" font-size="9.5">&#8600; gain of the chambers: falls, then nothing from the 6th point on</text>'
+             f'<line x1="{l}" x2="{r_}" y1="{gy1}" y2="{gy1}" stroke="var(--border)"/>'
+             f'<text class="m" x="{r_}" y="{gy1 + 13}" font-size="9.5" text-anchor="end">each threshold met a different gain: threshold and gain cannot be told apart</text>')
+    # ---- panel 3: planned, in rotation
+    qy = 375
+    o.append(f'<text class="t" x="12" y="{qy}" font-size="11.5" font-weight="600">3. Next: 30-minute runs in rotation, the safe setting repeated in every cycle</text>')
+    cyc = [0, 8, -2, -4]
+    cols = {0: 'var(--s1)', 8: 'var(--c3)', -2: 'var(--c4)', -4: 'var(--c5)'}
+    n = 6
+    w = (r_ - l) / (n * len(cyc))
+    for c in range(n):
+        for j, k in enumerate(cyc):
+            x = l + (c * len(cyc) + j) * w
+            o.append(f'<g><title>cycle {c + 1}: safe {k:+d}</title><rect x="{x + 0.6:.1f}" y="{qy + 12}" width="{w - 1.2:.1f}" height="24" rx="1.5" fill="{cols[k]}"/></g>')
+        if c < 3:
+            for j, k in enumerate(cyc):
+                x = l + (c * len(cyc) + j) * w
+                o.append(f'<text class="x3" x="{x + w / 2:.1f}" y="{qy + 28}" font-size="8" text-anchor="middle">{"S" if k == 0 else f"{k:+d}"}</text>')
+    o.append(f'<text class="f" x="{l}" y="{qy + 50}" font-size="9">S = safe (repeated: it shows the gain drift); +8, &minus;2, &minus;4 = safe + K. Six cycles of 2 hours: each point gets 3 hours,</text>'
+             f'<text class="f" x="{l}" y="{qy + 63}" font-size="9">spread over the whole day, so a slow drift touches all points alike and a sudden change is seen within one cycle.</text>')
+    o.append('</svg>')
+    return '\n'.join(o)
+
+
 def trig_or_table():
     rows = ''.join(f'<tr><th>{a}</th><td>{b}</td><td>{c}</td><td>{c / TRIG_OR[0][2]:.1f}&times;</td></tr>' for a, b, c in TRIG_OR)
     return ('<table class="bltab"><tr><th>trigger (run_130, built offline from the recorded paddles)</th><th>per hour</th>'
