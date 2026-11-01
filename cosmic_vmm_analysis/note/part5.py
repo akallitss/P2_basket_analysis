@@ -20,7 +20,7 @@ RUN_GROUPS = [
     (112, 118, 'on', 'new HV', 'Mon 26 Oct 12:26', '<strong>New voltages and read-out connectors</strong> (section 15): VMM 4, 7, 9 noise ladder', '<code>n479hvon_d50</code> &hellip; <code>_d16</code>', '2 min'),
     (119, 125, 'on', 'muons', 'Mon 26 &ndash; Thu 29 Oct', '<strong>Safe setting</strong>: 119 and 123 nothing masked; 120&ndash;122 VMM 4, 7, 9 parked (121 analysed); 124 and 125 with 12 channels of VMM 4 and 9 masked (124 analysed)', '<code>safe_nomask_oldHV</code>, <code>safe_hold479_*</code>, <code>safe_m9c16to21_m4c36to41</code>', '2&ndash;30 min'),
     (126, 130, 'on', 'scint.', 'Thu 29 &ndash; Fri 30 Oct', '<strong>Scintillators on hybrid H0</strong>: 128 first wiring (no coincidence, TTL), 130 the three-paddle coincidence (60 min)', '<code>safe_m9c16to21_m4c36to41_h0open</code>', '2&ndash;60 min'),
-    (131, 169, 'on', 'weekend scan', 'Fri 30 Oct 22:47 &ndash; Sun 1 Nov', '<strong>Weekend threshold scan with the scintillators</strong>, K = +64 &hellip; &minus;14; the chambers faded during it (section 15f): to be taken again from run 133', '<code>&hellip;_h0open_adwk1_K&lt;offset&gt;_i1 / _i2</code>', '2 min + 3 h per point'),
+    (131, 169, 'on', 'weekend scan', 'Fri 30 Oct 22:47 &ndash; Sun 1 Nov', '<strong>Weekend threshold scan with the scintillators</strong>, K = +64 &hellip; &minus;14; the chambers faded during it (section 15g): to be taken again from run 133', '<code>&hellip;_h0open_adwk1_K&lt;offset&gt;_i1 / _i2</code>', '2 min + 3 h per point'),
 ]
 
 
