@@ -3,8 +3,11 @@
 """Channel by channel, chip by chip: the baseline from every neighbour read-out group, and the noise of each channel.
 
 For every VMM one figure, channel 0-63 on the horizontal axis:
-  top     the baseline (median ADC of the neighbour read-outs) in each group, with the error of that median
-          (1.25 * spread / sqrt(read-outs));
+  top     the baseline (median ADC of the neighbour read-outs) in each group, with the 68 % interval of that median
+          from the ranks n/2 -+ sqrt(n)/2 of the read-outs (no shape assumed, so a tail of real signal does not inflate
+          it), with 0.5 ADC added in quadrature for the integer ADC steps (older outputs without the interval:
+          1.25 * spread / sqrt(read-outs));
+  middle  the number of neighbour read-outs behind each point;
   bottom  the noise of the channel in each group: the spread (std) of its neighbour read-outs, and how often it fired
           by itself (over-threshold hits per neighbour read-out, a rate that does not depend on the run length).
 Then one summary: per chip, the 10-90 % range of the baselines of group --ref with all channels and without the
@@ -36,7 +39,10 @@ def load(d):
             continue
         out[(int(r['vmm']), int(r['ch']))] = {'n_nb': int(r['n_nb']), 'n_over': int(r['n_over']),
                                               'med': float(r['adc_nb_median']) if r['adc_nb_median'] else np.nan,
-                                              'std': float(r['adc_nb_std']) if r['adc_nb_std'] else np.nan}
+                                              'std': float(r['adc_nb_std']) if r['adc_nb_std'] else np.nan,
+                                              'lo': float(r['adc_nb_median_lo68']) if r.get('adc_nb_median_lo68') else np.nan,
+                                              'hi': float(r['adc_nb_median_hi68']) if r.get('adc_nb_median_hi68') else np.nan,
+                                              'mad': float(r['adc_nb_mad']) if r.get('adc_nb_mad') else np.nan}
     return out
 
 
@@ -53,9 +59,10 @@ def main():
     ch = np.arange(64)
     summary = []
     for v in range(2, 20):
-        fig, (ax, bx) = plt.subplots(2, 1, figsize=(13, 7), sharex=True, constrained_layout=True,
-                                     gridspec_kw={'height_ratios': [1.3, 1]})
+        fig, (ax, nx, bx) = plt.subplots(3, 1, figsize=(13, 8.5), sharex=True, constrained_layout=True,
+                                         gridspec_kw={'height_ratios': [1.3, 0.45, 1]})
         style(ax)
+        style(nx)
         style(bx)
         bx2 = bx.twinx()
         for i, (g, D) in enumerate(G.items()):
@@ -68,8 +75,15 @@ def main():
             nnb = np.array([r['n_nb'] if r else 0 for r in rows], float)
             nov = np.array([r['n_over'] if r else 0 for r in rows], float)
             x = ch + (i - (len(G) - 1) / 2) * 0.18
-            err = 1.25 * sd / np.sqrt(np.maximum(nnb, 1))
-            ax.errorbar(x[ok], med[ok], yerr=err[ok], fmt='o', ms=3.5, color=GCOL[g], lw=1, label=f'{GLAB[g]} ({ok.sum()} ch)')
+            lo = np.array([r['lo'] if r else np.nan for r in rows])
+            hi = np.array([r['hi'] if r else np.nan for r in rows])
+            if np.isfinite(lo[ok]).all():
+                err = np.vstack([np.hypot(med - lo, 0.5), np.hypot(hi - med, 0.5)])
+            else:
+                e = 1.25 * sd / np.sqrt(np.maximum(nnb, 1))
+                err = np.vstack([e, e])
+            ax.errorbar(x[ok], med[ok], yerr=err[:, ok], fmt='o', ms=3.5, color=GCOL[g], lw=1, label=f'{GLAB[g]} ({ok.sum()} ch)')
+            nx.plot(x[ok], nnb[ok], 'o', ms=3, color=GCOL[g])
             ax.axhline(np.median(med[ok]), color=GCOL[g], lw=0.8, ls='--')
             bx.plot(x[ok], sd[ok], 'o', ms=3.5, color=GCOL[g])
             bx2.plot(x[ok], (nov / np.maximum(nnb, 1))[ok], 'x', ms=4, color=GCOL[g], alpha=0.7)
@@ -79,7 +93,11 @@ def main():
                    for g in G])
         ax.set_ylim(25, min(max(top + 5, 80), 260))
         ax.legend(fontsize=7.5, frameon=False, ncol=4, loc='upper left')
-        ax.set_title(f'VMM {v}: baseline of every channel (dashed: group median; dotted: 38)', fontsize=10, color=INK)
+        ax.set_title(f'VMM {v}: baseline of every channel (bars: 68 % interval of the median + 0.5 ADC steps; dashed: group median; '
+                     f'dotted: 38)', fontsize=10, color=INK)
+        nx.set_yscale('log')
+        nx.axhline(a.min_nb, color=INK, lw=0.8, ls=':')
+        nx.set_ylabel('read-outs', fontsize=8)
         bx.set_ylabel('spread of the neighbour read-outs [ADC] (dots)', fontsize=8)
         bx2.set_ylabel('own hits per neighbour read-out (x)', fontsize=8)
         bx2.set_yscale('symlog', linthresh=0.01)
