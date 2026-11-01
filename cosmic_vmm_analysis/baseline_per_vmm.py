@@ -126,7 +126,7 @@ def main():
                      f'dotted: 38; arrows: beyond the axis, with their value)', fontsize=10, color=INK)
         nx.set_yscale('log')
         nmax = max((max(G[g][(v, c)]['n_nb'] for c in ch if (v, c) in G[g]) for g in G if any((v, c) in G[g] for c in ch)), default=100)
-        nx.set_ylim(a.min_nb / 2, nmax * 4)
+        nx.set_ylim(a.min_nb / 3, nmax * 10)
         nx.axhline(a.min_nb, color=INK, lw=0.8, ls=':')
         nx.set_ylabel('read-outs', fontsize=8)
         sv = np.array([q[1] for q in spreads]) if spreads else np.array([1.0])
@@ -137,11 +137,11 @@ def main():
                 bx.annotate(f'{ss:.0f}', (xx, scap * 0.94), xytext=(0, -11), textcoords='offset points', ha='center', fontsize=6.5, color=cc)
             else:
                 bx.plot(xx, ss, 'o', ms=3.5, color=cc, clip_on=False)
-        bx.set_ylim(0, scap)
+        bx.set_ylim(-0.05 * scap, scap)               # room below 0: a spread of 0 is not drawn on the axis line
         bx.set_ylabel('spread of the neighbour read-outs [ADC] (dots)', fontsize=8)
         bx2.set_ylabel('own hits per neighbour read-out (x)', fontsize=8)
         bx2.set_yscale('symlog', linthresh=0.01)
-        bx2.set_ylim(0, max(max(rates, default=1) * 3, 1))
+        bx2.set_ylim(-0.004, max(max(rates, default=1) * 5, 1))   # symlog: room below 0 for channels that never fired
         bx.axhline(a.noisy_std, color=INK, lw=0.8, ls=':')
         bx.set_xlabel('channel', fontsize=8)
         bx.set_xticks(range(0, 64, 4))
