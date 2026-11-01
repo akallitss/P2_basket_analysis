@@ -18,6 +18,76 @@ TRIG = [('ch 40', '0.28 Hz', 'coincidence of the three paddles', '99.8&nbsp;% of
 DREAM = {1: (0.81, 'DREAM, cosmic bench, 19 Jul, 430 V'), 2: (0.66, 'DREAM, cosmic bench, 9 Jul, 430 V (65&ndash;67&nbsp;%)')}
 
 
+# weekend scan adwk1 (31 Oct - 1 Nov): 30-minute slices of the chamber response to the scintillator coincidence
+WK_TL = json.load(open(LOCAL + 'analysis_wk1/timeline.json'))['slices'] + \
+    [s for s in json.load(open(LOCAL + 'analysis_wk1/timeline_131_134.json'))['slices'] if s['run'] != 'run_130end']
+WK_K = {130: 0, 131: 0, 132: 0, 133: 64, 134: 64, 135: 64, 140: 24, 143: 0, 146: -8, 149: -12, 154: 0, 157: 40, 160: 12,
+        163: -4, 166: -10}
+# (top OR) AND bottom coincidence against the hardware triple, run_130
+TRIG_OR = [('hardware triple (ch 40)', 1002, 237), ('top 41 AND bottom 44', 1170, 263), ('top 45 AND bottom 44', 2107, 394),
+           ('(top 41 OR top 45) AND bottom 44', 3277, 659)]
+
+
+def fig_weekend_timeline():
+    from datetime import datetime as _dt
+    W, H = 640, 420
+    t0 = _dt(2026, 10, 30, 18, 0)
+    span = 40.0
+
+    def hrs(s):
+        return (_dt.fromisoformat(s['start']) - t0).total_seconds() / 3600 + s['files'] / 120
+    o = [f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="Chamber response and muon pulse height against time during the weekend scan">']
+    o.append('<text class="t" x="12" y="18" font-size="13" font-weight="600">The weekend scan: the chambers faded, whatever the threshold</text>')
+    o.append('<text class="m" x="12" y="34" font-size="11">Each dot: 30 minutes (2 to 4 minutes for the short runs 131&ndash;134). Shaded bands: the 3-hour points, labelled with</text>')
+    o.append('<text class="m" x="12" y="48" font-size="11">the threshold offset K. The scintillators triggered at the same rate all along (about 1000 per hour).</text>')
+    l, r_ = 60, 620
+    panels = ((70, 220, 'response to the scintillators', 'resp', 0.6), (250, 380, 'median ADC of the muon hits', 'adc_median', 360))
+
+    def X(h):
+        return l + (r_ - l) * h / span
+    runs = {}
+    for s in WK_TL:
+        n = int(s['run'].split('_')[1])
+        h = hrs(s)
+        runs.setdefault(n, [h, h])
+        runs[n][0] = min(runs[n][0], h - s['files'] / 120)
+        runs[n][1] = max(runs[n][1], h + s['files'] / 120)
+    for t, bt, lab, key, hi in panels:
+        for k, (a, b) in sorted(runs.items()):
+            if b - a > 1:
+                o.append(f'<rect x="{X(a):.1f}" y="{t}" width="{X(b) - X(a):.1f}" height="{bt - t}" fill="var(--c0)" opacity="0.7"/>')
+                if key == 'resp':
+                    o.append(f'<text class="f" x="{(X(a) + X(b)) / 2:.1f}" y="{t + 10}" font-size="8.5" text-anchor="middle">K {WK_K[k]:+d}</text>'
+                             if WK_K[k] else f'<text class="f" x="{(X(a) + X(b)) / 2:.1f}" y="{t + 10}" font-size="8.5" text-anchor="middle">K 0</text>')
+
+        def Y(v):
+            return bt - (bt - t) * max(min(v, hi), 0) / hi
+        for v in ((0, 0.2, 0.4, 0.6) if key == 'resp' else (0, 100, 200, 300)):
+            o.append(f'<line x1="{l}" x2="{r_}" y1="{Y(v):.1f}" y2="{Y(v):.1f}" stroke="var(--border)"/>'
+                     f'<text class="f" x="{l - 6}" y="{Y(v) + 3:.1f}" font-size="9" text-anchor="end">{v:g}</text>')
+        o.append(f'<text class="m" x="{l - 44}" y="{(t + bt) / 2:.1f}" font-size="10" transform="rotate(-90 {l - 44} {(t + bt) / 2:.1f})" text-anchor="middle">{lab}</text>')
+        for d, nm, col in DETS:
+            for s in WK_TL:
+                v = s[nm][key]
+                if v is None or (key == 'adc_median' and (s[nm]['n_hit'] < 15)):
+                    continue
+                o.append(f'<g><title>{s["run"]} {s["start"][5:16]}: {nm} {v:.3g}</title>'
+                         f'<circle cx="{X(hrs(s)):.1f}" cy="{Y(v):.1f}" r="2.8" fill="{col}"/></g>')
+    for h, lab in ((0, 'Fri 18:00'), (6, '24:00'), (12, 'Sat 06:00'), (18, '12:00'), (24, '18:00'), (30, '24:00'), (36, 'Sun 06:00')):
+        o.append(f'<text class="f" x="{X(h):.1f}" y="{panels[1][1] + 14}" font-size="9" text-anchor="middle">{lab}</text>')
+    for i, (d, nm, col) in enumerate(DETS):
+        o.append(f'<circle cx="{l + 10 + i * 130}" cy="{H - 10}" r="4" fill="{col}"/><text class="m" x="{l + 18 + i * 130}" y="{H - 6}" font-size="10">{nm}</text>')
+    o.append(f'<text class="f" x="{r_}" y="{H - 6}" font-size="9" text-anchor="end">ADC shown where a slice has at least 15 muon hits</text>')
+    o.append('</svg>')
+    return '\n'.join(o)
+
+
+def trig_or_table():
+    rows = ''.join(f'<tr><th>{a}</th><td>{b}</td><td>{c}</td><td>{c / TRIG_OR[0][2]:.1f}&times;</td></tr>' for a, b, c in TRIG_OR)
+    return ('<table class="bltab"><tr><th>trigger (run_130, built offline from the recorded paddles)</th><th>per hour</th>'
+            f'<th>with a hit in all three chambers, per hour</th><th>gain</th></tr>{rows}</table>')
+
+
 def _sc(d, key):
     nm = {3: 'det3 P2_IN', 2: 'det2 P2_MID', 1: 'det1 P2_OUT'}[d]
     r = SC130[f'probe_{nm}'][key]
