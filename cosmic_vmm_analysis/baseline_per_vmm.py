@@ -86,7 +86,7 @@ def main():
                 e = 1.25 * sd / np.sqrt(np.maximum(nnb, 1))
                 err = np.vstack([e, e])
             ax.errorbar(x[ok], med[ok], yerr=err[:, ok], fmt='o', ms=3.5, color=GCOL[g], lw=1, label=f'{GLAB[g]} ({ok.sum()} ch)')
-            drawn += [(xx, mm, ee, GCOL[g]) for xx, mm, ee in zip(x[ok], med[ok], err[1, ok])]
+            drawn += [(xx, mm, ee, GCOL[g], el) for xx, mm, ee, el in zip(x[ok], med[ok], err[1, ok], err[0, ok])]
             nx.plot(x[ok], nnb[ok], 'o', ms=3, color=GCOL[g], clip_on=False)
             ax.axhline(np.median(med[ok]), color=GCOL[g], lw=0.8, ls='--')
             spreads += [(xx, ss, GCOL[g]) for xx, ss in zip(x[ok], sd[ok])]
@@ -97,17 +97,24 @@ def main():
         ax.set_ylabel('baseline [ADC] (median of the neighbour read-outs)', fontsize=8)
         vals = np.array([d[1] for d in drawn]) if drawn else np.array([50.0])
         far = vals > 120
-        cap = vals.max() + 10 if far.sum() > 5 else max(vals[~far].max() + 6 if (~far).any() else 80, 70)
-        lo_lim = max(0, min(vals.min() - 6, 35))
+        # the axis must hold the whole error bar of every point it shows, with a margin (multiplicative on a log axis)
+        tops = vals + np.array([d[2] for d in drawn]) if drawn else vals
+        bots = vals - np.array([d[4] for d in drawn]) if drawn else vals
+        block = far.sum() > 5
+        if block:
+            cap = tops.max() * 1.15
+        else:
+            cap = max(tops[~far].max() + 4 if (~far).any() else 80, 70)
+        lo_lim = max(0, min(bots.min() * (0.9 if block else 1) - (0 if block else 4), 35))
         stack = {}
-        for xx, mm, ee, cc in drawn:
+        for xx, mm, ee, cc, _ in drawn:
             if mm > cap:
                 k = stack.get(round(xx), 0)
                 stack[round(xx)] = k + 1
-                ax.plot(xx, cap, '^', ms=7, color=cc, clip_on=False)
-                ax.annotate(f'{mm:.0f}', (xx, cap), xytext=(0, -12 - 9 * k), textcoords='offset points', ha='center',
+                ax.plot(xx, cap - 0.05 * (cap - lo_lim), '^', ms=7, color=cc, clip_on=False)
+                ax.annotate(f'{mm:.0f}', (xx, cap - 0.05 * (cap - lo_lim)), xytext=(0, -12 - 9 * k), textcoords='offset points', ha='center',
                             fontsize=7, color=cc)
-        if far.sum() > 5:                            # a block of high-baseline channels: log scale shows both groups
+        if block:                                    # a block of high-baseline channels: log scale shows both groups
             ax.set_yscale('log')
             ax.set_yticks([t for t in (30, 40, 50, 60, 80, 100, 150, 200, 300, 500, 700) if lo_lim <= t <= cap])
             ax.yaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter())
@@ -118,14 +125,16 @@ def main():
         fig.suptitle(f'VMM {v}: baseline of every channel (bars: 68 % interval of the median + 0.5 ADC steps; dashed: group median; '
                      f'dotted: 38; arrows: beyond the axis, with their value)', fontsize=10, color=INK)
         nx.set_yscale('log')
+        nmax = max((max(G[g][(v, c)]['n_nb'] for c in ch if (v, c) in G[g]) for g in G if any((v, c) in G[g] for c in ch)), default=100)
+        nx.set_ylim(a.min_nb / 2, nmax * 4)
         nx.axhline(a.min_nb, color=INK, lw=0.8, ls=':')
         nx.set_ylabel('read-outs', fontsize=8)
         sv = np.array([q[1] for q in spreads]) if spreads else np.array([1.0])
         scap = max(np.percentile(sv, 97) * 1.3, 15)
         for xx, ss, cc in spreads:
             if ss > scap:
-                bx.plot(xx, scap, '^', ms=6, color=cc, clip_on=False)
-                bx.annotate(f'{ss:.0f}', (xx, scap), xytext=(0, -11), textcoords='offset points', ha='center', fontsize=6.5, color=cc)
+                bx.plot(xx, scap * 0.94, '^', ms=6, color=cc, clip_on=False)
+                bx.annotate(f'{ss:.0f}', (xx, scap * 0.94), xytext=(0, -11), textcoords='offset points', ha='center', fontsize=6.5, color=cc)
             else:
                 bx.plot(xx, ss, 'o', ms=3.5, color=cc, clip_on=False)
         bx.set_ylim(0, scap)
