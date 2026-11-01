@@ -49,6 +49,7 @@ BODY = f'''
 <div class="tldr"><strong>In one minute.</strong>
 <ul>
 <li><strong>Update, 26&ndash;30 October (section 15): the chambers do see muons, and they always did.</strong> The &ldquo;no muon signal&rdquo; of 25 October was an error in our analysis: the hybrids were read on connectors c5&ndash;c7, not c4&ndash;c6 as the run files say, so every hit was placed one connector away. With the right map the old runs show about 600 straight tracks per hour, like the new ones. A run with scintillators (run_130) gives an independent reference: at the safe thresholds each chamber is about <strong>65&ndash;72&nbsp;% efficient</strong> (det2 as good as with DREAM, det1 about 0.15 below). Lowering the threshold below the safe setting does not add much, because the noise takes over. The efficiencies from the chambers alone are lower bounds, because some of their &ldquo;tags&rdquo; are shared noise. The items below this one are the story as it was written at the time; the corrections are marked where they apply.</li>
+<li><strong>Update, 1 November (section 15f):</strong> the threshold scan of the weekend cannot be used. From Friday night the chambers slowly lost their gain, at every threshold, and from Saturday evening they saw no muons at all, while the scintillators kept triggering. The gas or the high voltage is the suspect (to be checked in the lab). All the points from run_133 on have to be taken again, in rotation and with the safe setting repeated as a check.</li>
 <li><strong>The question:</strong> how low can we set the threshold of each VMM chip before electronic noise takes over? The beam test could only <em>guess</em> the answer. Here, with cosmic muons, we can <em>measure</em> it.</li>
 <li><strong>What we did, in order:</strong> (1) a first test, which showed a flood of data from a few chips; (2) a noise scan with the chamber voltage on; (3) the same scan with the voltage <em>off</em>, to separate the detector from the electronics; (4) a closer look at single channels; (5) a direct measurement of the baseline of each channel, using a chip setting where a firing channel makes its neighbours report; (6) the same scans with the three chips we had masked (VMM 4, 7, 9) switched back on; (7) the first measurements with the high voltage on: a health check, and the neighbour read-out with cosmic muons, which gave a baseline for 97&nbsp;% of the channels.</li>
 <li><strong>What we found:</strong> the chips do <em>not</em> start to be noisy at the same threshold, and this spread stays when the voltage is off, so it comes from the electronics, not the chambers. Three chips (VMM 4, 7, 9) have noisy channels that also stay with the voltage off; when we switch them back on they show two kinds of noise: an ordinary smooth onset like the other chips, plus bursts that jump up and down with each new configuration, even at very high thresholds. And each channel has a noise peak of its own, so the channels inside one chip differ too. The baselines we could measure directly (about half of the channels so far) are mostly 45 to 65 ADC counts, not the 38 used so far for every channel, and they differ from chip to chip. With the voltage on we now have a baseline for 97&nbsp;% of the channels, the voltage does not change them, and VMM 4, 7 and 9 each have a large block of channels with baselines of 100 to several hundred, next to the channels that burst.</li>
@@ -324,7 +325,7 @@ BODY = f'''
 
 <h2>13. All runs at a glance, and the words we use</h2>
 <p>This is the map of the whole campaign so far: which run numbers belong to which measurement, and what the names mean. The same overview now opens the logbook.</p>
-{card(fig_run_timeline(), 'From the logbook. 130 run numbers in nine days; numbers 33 and 34 were lost in the run-counter incident of Friday afternoon. From run_112 on, the new voltages and read-out connectors (section 15).')}
+{card(fig_run_timeline(), 'From the logbook. 169 run numbers in eleven days; numbers 33 and 34 were lost in the run-counter incident of Friday afternoon. From run_112 on, the new voltages and read-out connectors (section 15).')}
 
 <h3>The words</h3>
 <dl class="gloss">
@@ -366,6 +367,7 @@ BODY = f'''
 <tr><td>Chip settings</td><td>4.5&nbsp;mV/fC, 200&nbsp;ns peaking time; only the threshold lines and the masks change between files</td></tr>
 <tr><td>Code and feedback notes</td><td>branch <code>lab-cosmics-oct26</code>, <code>docs/LAB_COSMICS_OBSERVATIONS.md</code> (items 1&ndash;64); the analysis scripts moved on 25 October from the DAQ repo&rsquo;s <code>quick_scripts/</code> to <code>P2_basket_analysis/cosmic_vmm_analysis/</code></td></tr>
 <tr><td>New voltages and connectors, 26&ndash;30 Oct (section 15)</td><td><code>run_112</code> &hellip; <code>run_118</code> (VMM 4, 7, 9 ladder, 2 min), <code>run_119</code> &hellip; <code>run_125</code> (30 min at the safe setting, with VMM 4, 7, 9 parked in 120&ndash;122), <code>run_126</code> &hellip; <code>run_130</code> (scintillators on hybrid H0; <code>run_128</code> first wiring, <code>run_130</code> the coincidence, 60 min). Analysed so far: 121, 124, 128, 130</td></tr>
+<tr><td>Weekend threshold scan (section 15f)</td><td><code>run_131</code> &hellip; <code>run_169</code>, labels <code>&hellip;_h0open_adwk1_K&lt;offset&gt;_i1 / _i2</code>: two short runs and one 3-hour run per point; to be taken again. 30-minute slices in <code>analysis_wk1/timeline.json</code> (<code>scint_timeline.py</code>), per point in <code>analysis_wk1/wk1_scan.json</code> (<code>run_scint_scan.sh</code>, <code>summarize_scint_scan.py</code>)</td></tr>
 <tr><td>Section 15 analysis</td><td>Code in <code>P2_basket_analysis/cosmic_vmm_analysis/</code>: <code>straight_track_rate.py</code> (<code>--conn-shift</code>, <code>--order</code>, <code>--veto</code>), <code>half_order_scan.py</code>, <code>residual_diagnostics.py</code>, <code>event_display.py</code>, <code>efficiency_tp.py</code>, <code>run_efficiency_batch.sh</code>, <code>summarize_eff_runs.py</code>, <code>eff_maps.py</code>, <code>scint_efficiency.py</code>, <code>eff_vs_baseline.py</code>, <code>inventory_runs.py</code>; the map for each period and the traps are in its README. Results in <code>analysis_run121/</code>, <code>analysis_run124/</code>, <code>analysis_run130/</code>, <code>analysis_runs76_111/</code>, <code>analysis_inventory/</code></td></tr>
 </table>
 
@@ -441,6 +443,23 @@ BODY = f'''
 <li>Runs 122, 123, 125&ndash;127 and 129 are not analysed yet.</li>
 </ul></div>
 </div>
+
+<h3>15f. The weekend scan (31 October &ndash; 1 November): the chambers faded</h3>
+<p>Over the weekend the stack ran a threshold scan with the scintillators: 3-hour points at K = +64, +24, 0, &minus;8, &minus;12, 0 again, +40, +12, &minus;4, &minus;10 and &minus;14 DAC from the safe setting (runs 133&ndash;169, labels <code>adwk1_K&hellip;</code>), with more noisy channels masked at the lower thresholds (16 at K = 0, 162 at K = &minus;12). Before analysing it point by point we asked a simpler question: does the stack respond to the scintillators the same way all weekend? It does not.</p>
+{card(fig_weekend_timeline(), 'Real data. The chamber response to the scintillator coincidence falls steadily from Friday night, inside each 3-hour point as well as from one point to the next, and reaches zero in all three chambers on Saturday evening; from then on not one muon is seen, at any threshold. The pulse height of the muon hits falls with it (det3 from about 340 to about 100 ADC by Saturday morning), so the gain of the chambers dropped. The paddles kept triggering normally.')}
+<p>The threshold cannot explain it: the same setting (K = 0) gives a response of about 0.5 on Friday evening, about 0.25 on Saturday morning and zero on Saturday evening, and inside one 3-hour point at a fixed setting the response keeps falling. A slow loss of gain on all three chambers, followed by a complete stop, points to the gas (flow stopped or bottle empty) or to the high voltage. The DAQ does not record either, so the cause is still to be checked in the lab.</p>
+<p><strong>When did it start?</strong> The short runs between Friday evening and the scan narrow it down. Run_130 (Friday 18:38&ndash;19:38) and the 2-minute runs 131 and 132 (Friday 22:47&ndash;22:53) still respond at the Friday level within their errors (about &plusmn;0.05). From run_133 (Saturday 00:42) the response is lower, and in run_135 (Saturday 00:50&ndash;03:51) it falls while the threshold stays fixed. So the chambers were fine until about Friday 22:50 and certainly degrading by Saturday 01:00. <strong>All the points of the weekend scan (runs 133&ndash;169) have to be taken again.</strong></p>
+
+{stepcard(19, 'The weekend threshold scan',
+  'Eleven 3-hour points with the scintillator reference (runs 133&ndash;169), analysed first in 30-minute slices: response of each chamber to the scintillator coincidence and pulse height of the muon hits.',
+  'The response falls continuously from Friday night and is zero in all three chambers from about Saturday 21:00; the muon pulse height falls with it. The scintillators trigger normally all along. The last good runs are 131 and 132 (Friday 22:50).',
+  'The chambers lost their gain during the scan, so the scan says nothing about the threshold. The cause (gas or high voltage) is still to be checked in the lab.',
+  'restore the gas and the voltage, check with a 30-minute scintillator run that the chambers are back at the Friday level (response about 0.5, muon pulse height about 200&ndash;340 ADC), then repeat the scan as below.')}
+
+<h3>15g. How long each point should run</h3>
+<p>The scintillators are recorded one by one as well as through their hardware coincidence, so the coincidence can also be made afterwards. Asking for either top paddle together with the bottom one gives nearly three times as many muons that cross all three chambers, for almost the same quality:</p>
+{trig_or_table()}
+<p>With that trigger about 650 muons per hour cross the stack and are seen by the two chambers that tag them. For an efficiency of about 0.7 the statistical error per chamber is about &plusmn;0.02 after one hour and &plusmn;0.011 after two to three hours, which is what is needed to see the steps of 0.03 to 0.10 between neighbouring thresholds. One chip is about a sixth of a chamber, so per chip a day per point is needed. A drift of the gain is the bigger danger, as the weekend showed, so the points should not be taken one after the other but <strong>in rotation</strong>: 30-minute runs cycling through the thresholds, with the safe setting repeated in every cycle to watch the gain, until each point has two to three hours.</p>
 '''
 
 html = open(NOTE).read()
@@ -450,10 +469,10 @@ html = html[:a] + CSS + html[b:]
 a = html.index('<div class="note-body">')
 b = html.index('</div>\n  </article>') + len('</div>')
 html = html[:a] + '<div class="note-body">' + BODY + '</div>' + html[b:]
-html = _re.sub(r'(<meta name="updated" content=")[^"]*(">)', r'\g<1>2026-10-30\2', html)
+html = _re.sub(r'(<meta name="updated" content=")[^"]*(">)', r'\g<1>2026-11-01\2', html)
 html = _re.sub(r'(<meta name="description" content=")[^"]*(">)',
                r'\g<1>A picture book of the lab threshold scans on the three-chamber cosmic stand: what we did step by step, what we found per chip, and (section 15) how the muons were found after all, with efficiencies checked against scintillators.\2', html)
 html = _re.sub(r'(<header class="note-header">\s*<h1>[^<]*</h1>\s*<p class="muted">)[^<]*(</p>)',
-               r'\g<1>A picture book of the lab threshold scans on the three-chamber cosmic stand: the noise per chip, and (section 15, updated 30 October) the muons found after all, with efficiencies checked against scintillators.\2', html)
+               r'\g<1>A picture book of the lab threshold scans on the three-chamber cosmic stand: the noise per chip, and (section 15, updated 30 October) the muons found after all, with efficiencies checked against scintillators; updated 1 November with the weekend scan.\2', html)
 open(NOTE, 'w').write(html)
 print('written', NOTE, len(html))
