@@ -8,14 +8,15 @@ Inputs (written by the DAQ in every run since run_170, November 2026):
                                (Europe/Paris), `remote_timestamp` = banco clock (about 30 s ahead; not used)
   <run>/tdk_lv_monitor.csv     every ~11 s: ALINX 12V, Hybrids 3.3V, Hybrids 2.2V volt_v / curr_a
 
-Flags (each becomes an interval [t - one sampling period, t + --post s], since the event happened between two readings):
+Flags (each becomes an interval [t - one sampling period - --pre-extra s, t + --post s]: the event happened between
+two readings, and the chamber activity it causes lasts a few seconds):
   hv_spark    imon above the run median of that electrode by more than --imon-big uA      (discharge)
   hv_small    imon above the median by more than --imon-small uA, below --imon-big          (small: to be validated)
   hv_vdev     |vmon - v0| > --vdev V while powered                                          (dip, ramp, trip)
   hv_off      power flag 0 on any electrode
   lv_glitch   LV current off its running median (+-5 readings) by more than --lv-di A (2.2V, 3.3V) or 0.5 % (12V),
               or a voltage off by more than 0.5 %
---use selects which flags make the veto (default: hv_spark,hv_vdev,hv_off,lv_glitch).
+--use selects which flags make the veto (default: hv_spark,hv_small,hv_vdev,hv_off).
 
 Clock: the hit times of read_times() are SRS-clock ns. Each capture file is anchored to wall time with its first
 packet timestamp (pcapng EPB), so a hit's wall time = file anchor + (t - first hit t of that file).
@@ -40,7 +41,7 @@ import numpy as np
 
 TZ = ZoneInfo('Europe/Paris')
 ELECTRODES = ('P2_IN_Drift', 'P2_IN_Mesh', 'P2_MID_Drift', 'P2_MID_Mesh', 'P2_OUT_Drift', 'P2_OUT_Mesh')
-DEFAULT_USE = 'hv_spark,hv_vdev,hv_off,lv_glitch'
+DEFAULT_USE = 'hv_spark,hv_small,hv_vdev,hv_off'
 
 
 def _epoch(s):
@@ -118,11 +119,11 @@ def build(run_dir, a):
     if hv:
         f, per, span = hv_flags(hv[0], a)
         flags += f
-        iv += [(t - per, t + a.post, w) for t, w, _, _ in f if w in use]
+        iv += [(t - per - a.pre_extra, t + a.post, w) for t, w, _, _ in f if w in use]
     if os.path.exists(lv):
         f, per = lv_flags(lv, a)
         flags += f
-        iv += [(t - per, t + a.post, w) for t, w, _, _ in f if w in use]
+        iv += [(t - per - a.pre_extra, t + a.post, w) for t, w, _, _ in f if w in use]
     iv = _merge(iv)
     by = {}
     for t, w, el, val in flags:
@@ -130,7 +131,7 @@ def build(run_dir, a):
         by[w][el] += 1
     res = {'run': os.path.basename(os.path.normpath(run_dir)), 'hv_file': hv[0] if hv else None,
            'lv_file': lv if os.path.exists(lv) else None, 'monitor_span': span, 'use': sorted(use),
-           'params': {k: getattr(a, k) for k in ('imon_big', 'imon_small', 'vdev', 'lv_di', 'post')},
+           'params': {k: getattr(a, k) for k in ('imon_big', 'imon_small', 'vdev', 'lv_di', 'pre_extra', 'post')},
            'flag_counts': by, 'flags': [[t, w, el, val] for t, w, el, val in sorted(flags)],
            'intervals': [[x, y, w] for x, y, w in iv]}
     if span:
@@ -239,7 +240,7 @@ def check(run_dir, res, out_png, out_json, win=60):
         k = (np.array(ts) - t0).astype(int)
         out['classes'][cl] = {'n': len(ts)}
         for s, y in series.items():
-            prof = np.array([y[kk + lag].mean() for kk in k if kk + lag[0] >= 0 and kk + lag[-1] < len(y)]) if len(k) else np.zeros((0, len(lag)))
+            prof = np.array([y[kk + lag] for kk in k if kk + lag[0] >= 0 and kk + lag[-1] < len(y)]) if len(k) else np.zeros((0, len(lag)))
             out['classes'][cl][s] = prof.mean(0).tolist() if len(prof) else []
     # peak excess of saturated hits within +-15 s of the flag, relative to random
     print(f'{"class":28s} {"n":>4}  saturated hits/s in [-15,+15] s around the flag (random level) -- P2_IN / P2_MID / P2_OUT')
@@ -315,7 +316,8 @@ def main():
     ap.add_argument('--imon-small', type=float, default=0.15)
     ap.add_argument('--vdev', type=float, default=1.5)
     ap.add_argument('--lv-di', type=float, default=0.01)
-    ap.add_argument('--post', type=float, default=10.0)
+    ap.add_argument('--post', type=float, default=5.0)
+    ap.add_argument('--pre-extra', type=float, default=1.0)
     ap.add_argument('--use', default=DEFAULT_USE)
     ap.add_argument('--check', action='store_true')
     ap.add_argument('--no-plot', action='store_true')
