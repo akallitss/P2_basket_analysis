@@ -38,6 +38,7 @@ Outputs are kept outside the repo, under `data/Lab_Measurements/VMM-cosmics/vmm_
 | `event_display.py` | event displays of random straight / unselected groups, det2 residual against chance |
 | `residual_diagnostics.py` | what widens the det2 residual: pad size, z spacing, rotation, per connector half |
 | `half_order_scan.py` | channel order per connector from straight tracks, chosen on half the groups, scored on the other half |
+| `spark_veto.py` | bad-time intervals from the HV (`hv_monitor.csv`) and LV (`tdk_lv_monitor.csv`) monitor files of runs >= 170 (sparks, V dips, trips, LV glitches); `--check` compares chamber activity around each flag class with random times |
 | `inventory_runs.py` | one row per sub-run: settings, masks, HV declaration, connectors, sampled hit rate per VMM |
 | `run_metadata_corrections.json` | facts that override the run_config.json texts (HV connectors NOT moved on 26 Oct) |
 | `vmm_qa_path.py` | puts `vmm_stations` on `sys.path` |

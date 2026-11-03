@@ -18,6 +18,9 @@ The trigger is either one channel (--trig, the hardware coincidence) or built of
 (--top 0:41,0:45 --bottom 0:44: any top paddle with the bottom one within --coinc-win ns; in run_130 this gives 2.8
 times the three-chamber-confirmed events of the hardware triple).
 
+--bad-times veto_<run>.json (spark_veto.py: HV sparks / trips, LV glitches) drops the triggers that fall in a bad
+interval; each capture file is put on wall time by its first packet timestamp.
+
 Usage: scint_efficiency.py f1.pcapng[,...] OUT.json --trig 0:40 --conn-shift -1 --order ... [--title run_130]
        scint_efficiency.py ... --top 0:41,0:45 --bottom 0:44
 """
@@ -30,6 +33,7 @@ import numpy as np
 import orientation_check as O
 from coincidence_check import read_times
 from straight_track_rate import parse_veto
+from spark_veto import WallClock, load_veto, in_intervals
 
 Z = {3: 320.0, 2: 630.0, 1: 940.0}
 NAME = {3: 'det3 P2_IN', 2: 'det2 P2_MID', 1: 'det1 P2_OUT'}
@@ -55,13 +59,18 @@ def main():
     ap.add_argument('--cluster-r', type=float, default=15)
     ap.add_argument('--probe-r', type=float, default=15)
     ap.add_argument('--title', default='')
+    ap.add_argument('--bad-times', default='', help='veto_<run>.json from spark_veto.py: drop triggers in its intervals')
     a = ap.parse_args()
 
     X, Y = O.Mapper(a.conn_shift).xy_table(O.parse_orders(a.order))
     state = {}
     V, T, C = [], [], []
+    clock = WallClock()
     for p in a.files.split(','):
-        for v, t, c in read_times(p, state):
+        recs = read_times(p, state)
+        ts = [t for _, t, _ in recs if len(t)]
+        clock.add_file(p, min(t.min() for t in ts) if ts else None)
+        for v, t, c in recs:
             V.append(v); T.append(t); C.append(c)
     V, T, C = (np.concatenate(x) for x in (V, T, C))
     o = np.argsort(T, kind='stable')
@@ -80,6 +89,17 @@ def main():
     else:
         tv, tc = (int(x) for x in a.trig.split(':'))
         trig = T[(V == tv) & (C == tc)]
+    veto_info = None
+    if a.bad_times:
+        iv = load_veto(a.bad_times)
+        bad = in_intervals(clock(trig), iv)
+        w0, w1 = clock(np.array([T[0], T[-1]]))
+        vetoed_s = float(sum(max(0.0, min(y, w1) - max(x, w0)) for x, y in iv))
+        veto_info = {'file': a.bad_times, 'n_trig_before': int(len(trig)), 'n_trig_vetoed': int(bad.sum()),
+                     'vetoed_s': vetoed_s, 'vetoed_frac': vetoed_s / max(w1 - w0, 1e-9), 'wall_span': [float(w0), float(w1)]}
+        print(f'bad times: {bad.sum()} of {len(trig)} triggers dropped ({vetoed_s:.0f} s vetoed, '
+              f'{100 * veto_info["vetoed_frac"]:.2f} % of the run)')
+        trig = trig[~bad]
     counts = np.zeros((32, 64), int)
     np.add.at(counts, (V, C), 1)
     live = np.isfinite(X) & (counts > 0)
@@ -89,7 +109,7 @@ def main():
         live[v, c] = False
 
     res = {'title': a.title, 'span_s': span, 'n_trig': int(len(trig)), 'trig_rate_hz': len(trig) / span,
-           'params': vars(a), 'chambers': {}}
+           'params': vars(a), 'chambers': {}, 'bad_times': veto_info}
     print(f'{a.title}: {len(trig)} triggers on {a.trig} ({len(trig) / span:.3f} Hz) in {span / 60:.1f} min')
     ev = {}
     for d in (3, 2, 1):
