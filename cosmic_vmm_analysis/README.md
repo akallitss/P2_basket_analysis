@@ -25,6 +25,7 @@ Outputs are kept outside the repo, under `data/Lab_Measurements/VMM-cosmics/vmm_
 | `neighbor_baseline.py` | per-channel ADC baseline from neighbour read-out (sng 1) |
 | `baseline_vs_peak.py` | does the baseline predict the noise peak position |
 | `threshold_table.py` | per-chip noise-onset thresholds and per-channel baselines tables |
+| `adc_edge_vs_sdt.py` | sdt ↔ hit-ADC conversion per chip from the lower edge of the ADC spectra across scan points (slope, intercept); with neighbour baselines, each channel's threshold above its own baseline (`--per-channel`), i.e. what trims would equalise |
 | `adc_spectra.py` | ADC spectra per chip |
 | `burst_anatomy.py` | what the bursts of VMM 4/7/9 look like |
 | `event_multiplicity.py` | time groups, three-chamber "muon-like" proxy |
