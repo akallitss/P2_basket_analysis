@@ -6,7 +6,8 @@ Per run: the threshold offset K from the sub-run label (..._Kp64_..., _K0_, _Km8
 fraction of each chamber's pads that are live (masks grow at low thresholds), and the efficiency of each chamber on
 live pads with scintillator-confirmed tags (coincidence + one clean cluster in each of the other two chambers): probe
 hit anywhere and within 50 mm, for the hardware triple (scint3) and the offline (top OR) AND bottom trigger (scintor);
-plus the chamber-only tag-and-probe (efficiency_tp.py, a lower bound).
+plus the chamber-only tag-and-probe (efficiency_tp.py, a lower bound). "veto" = fraction of the run removed by the
+HV-monitor spark veto (spark_veto.py, when run_scint_scan.sh applied it).
 
 Usage: summarize_scint_scan.py DIR OUT_STEM
 """
@@ -44,6 +45,8 @@ def main():
                 continue
             S = json.load(open(p))
             row[f'{tag}_trig'] = S['n_trig']
+            if S.get('bad_times'):
+                row['vetoed_frac'] = S['bad_times']['vetoed_frac']
             for dd, nm in DETS:
                 P = S[f'probe_{nm}']
                 row[f'{tag}_n{dd}'] = P['n_tagged']
@@ -54,16 +57,16 @@ def main():
             r = E[f'probe_det{dd}']['vs_probe_r']['50']
             row[f'tp50_{dd}'] = (r.get('eff'), r.get('err'))
         rows.append(row)
-    print(f'{"run":>4} {"K":>4} {"h":>4} {"trig3":>6} {"trigOR":>6}  ' +
+    print(f'{"run":>4} {"K":>4} {"h":>4} {"veto":>5} {"trig3":>6} {"trigOR":>6}  ' +
           '  '.join(f'{nm:^44s}' for _, nm in DETS))
-    print(' ' * 30 + '  '.join(f'{"live":>5} {"OR any":>12} {"OR 50mm":>12} {"chambers":>9}' for _ in DETS))
+    print(' ' * 36 + '  '.join(f'{"live":>5} {"OR any":>12} {"OR 50mm":>12} {"chambers":>9}' for _ in DETS))
     for r in rows:
         cells = []
         for dd, _ in DETS:
             a = r.get(f'scintor_any{dd}', (np.nan, np.nan))
             b = r.get(f'scintor_50_{dd}', (np.nan, np.nan))
             cells.append(f'{r.get(f"live{dd}", np.nan):5.2f} {a[0]:6.3f}+-{a[1]:.3f} {b[0]:6.3f}+-{b[1]:.3f} {r[f"tp50_{dd}"][0] or np.nan:9.3f}')
-        print(f'{r["run"]:>4} {r["K"]!s:>4} {r["hours"]:4.1f} {r.get("scint3_trig", 0):6d} {r.get("scintor_trig", 0):6d}  ' + '  '.join(cells))
+        print(f'{r["run"]:>4} {r["K"]!s:>4} {r["hours"]:4.1f} {100 * r.get("vetoed_frac", 0):4.1f}% {r.get("scint3_trig", 0):6d} {r.get("scintor_trig", 0):6d}  ' + '  '.join(cells))
     json.dump(rows, open(stem + '_scan.json', 'w'), indent=1, default=float)
 
     fig, axs = plt.subplots(1, 4, figsize=(17, 4.3), constrained_layout=True)
