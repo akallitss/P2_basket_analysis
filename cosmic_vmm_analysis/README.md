@@ -23,6 +23,7 @@ Outputs are kept outside the repo, under `data/Lab_Measurements/VMM-cosmics/vmm_
 | `noise_scan_summary.py` | per-channel hit rate of every point of a threshold scan |
 | `compare_hv_noise.py` | HV on vs HV off per-channel rates |
 | `neighbor_baseline.py` | per-channel ADC baseline from neighbour read-out (sng 1) |
+| `sps_vs_lab_baseline.py` | were the VMM 4/7/9 high-baseline blocks there at the SPS? own-hit ADC per channel, SPS (sng 0) against lab (sng 1 baselines) |
 | `baseline_vs_peak.py` | does the baseline predict the noise peak position |
 | `threshold_table.py` | per-chip noise-onset thresholds and per-channel baselines tables |
 | `adc_spectra.py` | ADC spectra per chip |
