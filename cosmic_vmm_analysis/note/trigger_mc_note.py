@@ -76,6 +76,8 @@ HTML = r'''<!DOCTYPE html>
 <!-- ======================================================================= -->
 <link rel="stylesheet" href="../../assets/site.css">
 <style>
+  .note-body { max-width: none; }
+  .note-body > p, .note-body > ul, .note-body > ol, .note-body > h2, .note-body > h3, .note-body > .callout { max-width: 72ch; }
   .viewer { position: relative; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-elev);
             overflow: hidden; touch-action: none; }
   .viewer canvas { display: block; width: 100%; height: 560px; cursor: grab; }
@@ -95,14 +97,26 @@ HTML = r'''<!DOCTYPE html>
 </style>
 </head>
 <body>
-<main class="container">
-<p><a href="./">&larr; unlisted notes</a></p>
-<h1>Cosmic stand in 3D: what the trigger geometry alone predicts</h1>
-<p class="muted">Lab cosmic stand at Saclay, scintillator-referenced wk2 scan (runs 181&ndash;208). Question: is the
+<header class="site-header"><div class="wrap">
+  <a class="brand" href="../../">Alexandra Kallitsopoulou</a>
+  <nav class="nav"><a href="../../">Home</a><a href="../../notes/">Notes</a></nav>
+</div></header>
+
+<main class="wrap">
+  <article>
+    <header class="note-header">
+      <h1>Cosmic stand in 3D: what the trigger geometry alone predicts</h1>
+      <p class="muted">Lab cosmic stand at Saclay, scintillator-referenced wk2 scan (runs 181&ndash;208). Question: is the
 <em>statistics</em> pattern of the efficiency maps (kernel radius in <code>maps_K+0.png</code>) a detector effect or the
 geometry of the trigger with respect to the cosmic-muon distribution? Written 4 Nov 2026.</p>
+      <div class="meta-row">
+        <span class="pill">Detector R&amp;D</span>
+        <time datetime="2026-11-04">2026-11-04</time>
+        <span class="faint">VMM,cosmics,P2,lab,scintillator,acceptance,Monte Carlo,3D</span>
+      </div>
+    </header>
 
-<div class="note-body">
+    <div class="note-body">
 
 <div class="callout ok">
 <p><strong>Short answer.</strong> For det3 and det2 the statistics pattern is geometry. For det1 it is not, and the cause is in the other two chambers, not in det1.</p>
@@ -246,8 +260,14 @@ __ROWS_ABS__
 <li>A "clean cluster" is a single 100&nbsp;% efficient hit. Cluster size, noise clusters and masked pads are not modelled. They only change the absolute numbers and the tag-chamber factors, not the geometric shape.</li>
 <li>The data tails far outside the read-out area (a few % of the tags, mis-predicted) are not in the fit.</li>
 </ul>
-</div>
+    </div>
+  </article>
 </main>
+
+<footer class="site-footer"><div class="wrap">
+  <span>Alexandra Kallitsopoulou</span>
+  <span><a href="../../notes/">&larr; all notes</a></span>
+</div></footer>
 
 <script>
 (function () {
