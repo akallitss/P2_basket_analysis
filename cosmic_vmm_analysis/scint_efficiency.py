@@ -11,12 +11,19 @@ first hit after the trigger); random hits from the same window --sideband ns bef
   2. scintillator-confirmed tag-and-probe: of the triggers where the two OTHER chambers have a clean cluster, the
      fraction where the probe has a hit anywhere / within --probe-r mm of the line through the two clusters (+ the
      median probe offset); random hits as in 1.
+  3. the same on the live area only: tags whose predicted point (offset applied) lies on the probe's pad plane with
+     every pad within --live-r mm live (default: one pad pitch). Pads are live when mapped, not --veto/--dead-vmm and
+     seen at least once in the run, so hardware-masked (sm 1) pads are not live. The tags (predicted point, live area,
+     hit anywhere / within 50 mm) and the probe pads are written to the json for scint_eff_maps.py.
 
 Map as in efficiency_tp.py (--conn-shift, --order, --veto, --dead-vmm). Output OUT.json.
 
 The trigger is either one channel (--trig, the hardware coincidence) or built offline from the paddle singles
 (--top 0:41,0:45 --bottom 0:44: any top paddle with the bottom one within --coinc-win ns; in run_130 this gives 2.8
 times the three-chamber-confirmed events of the hardware triple).
+
+--bad-times veto_<run>.json (spark_veto.py: HV sparks / trips, LV glitches) drops the triggers that fall in a bad
+interval; each capture file is put on wall time by its first packet timestamp.
 
 Usage: scint_efficiency.py f1.pcapng[,...] OUT.json --trig 0:40 --conn-shift -1 --order ... [--title run_130]
        scint_efficiency.py ... --top 0:41,0:45 --bottom 0:44
@@ -30,6 +37,7 @@ import numpy as np
 import orientation_check as O
 from coincidence_check import read_times
 from straight_track_rate import parse_veto
+from spark_veto import WallClock, load_veto, in_intervals
 
 Z = {3: 320.0, 2: 630.0, 1: 940.0}
 NAME = {3: 'det3 P2_IN', 2: 'det2 P2_MID', 1: 'det1 P2_OUT'}
@@ -54,14 +62,22 @@ def main():
     ap.add_argument('--max-tag', type=int, default=6)
     ap.add_argument('--cluster-r', type=float, default=15)
     ap.add_argument('--probe-r', type=float, default=15)
+    ap.add_argument('--live-r', type=float, default=0,
+                    help='live-area efficiency: every probe pad within this many mm of the predicted point must be live '
+                         '(0 = the pad pitch, i.e. the nearest pad and its direct neighbours)')
     ap.add_argument('--title', default='')
+    ap.add_argument('--bad-times', default='', help='veto_<run>.json from spark_veto.py: drop triggers in its intervals')
     a = ap.parse_args()
 
     X, Y = O.Mapper(a.conn_shift).xy_table(O.parse_orders(a.order))
     state = {}
     V, T, C = [], [], []
+    clock = WallClock()
     for p in a.files.split(','):
-        for v, t, c in read_times(p, state):
+        recs = read_times(p, state)
+        ts = [t for _, t, _ in recs if len(t)]
+        clock.add_file(p, min(t.min() for t in ts) if ts else None)
+        for v, t, c in recs:
             V.append(v); T.append(t); C.append(c)
     V, T, C = (np.concatenate(x) for x in (V, T, C))
     o = np.argsort(T, kind='stable')
@@ -80,6 +96,17 @@ def main():
     else:
         tv, tc = (int(x) for x in a.trig.split(':'))
         trig = T[(V == tv) & (C == tc)]
+    veto_info = None
+    if a.bad_times:
+        iv = load_veto(a.bad_times)
+        bad = in_intervals(clock(trig), iv)
+        w0, w1 = clock(np.array([T[0], T[-1]]))
+        vetoed_s = float(sum(max(0.0, min(y, w1) - max(x, w0)) for x, y in iv))
+        veto_info = {'file': a.bad_times, 'n_trig_before': int(len(trig)), 'n_trig_vetoed': int(bad.sum()),
+                     'vetoed_s': vetoed_s, 'vetoed_frac': vetoed_s / max(w1 - w0, 1e-9), 'wall_span': [float(w0), float(w1)]}
+        print(f'bad times: {bad.sum()} of {len(trig)} triggers dropped ({vetoed_s:.0f} s vetoed, '
+              f'{100 * veto_info["vetoed_frac"]:.2f} % of the run)')
+        trig = trig[~bad]
     counts = np.zeros((32, 64), int)
     np.add.at(counts, (V, C), 1)
     live = np.isfinite(X) & (counts > 0)
@@ -89,7 +116,7 @@ def main():
         live[v, c] = False
 
     res = {'title': a.title, 'span_s': span, 'n_trig': int(len(trig)), 'trig_rate_hz': len(trig) / span,
-           'params': vars(a), 'chambers': {}}
+           'params': vars(a), 'chambers': {}, 'bad_times': veto_info}
     print(f'{a.title}: {len(trig)} triggers on {a.trig} ({len(trig) / span:.3f} Hz) in {span / 60:.1f} min')
     ev = {}
     for d in (3, 2, 1):
@@ -144,7 +171,45 @@ def main():
             k = int((sel & ok).sum())
             e = (k / n - acc) / (1 - acc) if n else float('nan')
             r[lab] = {'k': k, 'eff': e, 'err': float(np.sqrt(max(e * (1 - e), 0) / n)) if n else float('nan')}
+        # live area: the predicted point (offset applied) is inside the probe's pad plane and every pad within live_r
+        # of it is live, i.e. the track cannot have been lost to a masked or silent pad
+        pm = np.isfinite(X) & (DET[:, None] == p)
+        pv, pc = np.nonzero(pm)
+        gx, gy, glive = X[pv, pc], Y[pv, pc], live[pv, pc]
+        dd = np.hypot(gx[:, None] - gx[None, :], gy[:, None] - gy[None, :])
+        np.fill_diagonal(dd, np.inf)
+        pitch = float(np.median(dd.min(axis=1)))
+        lr = a.live_r if a.live_r > 0 else pitch
+        qx, qy = px + ox, py + oy
+        on_live = np.zeros(len(trig), bool)
+        inside = np.zeros(len(trig), bool)
+        for k in np.nonzero(sel)[0]:
+            dk = np.hypot(gx - qx[k], gy - qy[k])
+            inside[k] = dk.min() <= pitch
+            near_k = dk <= max(lr, dk.min())
+            on_live[k] = inside[k] and glive[near_k].all()
+        sl = sel & on_live
+        nl = int(sl.sum())
+        r['pitch_mm'], r['live_r_mm'] = pitch, lr
+        r['frac_tags_on_live_area'] = nl / n if n else float('nan')
+        r['frac_tags_inside'] = float((sel & inside).sum() / n) if n else float('nan')
+        r['live_area'] = {'n_tagged': nl}
+        for lab, ok in (('any_position', P['has']), (f'within_{a.probe_r:.0f}mm', dmin < a.probe_r), ('within_50mm', dmin < 50)):
+            k = int((sl & ok).sum())
+            e = (k / nl - acc) / (1 - acc) if nl else float('nan')
+            r['live_area'][lab] = {'k': k, 'eff': e, 'err': float(np.sqrt(max(e * (1 - e), 0) / nl)) if nl else float('nan')}
+        # per tag, for the maps (scint_eff_maps.py): predicted point, live area, hit anywhere / within 50 mm
+        ks = np.nonzero(sel)[0]
+        r['tags_xy'] = {'x': np.round(qx[ks], 1).tolist(), 'y': np.round(qy[ks], 1).tolist(),
+                        'live': on_live[ks].astype(int).tolist(), 'any': P['has'][ks].astype(int).tolist(),
+                        'w50': (dmin[ks] < 50).astype(int).tolist()}
+        r['pads'] = {'x': gx.round(2).tolist(), 'y': gy.round(2).tolist(), 'live': glive.astype(int).tolist(),
+                     'vmm': pv.tolist(), 'ch': pc.tolist()}
         res[f'probe_{NAME[p]}'] = r
+        la = r['live_area']
+        print(f'   live area (all pads within {lr:.1f} mm of the predicted point live; pitch {pitch:.1f} mm): '
+              f'{nl} of {n} tags ({100 * r["frac_tags_on_live_area"]:.1f} %): any_position {la["any_position"]["eff"]:.3f} '
+              f'+- {la["any_position"]["err"]:.3f}, within_50mm {la["within_50mm"]["eff"]:.3f} +- {la["within_50mm"]["err"]:.3f}')
         print(f'scintillator-confirmed tag-and-probe, probe {NAME[p]} (clean clusters in {NAME[ta]} and {NAME[tb]}: {n}): '
               + ', '.join(f'{lab} {v["eff"]:.3f} +- {v["err"]:.3f}' for lab, v in r.items() if isinstance(v, dict) and 'eff' in v))
     json.dump(res, open(a.out_json, 'w'), indent=1, default=float)
