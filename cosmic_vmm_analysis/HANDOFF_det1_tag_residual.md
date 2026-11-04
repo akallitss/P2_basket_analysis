@@ -1,3 +1,5 @@
+> **Resolved 2026-11-04 (night): see `FINDINGS_paddle_efficiency.md`.** The cause is H2: the paddles' efficiency varies along their length (light attenuation against the threshold; PMT of 44 at the lower-left end, PMTs of 41 / 45 at the upper-right end). Paddle 44 (in every trigger) is 0.90 efficient on its lower-left half and 0.23 on its upper-right half; 41 is the mirror image; 45 is fine. Measured with `scint_dump.py` / `paddle_efficiency.py` / `paddle_study.py`; the MC with the measured maps reproduces all three tag distributions with no free parameter. H1 / H3 / H4 are ruled out; the paddle-position fit below is an artefact. The rest of this file is kept as the record of the question.
+
 # Handoff: why does the det1 tag distribution disagree with the geometric expectation?
 
 Written 2026-11-04 (evening). Branch `worktree-trigger-acceptance-mc` of P2_basket_analysis. Not merged, not pushed
