@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Write the CERN-site note "Cosmic stand in 3D: what the trigger geometry alone predicts" from the products of
-trigger_acceptance_mc.py (geometry_3d.json, fit.json, PNGs). Self-contained HTML (no CDN): the 3D view is a small
-canvas renderer written here (orbit / zoom / pan, preset views, layer toggles).
+"""Write the CERN-site note "Cosmic stand in 3D: the trigger geometry, and why the tag statistics is the paddles'
+efficiency" from the products of trigger_acceptance_mc.py (geometry_3d.json, fit.json, PNGs) and of paddle_study.py
+(paddle_geometry.json, paddle_efficiency.json, closure.json, trigger_composition.json, PNGs). Self-contained HTML
+(no CDN): the 3D view is a small canvas renderer written here (orbit / zoom / pan, preset views, layer toggles); the
+paddles are drawn at their measured rectangles, with the efficient region filled.
 
-Usage: trigger_mc_note.py MC_DIR NOTE_HTML   (figures are copied to NOTE_HTML without .html + '_files/')
+Usage: trigger_mc_note.py MC_DIR PADDLE_STUDY_DIR NOTE_HTML   (figures are copied to NOTE_HTML without .html + '_files/')
 """
 import json
 import os
 import shutil
 import sys
 
-mc_dir, note = sys.argv[1], sys.argv[2]
+mc_dir, ps_dir, note = sys.argv[1], sys.argv[2], sys.argv[3]
 G = json.load(open(os.path.join(mc_dir, 'geometry_3d.json')))
 R = json.load(open(os.path.join(mc_dir, 'fit.json')))
+PG = json.load(open(os.path.join(ps_dir, 'paddle_geometry.json')))
+PE = json.load(open(os.path.join(ps_dir, 'paddle_efficiency.json')))
+CL = json.load(open(os.path.join(ps_dir, 'closure.json')))
+TC = json.load(open(os.path.join(ps_dir, 'trigger_composition.json')))
 slug = os.path.basename(note)[:-5]
 fdir = os.path.join(os.path.dirname(note), slug + '_files')
 os.makedirs(fdir, exist_ok=True)
@@ -21,6 +27,9 @@ FIGS = ['kernel_K+0.png', 'projections_all.png', 'density_geometry_x_tag_eff.png
         'projections_K+0.png']
 for f in FIGS:
     shutil.copy(os.path.join(mc_dir, f), os.path.join(fdir, f))
+PS_FIGS = ['paddle_efficiency.png', 'paddle_maps.png', 'closure.png', 'paddle_images.png']
+for f in PS_FIGS:
+    shutil.copy(os.path.join(ps_dir, f), os.path.join(fdir, f))
 
 NM = ['det3 P2_IN', 'det2 P2_MID', 'det1 P2_OUT']
 geo, eff = R['geometry'], R['geometry_x_tag_eff']
@@ -58,7 +67,49 @@ rows_geo = '\n'.join([
         f"{R['zfaces_mm'][2]:.0f} &hellip; {R['zfaces_mm'][3]:.0f}", 'x-y fitted; z = det1 + 31&nbsp;cm (you, 4 Nov)']),
 ])
 
+# the 3D paddles: measured rectangles (extent where the efficiency > 0.1) and the efficient region (> half plateau)
+bc = PG['band_centre_xy']
+def band_to_xy(al, ac):
+    return [bc[0] + al * ua[0] - ac * ua[1], bc[1] + al * ua[1] + ac * ua[0]]
+PADZ = {'p0_45': [-100.0, -50.0], 'p0_41': [-50.0, 0.0], 'p0_44': [PG['z_bottom'] - 25, PG['z_bottom'] + 25]}
+PNAME = {'p0_45': 'top paddle 45', 'p0_41': 'top paddle 41', 'p0_44': 'bottom paddle 44'}
+G['paddles'] = []
+for k in ('p0_45', 'p0_41', 'p0_44'):
+    g = PG['paddles'][k]
+    e0, e1 = g['efficient_along_mm']
+    c0, c1 = g['efficient_across_mm']
+    G['paddles'].append({'name': PNAME[k], 'corners': [[round(v, 1) for v in c] for c in g['corners_xy_mm']],
+                         'eff_corners': [[round(v, 1) for v in band_to_xy(a, c)] for a, c in ((e0, c0), (e1, c0), (e1, c1), (e0, c1))],
+                         'z': PADZ[k]})
 G3 = json.dumps(G, separators=(',', ':'))
+pg = PG['paddles']
+pe = PE['paddles']
+def padrow(k, zlab, src):
+    g = pg[k]
+    return tr([PNAME[k], f"({g['centre_xy_mm'][0]:.0f}, {g['centre_xy_mm'][1]:.0f})", f"{ang:.1f}&deg;",
+               f"{g['length_mm']:.0f} &times; {g['width_mm']:.0f}", zlab,
+               f"{pe[k]['eff_lower_left_half']:.2f} / {pe[k]['eff_upper_right_half']:.2f}", src])
+rows_geo2 = '\n'.join([
+    padrow('p0_45', '&minus;100 &hellip; 0 (pair; which of the two is on top is not recorded)', 'extent and efficiency from chamber tracks (section 5)'),
+    padrow('p0_41', 'idem', 'idem'),
+    tr(['det3 P2_IN', '(' + ', '.join(f'{v:.0f}' for v in R['band_centre_mm']) + ')', f'{ang:.1f}&deg;', 'wedge 470 long, 30&ndash;180 wide',
+        f"{R['z_chambers_mm'][NM[0]]:.0f}", '&mdash;', 'read-out pads; z from the analysis code (SPS spacing, &asymp;&nbsp;31&nbsp;cm)']),
+    tr(['det2 P2_MID', 'idem', 'idem', 'idem', f"{R['z_chambers_mm'][NM[1]]:.0f}", '&mdash;', 'idem']),
+    tr(['det1 P2_OUT', 'idem', 'idem', 'idem', f"{R['z_chambers_mm'][NM[2]]:.0f}", '&mdash;', 'idem']),
+    padrow('p0_44', f"{PG['z_bottom'] - 25:.0f} &hellip; {PG['z_bottom'] + 25:.0f} (assumed; its measured length suggests &asymp;&nbsp;1150, section 6)",
+           'extent and efficiency from chamber tracks (section 5)'),
+])
+cl = CL['per_probe']
+rows_cl = '\n'.join(tr([nm, f"{cl[nm]['data_mean_along']:+.0f}", f"{cl[nm]['mc_measured_mean_along']:+.0f}",
+                         f"{cl[nm]['chi2_along_measured']:.0f} / {cl[nm]['bins_along_measured']}",
+                         f"{cl[nm]['mc_uniform_mean_along']:+.0f}", f"{cl[nm]['chi2_along_uniform']:.0f} / {cl[nm]['bins_along_uniform']}"]) for nm in NM)
+tc = TC['per_category']
+rows_tc = '\n'.join(tr([k, f"{100 * TC['fraction'][k]:.0f}&nbsp;%", f"{tc[k]['slope_along_mean']:+.2f}",
+                         f"{tc[k]['tag_median_along_det3']:+.0f}", f"{tc[k]['tag_median_along_det2']:+.0f}", f"{tc[k]['tag_median_along_det1']:+.0f}"])
+                     for k in ('45 only', 'both', '41 only'))
+rows_pe = '\n'.join(tr([PNAME[k], f"{PE['eff_on_straight_tracks'][k]:.2f}", f"{pe[k]['eff_lower_left_half']:.2f}", f"{pe[k]['eff_upper_right_half']:.2f}",
+                         f"{pg[k]['efficient_along_mm'][0]:+.0f} &hellip; {pg[k]['efficient_along_mm'][1]:+.0f}",
+                         f"{pe[k]['delay_ns_per_m_along']:+.1f} (vs {pe[k]['delay_reference']})"]) for k in ('p0_45', 'p0_41', 'p0_44'))
 
 HTML = r'''<!DOCTYPE html>
 <html lang="en">
@@ -66,12 +117,12 @@ HTML = r'''<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- ===== hub metadata (read by scripts/build_hub.py) ===================== -->
-<title>Cosmic stand in 3D: what the trigger geometry alone predicts</title>
-<meta name="description" content="Interactive 3D model of the lab cosmic stand (2+1 scintillator paddles, three P2 chambers read on c3-c5) and a toy Monte Carlo: where the scintillator-confirmed tags fall if every chamber were 100 % efficient, compared with the wk2 efficiency-map statistics.">
+<title>Cosmic stand in 3D: the trigger geometry, and why the tag statistics is the paddles' efficiency</title>
+<meta name="description" content="Interactive 3D model of the lab cosmic stand (2+1 scintillator paddles, three P2 chambers read on c3-c5), a toy Monte Carlo of where the scintillator-confirmed tags fall with perfect chambers, and the answer: the paddles are efficient only near their PMT end (44: 0.90 / 0.26 on its two halves), measured with the chambers as the reference; with the measured paddle maps the MC reproduces the tag distributions with no free parameter.">
 <meta name="category" content="Detector R&amp;D">
-<meta name="keywords" content="VMM,cosmics,P2,lab,scintillator,acceptance,Monte Carlo,geometry,3D">
+<meta name="keywords" content="VMM,cosmics,P2,lab,scintillator,paddle efficiency,acceptance,Monte Carlo,geometry,3D">
 <meta name="date" content="2026-11-04">
-<meta name="updated" content="2026-11-04">
+<meta name="updated" content="2026-11-05">
 <meta name="visibility" content="unlisted">
 <!-- ======================================================================= -->
 <link rel="stylesheet" href="../../assets/site.css">
@@ -105,29 +156,30 @@ HTML = r'''<!DOCTYPE html>
 <main class="wrap">
   <article>
     <header class="note-header">
-      <h1>Cosmic stand in 3D: what the trigger geometry alone predicts</h1>
+      <h1>Cosmic stand in 3D: the trigger geometry, and why the tag statistics is the paddles' efficiency</h1>
       <p class="muted">Lab cosmic stand at Saclay, scintillator-referenced wk2 scan (runs 181&ndash;208). Question: is the
 <em>statistics</em> pattern of the efficiency maps (kernel radius in <code>maps_K+0.png</code>) a detector effect or the
-geometry of the trigger with respect to the cosmic-muon distribution? Written 4 Nov 2026.</p>
+geometry of the trigger with respect to the cosmic-muon distribution? Written 4 Nov 2026; resolved and
+rewritten 5 Nov 2026 (sections 2, 5, 6 and the 3D paddles are from the resolution; sections 3&ndash;4 are the
+geometry-only study as first done).</p>
       <div class="meta-row">
         <span class="pill">Detector R&amp;D</span>
         <time datetime="2026-11-04">2026-11-04</time>
-        <span class="faint">VMM,cosmics,P2,lab,scintillator,acceptance,Monte Carlo,3D</span>
+        <span class="faint">VMM,cosmics,P2,lab,scintillator,paddle efficiency,Monte Carlo,3D</span>
       </div>
     </header>
 
     <div class="note-body">
 
 <div class="callout ok">
-<p><strong>Short answer.</strong> For det3 and det2 the statistics pattern is geometry. For det1 it is not, and the cause is in the other two chambers, not in det1.</p>
+<p><strong>Short answer.</strong> The statistics pattern of the maps is the trigger, but not its geometry: it is the
+<em>efficiency</em> of the scintillator paddles, which is high only near each paddle's PMT end.</p>
 <ul>
 <li><strong>The probe's efficiency never enters.</strong> A tag for probe P needs the trigger and a clean cluster in each of the two <em>other</em> chambers. So the bottom row of the maps (kernel radius = tag density) cannot show the probe's own efficiency.</li>
-<li><strong>det3 and det2: geometry.</strong> With every chamber 100&nbsp;% efficient, the simulation reproduces the measured pattern: densest in the middle of the read-out band, thinning towards its ends and long edges, empty in the corners (section 4a). A muon predicted near an end of the band in one chamber usually misses the band in one of the other two. The paddles are bigger than the band, so the trigger only shifts this a little. The fit puts the bottom paddle about __ALONG__&nbsp;mm lower-left of the top pair along the band.</li>
-<li><strong>det1: not geometry.</strong> Geometry predicts det1 looks like the other two, with the dense region upper-right. The data have it lower-left, with the upper-right end almost empty. Since det1's own response doesn't enter, this comes from how det3 and det2 tag or position the track.
-  <ul>
-  <li>The tag-chamber efficiencies don't explain it. Every VMM runs the whole length of the band, so no single weak chip can make a gradient along the band.</li>
-  <li>The likeliest cause is det3's measured position, which enters det1's prediction with weight &minus;1 (det1&nbsp;=&nbsp;2&middot;det2&nbsp;&minus;&nbsp;det3). This is still to check (section 5).</li>
-  </ul></li>
+<li><strong>Geometry alone gets det3 and det2 roughly right and det1 wrong</strong> (sections 3&ndash;4): with perfect chambers and uniform paddles the dense region of det1 should be upper-right; the data have it lower-left, with a sharp step halfway along the band.</li>
+<li><strong>The cause is the bottom paddle 44</strong>, which is in every trigger: measured with the chambers as the reference (no paddle in the selection), it is __E44LL__ efficient on its lower-left half and __E44UR__ on its upper-right half (section 5). Det1, 31&nbsp;cm above it, sees that step unsmeared. Top paddle 41 is the mirror image (__E41LL__ / __E41UR__), so the tracks that fire it are tilted; top paddle 45 is fine (__E45LL__ / __E45UR__). The pulse timing puts the PMT of 44 at the lower-left end and those of 41 and 45 at the upper-right end: light attenuation against the discriminator threshold.</li>
+<li><strong>Closure:</strong> the same Monte Carlo with the measured paddle maps instead of uniform paddles, and no free parameter, reproduces the three tag distributions (mean along-band positions __CLD3__ / __CLD2__ / __CLD1__&nbsp;mm in the data against __CLM3__ / __CLM2__ / __CLM1__&nbsp;mm; uniform paddles gave __CLU3__ / __CLU2__ / __CLU1__).</li>
+<li><strong>The chambers are fine.</strong> Neither their positions, nor the det3 map, nor the z spacing is involved. The chamber efficiency numbers are unaffected; only the statistics per unit area is 3&ndash;4 times lower on the upper-right half of every chamber, worst for det1.</li>
 </ul>
 </div>
 
@@ -135,7 +187,10 @@ geometry of the trigger with respect to the cosmic-muon distribution? Written 4 
 <p>Drag to rotate, scroll or pinch to zoom, right-drag (or shift-drag) to pan. Pad frame of the P2 BASKET Gerber map
 (x, y in mm, fan apex at the origin side); z points <em>down</em>, from the top paddles to the bottom paddle. Filled pads
 = the 384 read-out pads per chamber (Gerber connectors 3&ndash;5); faint = the rest of the 1280-pad fan, not read out.
-Tracks are a random sample of simulated triggered muons that cross at least two read-out areas.</p>
+Tracks are a random sample of simulated triggered muons that cross at least two read-out areas (uniform-paddle
+trigger of section 3). The paddle rectangles are the measured ones (section 5): each is drawn at its extent, and the
+part where its efficiency is above half of its plateau is filled. Paddle 41 is drawn above 45; which of the two is
+physically on top is not recorded.</p>
 <div class="vbar">
   <button data-view="iso">3D</button><button data-view="top">plan view (as the maps)</button>
   <button data-view="along">side, looking along the band</button><button data-view="across">side, looking across the band</button>
@@ -147,23 +202,23 @@ Tracks are a random sample of simulated triggered muons that cross at least two 
 <div class="viewer" id="viewer">
   <canvas id="c3d" aria-label="3D view of the cosmic stand"></canvas>
   <div class="legend3d">
-    <div><span class="sw" style="background:var(--p-paddle)"></span>scintillator paddles (200&times;600&times;50 mm)</div>
+    <div><span class="sw" style="background:var(--p-paddle)"></span>paddles: outline = measured extent, filled = region where the efficiency is above half its plateau</div>
     <div><span class="sw" style="background:var(--p-det3)"></span>det3 P2_IN&nbsp; <span class="sw" style="background:var(--p-det2)"></span>det2 P2_MID&nbsp; <span class="sw" style="background:var(--p-det1)"></span>det1 P2_OUT</div>
     <div><span class="sw" style="background:var(--p-trk3)"></span>muon through all three read-out areas&nbsp; <span class="sw" style="background:var(--p-trk2)"></span>through two</div>
   </div>
   <div class="vhelp">drag: rotate &middot; wheel/pinch: zoom &middot; right/shift-drag: pan &middot; double-click: reset</div>
 </div>
 
-<h2>2. Geometry used</h2>
+<h2>2. Geometry</h2>
 <div style="overflow-x:auto"><table>
 <thead>__GEO_HEAD__</thead>
 <tbody>
 __ROWS_GEO__
 </tbody></table></div>
 <ul>
-<li><strong>Paddles:</strong> 200&times;600&times;50&nbsp;mm (your numbers). The two top paddles lie exactly on top of each other, so the "top 0:41 OR top 0:45" trigger has the footprint of one paddle. A paddle counts as crossed when the track is inside its rectangle on its top or bottom face.</li>
-<li><strong>Chambers:</strong> same footprint, no lateral offset (the straight-track residuals gave det2 within about 9&nbsp;mm and rotations below 0.4&deg;). The read-out area is the 384 pads per chamber of the scint_efficiency json, which are Gerber connectors 3&ndash;5. The band centre is at (__BCX__, __BCY__)&nbsp;mm and its long axis is at __BANG__&deg; to x.</li>
-<li><strong>Not recorded anywhere:</strong> where the paddles sit in x&ndash;y. You said they are roughly aligned with the read-out connectors. I started there and fitted both paddle centres and angles to the measured tag positions (section 3).</li>
+<li><strong>Paddles:</strong> 200&times;600&times;50&nbsp;mm (your numbers), long axis along the read-out band, the two top paddles on top of each other; the table gives their rectangles as measured from the chamber tracks (extent = where the efficiency exceeds 0.1; about 10&nbsp;mm resolution, so 630&ndash;640&nbsp;mm for a 600&nbsp;mm paddle). The measured bottom-paddle length of __L44__&nbsp;mm is longer than the others because its plane is extrapolated furthest: it would be 600&nbsp;mm with the paddle at z&nbsp;&asymp;&nbsp;1150 instead of the assumed 1250 (section 6).</li>
+<li><strong>Chambers:</strong> same footprint, no lateral offset (the straight-track residuals give det2 within 2&nbsp;mm of the det3&ndash;det1 line in every run). The read-out area is the 384 pads per chamber of the scint_efficiency json, Gerber connectors 3&ndash;5: a wedge 470&nbsp;mm long, 30&nbsp;mm wide at its lower-left end and 180&nbsp;mm at its upper-right end. The band centre is at (__BCX__, __BCY__)&nbsp;mm and its long axis at __BANG__&deg; to x; "along" below is this axis, positive toward the wide upper-right end.</li>
+<li><strong>Efficiency halves:</strong> mean efficiency of the paddle on the lower-left and on the upper-right half of its length (section 5).</li>
 </ul>
 
 <h2>3. The simulation</h2>
@@ -177,7 +232,7 @@ __ROWS_GEO__
   <li>(b) geometry &times; the measured local efficiency of the two <em>tag</em> chambers, taken from their own probe maps (hit within 30&nbsp;mm, 200 nearest tags). This shows how much of the tag pattern their inefficiency can explain.</li>
   </ul></li>
 </ul>
-<p><strong>Fit results:</strong></p>
+<p><strong>Fit results</strong> (kept for the record; superseded by section 5: a paddle <em>position</em> moves an edge, it cannot halve the density over half of a paddle):</p>
 <ul>
 <li>Bottom paddle relative to the top pair: (__OFFX__, __OFFY__)&nbsp;mm with geometry only, and (__OFFEX__, __OFFEY__)&nbsp;mm with model (b). Along the band that is __ALONG__ and __ALONGE__&nbsp;mm toward the lower-left; across the band, __ACROSS__&nbsp;mm.</li>
 <li>Selected muons are therefore tilted by about __TILT__&deg; along the band on average.</li>
@@ -231,34 +286,91 @@ __ROWS_ABS__
 </tbody></table></div>
 <p class="muted">The "clean-cluster efficiency" is the fraction of triggered muons that cross a chamber's read-out area and leave a clean cluster there (1&ndash;6 pads within 15&nbsp;mm, the tag condition). It is lower than the operating efficiency (det3 0.73, det2 0.67, det1 0.80 at K&nbsp;=&nbsp;0) because it also needs the cluster to be clean, and because the trigger includes some non-muon or non-crossing coincidences. That is why the measured tag count is about a third of the geometric expectation.</p>
 
-<h2>5. What I think the det1 residual is, and how to check</h2>
-<p>Each VMM reads a strip that runs the <em>whole length</em> of the band; VMM 2 to 7 sit side by side across it. So no single weak or noisy chip, such as det2 VMM&nbsp;9 or det3 VMM&nbsp;4/7, can make a gradient <em>along</em> the band. That is also why model (b) changes almost nothing.</p>
-<p>The pattern instead follows how much each chamber's measured position enters the prediction:</p>
-<ul>
-<li>det3's tags come from det2 and det1 and look perfect;</li>
-<li>det2's prediction takes det3 with weight &frac12; and shows a mild residual;</li>
-<li>det1's prediction takes det3 with weight &minus;1 (det1&nbsp;=&nbsp;2&middot;det2&nbsp;&minus;&nbsp;det3) and shows the strongest one.</li>
-</ul>
-<p>The common factor is det3's measured position. Two things could cause it:</p>
-<ul>
-<li>a local position error in det3 along the band, for example in the connectors where the P2_IN order corrections were applied (c3 top and c5 top set to "lin");</li>
-<li>a z of det3 or det2 that differs from the assumed 320 / 630&nbsp;mm. This is less likely: it stretches the extrapolation rather than shifting it.</li>
-</ul>
-<p>If it is a position error, the det1 <em>efficiency</em> map (top row of the maps) is affected too. A mis-predicted tag counts as a det1 miss, so det1's efficiency in its upper-right is the least trustworthy number on the page.</p>
-<p>Checks, cheapest first:</p>
+<h2>5. The cause: the paddles are efficient only near their PMT end</h2>
+<p>The capture files record the paddle discriminator pulses on hybrid 0 (channels 41 and 45 = the two top paddles,
+44 = the bottom one, 40 = the hardware triple coincidence; the ADC is a constant logic level, so the pulse height
+itself is not available). That allows two measurements that need nothing but the data in hand.</p>
+
+<h3>5a. The triggered sample, split by which top paddle fired</h3>
+<p><code>scint_dump.py</code> writes every trigger with its paddle pulses and the clean clusters. The two top paddles
+are far from equivalent: 45 fires in 93&nbsp;% of the triggers, 41 in only 52&nbsp;%, and the hardware triple
+(channel 40) is exactly 41&nbsp;AND&nbsp;45&nbsp;AND&nbsp;44. Fitting a line through the clean clusters of each
+trigger:</p>
+<div style="overflow-x:auto"><table>
+<thead>__TC_HEAD__</thead>
+<tbody>
+__ROWS_TC__
+</tbody></table></div>
+<p>Tracks that fire 45 only are vertical on average; tracks that fire 41 are tilted by 0.15&ndash;0.22 along the band.
+They enter at the upper-right end, where 41 works, and leave through 44 at the lower-left end, where 44 works. This
+tilted sub-population is what the paddle-position fit of section 3 was trying to absorb.
+<a href="__F__/paddle_images.png">paddle_images.png</a>: the triggered tracks extrapolated to the paddle planes, and
+the fraction of them with a 41 / 45 pulse.</p>
+
+<h3>5b. Paddle efficiency with the chambers as the reference</h3>
+<p><code>paddle_efficiency.py</code> finds three-chamber straight tracks in the raw hit stream with <em>no paddle in
+the selection</em> (a det2 hit with det3 and det1 hits within &plusmn;150&nbsp;ns, one clean cluster each, det2
+within 25&nbsp;mm of the line through det3 and det1), extrapolates each to the paddle planes and asks whether the
+paddle channel has a pulse at the chamber time minus the 242&nbsp;ns latency, within &plusmn;120&nbsp;ns. The
+chance level, from a window 5&nbsp;&micro;s earlier, is 0.000. __NSTRAIGHT__ such tracks in the ten wk2 runs.</p>
+<figure><img src="__F__/paddle_efficiency.png" alt="paddle efficiency maps and profiles">
+<figcaption>Top: efficiency of 45, 41 and 44 on their planes, in band coordinates. Middle: the profile along the band
+(|across|&nbsp;&lt;&nbsp;60&nbsp;mm). Bottom: the median pulse time against position (44 and 41 relative to 45; 45
+relative to the chamber time). 44 is 0.9 efficient on its lower-left half and about 0.25 on its upper-right half,
+with the step between &minus;150 and &minus;30&nbsp;mm; 41 is the mirror image; 45 is 0.9 everywhere, mildly lower at
+its lower-left end.</figcaption></figure>
+<div style="overflow-x:auto"><table>
+<thead>__PE_HEAD__</thead>
+<tbody>
+__ROWS_PE__
+</tbody></table></div>
+<p>The pulse timing says where the PMTs are. The 44 pulse arrives later toward the upper right and the 45 pulse
+earlier, __D44__&nbsp;ns/m relative to each other, i.e. about 5.5&nbsp;ns/m each, the light propagation speed in a
+scintillator slab; 41 and 45 are in step. So the PMT of 44 is at the <strong>lower-left</strong> end and the PMTs of
+41 and 45 at the <strong>upper-right</strong> end, and each paddle is efficient near its own PMT and loses efficiency
+at the far end: light attenuation against the discriminator threshold, with 45 having the best light yield or the
+lowest threshold. The flat low plateau far from the PMT (0.15&ndash;0.25) is the fraction of the Landau tail still
+above threshold.</p>
+<figure><img src="__F__/paddle_maps.png" alt="adaptive-kernel paddle efficiency maps">
+<figcaption>The same, as adaptive-kernel maps in the pad x&ndash;y frame, exactly as the chamber maps of
+<code>scint_eff_study.py</code> (each point = mean of the 150 nearest tracks; kernel radius below). Solid outline =
+extent (efficiency above 0.1), dashed = the region above half of the plateau. The read-out wedge is drawn for
+reference. With __NSTRAIGHT__ tracks the kernel radius is 15&ndash;25&nbsp;mm over the paddles, as on the chamber
+maps.</figcaption></figure>
+
+<h3>5c. Closure</h3>
+<figure><img src="__F__/closure.png" alt="tag distributions: data against the MC with the measured paddle maps">
+<figcaption>Tag positions per probe, all wk2 runs: data (points), the geometric MC of section 3 with the measured
+2-D paddle efficiency maps (black; every chamber 100&nbsp;% efficient, <strong>no free parameter</strong>, no
+position fit), and the same MC with uniform 600&times;200 paddles centred on the band (grey dashed). The two-level
+det1 distribution, the det2 shape and the across-band widths are reproduced.</figcaption></figure>
+<div style="overflow-x:auto"><table>
+<thead>__CL_HEAD__</thead>
+<tbody>
+__ROWS_CL__
+</tbody></table></div>
+<p>What remains (det3 below the MC at &minus;100 to 0&nbsp;mm and above it at +50 to +120; the narrower across-band
+peak of det3 and det1; the tails beyond the wedge ends) is the chambers' own efficiency non-uniformity and the
+mis-predicted tags, neither of which this MC models.</p>
+
+<h3>5d. What to do</h3>
 <ol>
-<li>Measure the real chamber heights on the stand.</li>
-<li>Plot the det1 probe residual (prediction minus nearest hit) against the along-band position. A det3 position error shows up as a residual shift that changes along the band.</li>
-<li>Repeat the half-sample order scan for P2_IN c3 and c5 with the scintillator-confirmed tracks.</li>
-<li>Note down where the paddles actually sit on the stand. That would turn the fitted offset into a test.</li>
+<li><strong>Fix the trigger:</strong> lower the discriminator thresholds (or raise the HV) of 44 and 41 until their profile matches 45's; or at least turn 44 end for end so that its good half lies under the half where 41 is good. <code>paddle_efficiency.py</code> measures the result without any trigger, before and after.</li>
+<li>Until then, prefer 45&nbsp;AND&nbsp;44 to the hardware triple: on chamber-only straight tracks the triple fires in __E40__, the offline (41&nbsp;OR&nbsp;45)&nbsp;AND&nbsp;44 in __ETRIG__, 45 alone in __E45__.</li>
+<li>The kernel-radius maps and the "empty upper-right of det1" are the paddles, not the chambers; the chamber efficiency numbers stand.</li>
 </ol>
+<p class="muted">Code: <code>cosmic_vmm_analysis/scint_dump.py</code>, <code>paddle_efficiency.py</code>,
+<code>paddle_study.py</code> (P2_basket_analysis, branch <code>worktree-trigger-acceptance-mc</code>); write-up
+<code>FINDINGS_paddle_efficiency.md</code>; products in
+<code>analysis_wk2/paddle_study/</code>, per-trigger dumps in <code>analysis_wk2/dumps/</code>.</p>
 
 <h2>6. Caveats</h2>
 <ul>
-<li>The paddle positions are fitted, not measured. Their along-band offset is the least constrained number (&minus;50 to &minus;200&nbsp;mm depending on the probe).</li>
+<li>The paddle z positions are not measured: the top pair at z&nbsp;=&nbsp;&minus;100&hellip;0 from the logbook, the bottom paddle at det1&nbsp;+&nbsp;31&nbsp;cm from memory. The measured length of 44 (__L44__&nbsp;mm against 630&ndash;640 for the top paddles at the same resolution) suggests the bottom paddle is nearer, z&nbsp;&asymp;&nbsp;1150, i.e. about 21&nbsp;cm below det1. A wrong z stretches its map along the band but does not change the efficiency step.</li>
+<li>The chamber z spacing (310&nbsp;mm, SPS value) is also unmeasured; it scales all extrapolations alike.</li>
 <li>No muon energy spectrum or multiple scattering: muons are straight lines. Showers and accidental coincidences are not simulated.</li>
-<li>A "clean cluster" is a single 100&nbsp;% efficient hit. Cluster size, noise clusters and masked pads are not modelled. They only change the absolute numbers and the tag-chamber factors, not the geometric shape.</li>
-<li>The data tails far outside the read-out area (a few % of the tags, mis-predicted) are not in the fit.</li>
+<li>A "clean cluster" is a single 100&nbsp;% efficient hit in the MC. Cluster size, noise clusters and masked pads are not modelled; the chambers' own efficiency non-uniformity is what remains in the closure.</li>
+<li>The paddle-position fit of section 3 is kept for the record only; its &minus;73&nbsp;mm bottom-paddle offset is an artefact of fitting an efficiency step with a position.</li>
 </ul>
     </div>
   </article>
@@ -295,7 +407,7 @@ const ZC = NM.map(n => G.chambers[n].z);
 let cx = 0, cy = 0, nn = 0;
 for (const n of NM) { const p = G.readout_pads[n]; for (let i = 0; i < p.cx.length; i++) { cx += p.cx[i]; cy += p.cy[i]; nn++; } }
 cx /= nn; cy /= nn;
-const zMid = (G.paddles.top.z[0] + G.paddles.bottom.z[1]) / 2;
+const zMid = (Math.min(...G.paddles.map(p => p.z[0])) + Math.max(...G.paddles.map(p => p.z[1]))) / 2;
 const bandAng = __BANGRAD__;
 
 function padQuad(x, y, w, h, a, z) {
@@ -319,13 +431,14 @@ function boxFaces(corners, z0, z1) {
   for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; f.push([top[i], top[j], bot[j], bot[i]]); }
   return f;
 }
-const pz = G.paddles;
-const topZ = [pz.top.z[0], pz.top.z[0] + 50, pz.top.z[1]];
-for (const [z0, z1] of [[topZ[0], topZ[1]], [topZ[1], topZ[2]]])
-  for (const f of boxFaces(pz.top.corners, z0, z1)) prims.push({pts: f, fill: '--p-paddle', alpha: 0.22, stroke: true, layer: 'pad'});
-for (const f of boxFaces(pz.bottom.corners, pz.bottom.z[0], pz.bottom.z[1])) prims.push({pts: f, fill: '--p-paddle', alpha: 0.22, stroke: true, layer: 'pad'});
+const pz = G.paddles;   // measured: {name, corners (extent), eff_corners (above half plateau), z: [z0, z1]}
+for (const p of pz) {
+  for (const f of boxFaces(p.corners, p.z[0], p.z[1])) prims.push({pts: f, fill: '--p-paddle', alpha: 0.12, stroke: true, layer: 'pad'});
+  for (const f of boxFaces(p.eff_corners, p.z[0] + 2, p.z[1] - 2)) prims.push({pts: f, fill: '--p-paddle', alpha: 0.45, stroke: false, layer: 'pad'});
+}
+const topZ0 = Math.min(...pz.map(p => p.z[0])), botZ1 = Math.max(...pz.map(p => p.z[1]));
 // tracks: split into segments for depth sorting
-const zA = topZ[0] - 60, zB = pz.bottom.z[1] + 60, NSEG = 14;
+const zA = topZ0 - 60, zB = botZ1 + 60, NSEG = 14;
 const TR = G.tracks.filter(t => t.hits.every(h => h)).slice(0, 120).concat(G.tracks.filter(t => !t.hits.every(h => h)).slice(0, 40));
 for (const t of TR) {
   const all3 = t.hits.every(h => h);
@@ -397,9 +510,7 @@ function draw() {
   const lab = (t, p) => { const q = project(p, W, H, f); ctx.fillText(t, q[0] + 6, q[1]); };
   const bx = Math.max(...G.all_pads.cx) + 30, by = Math.min(...G.all_pads.cy);
   NM.forEach((n, k) => lab(n + '  (z = ' + ZC[k] + ' mm)', [bx, by, ZC[k]]));
-  const tc = pz.top.corners, bc = pz.bottom.corners;
-  lab('top paddles (2, stacked)', [tc[1][0], tc[1][1], topZ[0]]);
-  lab('bottom paddle', [bc[1][0], bc[1][1], pz.bottom.z[1]]);
+  for (const p of pz) lab(p.name, [p.corners[1][0], p.corners[1][1], p.z[0]]);
   // axis triad at the fan apex
   const o = [0, 0, ZC[0]];
   const ax = [[[150, 0, 0], 'x'], [[0, 150, 0], 'y'], [[0, 0, 150], 'z (down)']];
@@ -464,8 +575,8 @@ draw();
 '''
 sub = {
     '__G3__': G3, '__F__': slug + '_files',
-    '__GEO_HEAD__': tr(['element', 'centre (x, y) [mm]', 'long axis to x', 'z [mm] (down)', 'source'], th=True),
-    '__ROWS_GEO__': rows_geo,
+    '__GEO_HEAD__': tr(['element', 'centre (x, y) [mm]', 'long axis to x', 'size [mm]', 'z [mm] (down)', 'efficiency, lower-left / upper-right half', 'source'], th=True),
+    '__ROWS_GEO__': rows_geo2,
     '__ABS_HEAD__': tr(['probe', 'triggers crossing its read-out (MC)', 'clean cluster per trigger (data)',
                         '&rArr; clean-cluster efficiency', 'tags per trigger, MC eff = 1', 'tags per trigger, data',
                         '&rArr; tag-pair efficiency product', 'K0 read-out-area tags at eff = 1'], th=True),
@@ -482,6 +593,21 @@ sub = {
     '__TRIGMC__': f"{R['trigger_rate_hz_eff1']:.2f}", '__TRIGDATA__': f"{R['data']['trigger_rate_hz']:.2f}",
     '__TRIGRATIO__': f"{R['data']['trigger_rate_hz'] / R['trigger_rate_hz_eff1']:.2f}",
     '__ALL3MC__': f"{R['all_three_per_trigger_mc']:.2f}", '__ALL3DATA__': f"{R['all_three_per_trigger_data']:.2f}",
+    '__E44LL__': f"{pe['p0_44']['eff_lower_left_half']:.2f}", '__E44UR__': f"{pe['p0_44']['eff_upper_right_half']:.2f}",
+    '__E41LL__': f"{pe['p0_41']['eff_lower_left_half']:.2f}", '__E41UR__': f"{pe['p0_41']['eff_upper_right_half']:.2f}",
+    '__E45LL__': f"{pe['p0_45']['eff_lower_left_half']:.2f}", '__E45UR__': f"{pe['p0_45']['eff_upper_right_half']:.2f}",
+    '__CLD3__': f"{cl[NM[0]]['data_mean_along']:+.0f}", '__CLD2__': f"{cl[NM[1]]['data_mean_along']:+.0f}", '__CLD1__': f"{cl[NM[2]]['data_mean_along']:+.0f}",
+    '__CLM3__': f"{cl[NM[0]]['mc_measured_mean_along']:+.0f}", '__CLM2__': f"{cl[NM[1]]['mc_measured_mean_along']:+.0f}", '__CLM1__': f"{cl[NM[2]]['mc_measured_mean_along']:+.0f}",
+    '__CLU3__': f"{cl[NM[0]]['mc_uniform_mean_along']:+.0f}", '__CLU2__': f"{cl[NM[1]]['mc_uniform_mean_along']:+.0f}", '__CLU1__': f"{cl[NM[2]]['mc_uniform_mean_along']:+.0f}",
+    '__L44__': f"{pg['p0_44']['length_mm']:.0f}", '__NSTRAIGHT__': f"{PE['n_straight']}",
+    '__D44__': f"{pe['p0_44']['delay_ns_per_m_along']:+.0f}",
+    '__E40__': f"{PE['eff_on_straight_tracks']['p0_40']:.2f}", '__ETRIG__': f"{PE['eff_trigger_41or45_and_44']:.2f}", '__E45__': f"{PE['eff_on_straight_tracks']['p0_45']:.2f}",
+    '__TC_HEAD__': tr(['top paddle(s) fired', 'share of triggers', 'mean slope along the band', 'tag median along, det3', 'det2', 'det1'], th=True),
+    '__ROWS_TC__': rows_tc,
+    '__PE_HEAD__': tr(['paddle', 'efficiency on straight tracks (whole wedge)', 'lower-left half', 'upper-right half', 'region above half plateau, along [mm]', 'pulse delay along the band [ns/m]'], th=True),
+    '__ROWS_PE__': rows_pe,
+    '__CL_HEAD__': tr(['probe', 'data: mean along [mm]', 'MC, measured paddle maps', '&chi;&sup2; / bins (along)', 'MC, uniform paddles', '&chi;&sup2; / bins'], th=True),
+    '__ROWS_CL__': rows_cl,
 }
 for k, v in sub.items():
     HTML = HTML.replace(k, v)

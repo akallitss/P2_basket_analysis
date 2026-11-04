@@ -16,6 +16,11 @@ Products in OUT_DIR
   paddle_efficiency.json    the along / across profiles, mean efficiencies, propagation-delay slopes
   closure.png / closure.json  tag distributions per probe: data, MC with the measured paddle maps, MC with uniform
                             paddles centred on the band
+  paddle_maps.png           adaptive-kernel efficiency map of each paddle on its plane in the pad x-y frame (as the
+                            chamber maps of scint_eff_study.py: each point = mean of the --target nearest tracks,
+                            kernel-radius panel), with the read-out wedge and the measured paddle rectangle
+  paddle_geometry.json      the paddle rectangles (half-plateau edges of the along / across profiles) in band and
+                            pad coordinates, for the 3D page
 
 Band coordinates: along = unit vector at the band angle (21.5 deg to x) from the band centre (pad centroid),
 across = its normal; the along axis points to the upper-right (wide) end of the read-out wedge.
@@ -224,6 +229,125 @@ def chamber_referenced(out, peffs, centre, R, zt, zb, tol):
     return maps
 
 
+# ---------------------------------------------------------------- C2: adaptive-kernel maps and paddle rectangles
+def half_edges(c, eff, level=None):
+    """Outermost positions where the profile crosses `level` (default: half of its plateau, the max), linearly
+    interpolated. level = 0.1 gives the geometric extent of a paddle that is inefficient at one end."""
+    ok = np.isfinite(eff)
+    if ok.sum() < 3:
+        return [float('nan'), float('nan')]
+    half = 0.5 * np.nanmax(eff) if level is None else level
+    idx = np.flatnonzero(ok & (eff >= half))
+    lo, hi = idx[0], idx[-1]
+
+    def cross(i, j):
+        if j < 0 or j >= len(c) or not np.isfinite(eff[j]):
+            return float(c[i])
+        return float(c[j] + (half - eff[j]) * (c[i] - c[j]) / (eff[i] - eff[j]))
+    return [cross(lo, lo - 1), cross(hi, hi + 1)]
+
+
+def paddle_maps(out, peffs, centre, R, zt, zb, tol, pads, target, max_kernel):
+    from scint_eff_study import HALF_DIAG
+    from event_display import style, INK, MUTED
+    zz = [np.load(f) for f in peffs]
+    st = (cat(zz, 'r2') < tol) & ~cat(zz, 'bad')
+    S3 = (np.c_[cat(zz, 'x3'), cat(zz, 'y3')] - centre) @ R
+    S1 = (np.c_[cat(zz, 'x1'), cat(zz, 'y1')] - centre) @ R
+    sl = (S1 - S3) / (Z[2] - Z[0])
+    plane = {'top': S3 + sl * (zt - Z[0]), 'bottom': S3 + sl * (zb - Z[0])}
+    hit = {k: np.isfinite(cat(zz, k)) for k in PADDLES}
+    al_e, ac_e = np.arange(-450, 451, 30), np.arange(-200, 201, 20)
+    c_al, c_ac = 0.5 * (al_e[1:] + al_e[:-1]), 0.5 * (ac_e[1:] + ac_e[:-1])
+    geo = {'z_top': zt, 'z_bottom': zb, 'band_centre_xy': centre.tolist(), 'n_straight': int(st.sum()),
+           'method': 'extent = where the along (|across| < 60) / across (|along| < 200) efficiency profile crosses 0.1; '
+                     'efficient region = where it crosses half of its plateau; tracks = chamber-only straight tracks '
+                     'extrapolated to the plane (about 10 mm resolution there)', 'paddles': {}}
+    wedge = pads[T.NAMES[0]]
+    tree = cKDTree(wedge)
+    fig, axs = plt.subplots(2, 3, figsize=(17, 8), constrained_layout=True)
+    cmap = plt.get_cmap('viridis').copy()
+    cmap.set_bad('white')
+    for col, k in enumerate(PADDLES):
+        pl = plane[PLANE[k]]
+        inb = np.abs(pl[:, 1]) < 60
+        _, eff, _ = profile(pl[st & inb, 0], hit[k][st & inb], al_e)
+        inb2 = np.abs(pl[:, 0]) < 200
+        _, eff2, _ = profile(pl[st & inb2, 1], hit[k][st & inb2], ac_e)
+        h0, h1 = half_edges(c_al, eff)                       # efficient region (half plateau)
+        d0, d1 = half_edges(c_ac, eff2)
+        a0, a1 = half_edges(c_al, eff, 0.1)                  # geometric extent (any response)
+        c0, c1 = half_edges(c_ac, eff2, 0.1)
+        corners_b = np.array([[a0, c0], [a1, c0], [a1, c1], [a0, c1]])
+        corners = centre + corners_b @ R.T
+        cb = np.array([(a0 + a1) / 2, (c0 + c1) / 2])
+        geo['paddles'][k] = {'plane': PLANE[k], 'z': zt if PLANE[k] == 'top' else zb,
+                             'extent_along_mm': [a0, a1], 'extent_across_mm': [c0, c1],
+                             'length_mm': a1 - a0, 'width_mm': c1 - c0,
+                             'efficient_along_mm': [h0, h1], 'efficient_across_mm': [d0, d1],
+                             'centre_band_mm': cb.tolist(), 'centre_xy_mm': (centre + cb @ R.T).tolist(),
+                             'corners_xy_mm': corners.tolist(),
+                             'eff_lower_left_half': float(np.nanmean(eff[(c_al > a0 + 30) & (c_al < cb[0] - 50)])),
+                             'eff_upper_right_half': float(np.nanmean(eff[(c_al > cb[0] + 50) & (c_al < a1 - 30)]))}
+        # adaptive-kernel map in the pad x-y frame
+        xy = centre + pl[st] @ R.T
+        w = hit[k][st]
+        gx = np.arange(np.percentile(xy[:, 0], 0.5) - 20, np.percentile(xy[:, 0], 99.5) + 20, 5.0)
+        gy = np.arange(np.percentile(xy[:, 1], 0.5) - 20, np.percentile(xy[:, 1], 99.5) + 20, 5.0)
+        GX, GY = np.meshgrid(gx, gy, indexing='ij')
+        g = np.column_stack([GX.ravel(), GY.ravel()])
+        E = np.full(len(g), np.nan)
+        RAD = np.full(len(g), np.nan)
+        if len(xy) >= target:
+            dist, idx = cKDTree(xy).query(g, k=target)
+            rad = dist[:, -1]
+            e = w[idx].mean(axis=1)
+            e[rad > max_kernel] = np.nan
+            E, RAD = e, rad
+        E, RAD = E.reshape(GX.shape), RAD.reshape(GX.shape)
+        ext = [gx[0] - 2.5, gx[-1] + 2.5, gy[0] - 2.5, gy[-1] + 2.5]
+        n, kk = len(xy), int(w.sum())
+        for row, (Zm, cm, vmin, vmax, cl) in enumerate((
+                (E, cmap, 0, 1, f'efficiency, each point = mean of the {target} nearest tracks (+-{np.sqrt(0.25 / target):.2f} at most)'),
+                (RAD, plt.get_cmap('magma_r'), 0, max_kernel, f'kernel radius [mm] (radius holding {target} tracks; > {max_kernel:g} mm blank above)'))):
+            ax = axs[row, col]
+            style(ax)
+            ax.grid(False)
+            im = ax.imshow(Zm.T, origin='lower', extent=ext, cmap=cm, vmin=vmin, vmax=vmax, aspect='equal', interpolation='nearest')
+            ax.scatter(wedge[:, 0], wedge[:, 1], s=1.0, color=MUTED, lw=0, zorder=3, label='read-out pads (wedge)')
+            cc = np.vstack([corners, corners[:1]])
+            ax.plot(cc[:, 0], cc[:, 1], '-', color='#c0392b', lw=1.0, zorder=4,
+                    label=f'extent (eff > 0.1): {a1 - a0:.0f} x {c1 - c0:.0f} mm')
+            if row == 0:
+                hb = np.array([[h0, d0], [h1, d0], [h1, d1], [h0, d1], [h0, d0]])
+                hc = centre + hb @ R.T
+                ax.plot(hc[:, 0], hc[:, 1], '--', color='#c0392b', lw=0.8, zorder=4,
+                        label=f'efficient region (> half plateau): {h1 - h0:.0f} x {d1 - d0:.0f} mm')
+            ax.set_xlim(ext[0], ext[1])
+            ax.set_ylim(ext[2], ext[3])
+            ax.set_xlabel('x [mm]', fontsize=8)
+            ax.set_ylabel('y [mm]', fontsize=8)
+            if row == 0:
+                ax.set_title(f'paddle {k[3:]} ({PLANE[k]}, z = {geo["paddles"][k]["z"]:g}): efficiency {kk / n:.3f} '
+                             f'({n} straight tracks on the plane)', fontsize=9, color=INK)
+            else:
+                ax.set_title(f'paddle {k[3:]}: kernel radius', fontsize=9, color=INK)
+            ax.legend(fontsize=7, frameon=False, loc='upper left')
+            if col == 2:
+                fig.colorbar(im, ax=axs[row, :], shrink=0.8, label=cl)
+    fig.suptitle(f'paddle efficiency maps on the paddle planes, pad x-y frame (adaptive kernel as the chamber maps of '
+                 f'scint_eff_study.py); chamber-only straight tracks of runs {", ".join(os.path.basename(f)[8:-4] for f in peffs)}',
+                 fontsize=11)
+    fig.savefig(os.path.join(out, 'paddle_maps.png'), dpi=110)
+    plt.close(fig)
+    json.dump(geo, open(os.path.join(out, 'paddle_geometry.json'), 'w'), indent=1)
+    for k, g in geo['paddles'].items():
+        print(f'  {k}: extent along {g["extent_along_mm"][0]:6.0f} .. {g["extent_along_mm"][1]:5.0f} ({g["length_mm"]:.0f} mm), across '
+              f'{g["extent_across_mm"][0]:5.0f} .. {g["extent_across_mm"][1]:4.0f} ({g["width_mm"]:.0f} mm); efficient along '
+              f'{g["efficient_along_mm"][0]:6.0f} .. {g["efficient_along_mm"][1]:5.0f}; halves {g["eff_lower_left_half"]:.2f} / {g["eff_upper_right_half"]:.2f}')
+    return geo
+
+
 # ---------------------------------------------------------------- D: MC closure
 def closure(out, runs, pads, centre, ang, R, maps, n, zt, zb, seed):
     allp = pd.read_csv(T.VS.MAP_CSV).set_index('channel_id').sort_index()
@@ -309,6 +433,8 @@ def main():
     ap.add_argument('--z-bottom', type=float, default=1250.0)
     ap.add_argument('--tol', type=float, default=25.0, help='straightness of the chamber-referenced tracks [mm]')
     ap.add_argument('--seed', type=int, default=1)
+    ap.add_argument('--target', type=int, default=150, help='tracks per point of the paddle maps')
+    ap.add_argument('--max-kernel', type=float, default=60.0)
     a = ap.parse_args()
     os.makedirs(a.out_dir, exist_ok=True)
     runs, pads, centre, ang, R = band_frame(sorted(glob.glob(a.jsons)))
@@ -317,6 +443,7 @@ def main():
     peffs = sorted(glob.glob(os.path.join(a.dumps, 'peff_run*.npz')))
     triggered(a.out_dir, dumps, centre, R, a.z_top, a.z_bottom)
     maps = chamber_referenced(a.out_dir, peffs, centre, R, a.z_top, a.z_bottom, a.tol)
+    paddle_maps(a.out_dir, peffs, centre, R, a.z_top, a.z_bottom, a.tol, pads, a.target, a.max_kernel)
     closure(a.out_dir, runs, pads, centre, ang, R, maps, a.n, a.z_top, a.z_bottom, a.seed)
 
 

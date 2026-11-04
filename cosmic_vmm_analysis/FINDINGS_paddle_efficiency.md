@@ -54,6 +54,30 @@ three probes are reproduced. What remains (det3: data below MC at along -100..0 
 narrower across-band peak of det3 / det1; the tails beyond the wedge ends) is the chambers' own efficiency
 non-uniformity and the mis-predicted tags, which this MC does not model.
 
+## 2b. Paddle efficiency maps and measured geometry (added 2026-11-05)
+
+With all ten runs (21 929 chamber-only straight tracks) `paddle_study.py` makes adaptive-kernel efficiency maps of
+the three paddles on their planes in the pad x-y frame, exactly as the chamber maps of `scint_eff_study.py` (150
+tracks per point; kernel radius 15-25 mm over the paddles, as on the chamber maps): `paddle_study/paddle_maps.png`.
+The rectangles (`paddle_geometry.json`, extent = where the along / across efficiency profile crosses 0.1; efficient
+region = above half of the plateau; about 10 mm resolution at the planes):
+
+| paddle | extent along [mm] | extent across [mm] | size [mm] | efficient region along [mm] |
+|---|---|---|---|---|
+| 45 (top) | -336 .. +304 | -128 .. +104 | 640 x 232 | -297 .. +272 (569) |
+| 41 (top) | -317 .. +313 | -114 .. +104 | 630 x 218 | +49 .. +296 (247) |
+| 44 (bottom) | -397 .. +322 | -116 .. +119 | 719 x 234 | -367 .. -46 (321) |
+
+So the paddles are indeed 600 x 200 with the long axis along the band and centred on it (the 630-640 mm and
+218-234 mm are the 600 x 200 plus the resolution), stacked as the user said. The measured length of 44 is 719 mm
+because its plane is extrapolated furthest: it would be 600 mm with the bottom paddle at z ≈ 1150 instead of the
+assumed 1250, i.e. about 21 cm below det1 rather than 31. Worth measuring; it stretches 44's map along the band
+but does not change the efficiency step.
+
+The CERN-site note (unlisted, `2026-11-04-cosmic-stand-3d-trigger-geometry.html`) was rewritten with this
+resolution (sections 2, 5, 6; the 3D paddles are drawn at the measured rectangles with the efficient region filled)
+and deployed on 2026-11-05. Generator: `note/trigger_mc_note.py MC_DIR PADDLE_STUDY_DIR NOTE_HTML`.
+
 ## 3. Why the earlier hypotheses were wrong
 
 - H1 (sheared chamber stack), H3 (det3 map), H4 (z): the straight-track residuals (det2 offsets 0-2 mm in every run)
