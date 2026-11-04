@@ -14,7 +14,8 @@ first hit after the trigger); random hits from the same window --sideband ns bef
   3. the same on the live area only: tags whose predicted point (offset applied) lies on the probe's pad plane with
      every pad within --live-r mm live (default: one pad pitch). Pads are live when mapped, not --veto/--dead-vmm and
      seen at least once in the run, so hardware-masked (sm 1) pads are not live. The tags (predicted point, live area,
-     hit anywhere / within 50 mm) and the probe pads are written to the json for scint_eff_maps.py.
+     hit anywhere / within 50 mm, distance to the nearest probe hit, 9999 = none) and the probe pads are written
+     to the json for scint_eff_study.py.
 
 Map as in efficiency_tp.py (--conn-shift, --order, --veto, --dead-vmm). Output OUT.json.
 
@@ -202,7 +203,8 @@ def main():
         ks = np.nonzero(sel)[0]
         r['tags_xy'] = {'x': np.round(qx[ks], 1).tolist(), 'y': np.round(qy[ks], 1).tolist(),
                         'live': on_live[ks].astype(int).tolist(), 'any': P['has'][ks].astype(int).tolist(),
-                        'w50': (dmin[ks] < 50).astype(int).tolist()}
+                        'w50': (dmin[ks] < 50).astype(int).tolist(),
+                        'd': np.round(np.where(np.isfinite(dmin[ks]), dmin[ks], 9999.0), 1).tolist()}
         r['pads'] = {'x': gx.round(2).tolist(), 'y': gy.round(2).tolist(), 'live': glive.astype(int).tolist(),
                      'vmm': pv.tolist(), 'ch': pc.tolist()}
         res[f'probe_{NAME[p]}'] = r
