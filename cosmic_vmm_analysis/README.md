@@ -40,6 +40,7 @@ Outputs are kept outside the repo, under `data/Lab_Measurements/VMM-cosmics/vmm_
 | `half_order_scan.py` | channel order per connector from straight tracks, chosen on half the groups, scored on the other half |
 | `spark_veto.py` | bad-time intervals from the HV (`hv_monitor.csv`) and LV (`tdk_lv_monitor.csv`) monitor files of runs >= 170 (sparks, V dips, trips, LV glitches); `--check` compares chamber activity around each flag class with random times |
 | `mask_vs_threshold.py` | masked channels (sm 1) and applied sdt per VMM against the threshold offset K of a scan, from each sub-run's applied chip config; one point per K (full runs; short probes as open markers); per-VMM grid and per-chamber summary + VMM x run heat map |
+| `scint_eff_maps.py` | surface maps of the scintillator-confirmed efficiency (scint_efficiency.py json) per 40 mm cell at the predicted point, all tags and live area only (every nearby pad live), pads not live marked; several runs of one setting can be summed |
 | `inventory_runs.py` | one row per sub-run: settings, masks, HV declaration, connectors, sampled hit rate per VMM |
 | `run_metadata_corrections.json` | facts that override the run_config.json texts (HV connectors NOT moved on 26 Oct) |
 | `vmm_qa_path.py` | puts `vmm_stations` on `sys.path` |

@@ -11,6 +11,10 @@ first hit after the trigger); random hits from the same window --sideband ns bef
   2. scintillator-confirmed tag-and-probe: of the triggers where the two OTHER chambers have a clean cluster, the
      fraction where the probe has a hit anywhere / within --probe-r mm of the line through the two clusters (+ the
      median probe offset); random hits as in 1.
+  3. the same on the live area only: tags whose predicted point (offset applied) lies on the probe's pad plane with
+     every pad within --live-r mm live (default: one pad pitch). Pads are live when mapped, not --veto/--dead-vmm and
+     seen at least once in the run, so hardware-masked (sm 1) pads are not live. The tags (predicted point, live area,
+     hit anywhere / within 50 mm) and the probe pads are written to the json for scint_eff_maps.py.
 
 Map as in efficiency_tp.py (--conn-shift, --order, --veto, --dead-vmm). Output OUT.json.
 
@@ -58,6 +62,9 @@ def main():
     ap.add_argument('--max-tag', type=int, default=6)
     ap.add_argument('--cluster-r', type=float, default=15)
     ap.add_argument('--probe-r', type=float, default=15)
+    ap.add_argument('--live-r', type=float, default=0,
+                    help='live-area efficiency: every probe pad within this many mm of the predicted point must be live '
+                         '(0 = the pad pitch, i.e. the nearest pad and its direct neighbours)')
     ap.add_argument('--title', default='')
     ap.add_argument('--bad-times', default='', help='veto_<run>.json from spark_veto.py: drop triggers in its intervals')
     a = ap.parse_args()
@@ -164,7 +171,45 @@ def main():
             k = int((sel & ok).sum())
             e = (k / n - acc) / (1 - acc) if n else float('nan')
             r[lab] = {'k': k, 'eff': e, 'err': float(np.sqrt(max(e * (1 - e), 0) / n)) if n else float('nan')}
+        # live area: the predicted point (offset applied) is inside the probe's pad plane and every pad within live_r
+        # of it is live, i.e. the track cannot have been lost to a masked or silent pad
+        pm = np.isfinite(X) & (DET[:, None] == p)
+        pv, pc = np.nonzero(pm)
+        gx, gy, glive = X[pv, pc], Y[pv, pc], live[pv, pc]
+        dd = np.hypot(gx[:, None] - gx[None, :], gy[:, None] - gy[None, :])
+        np.fill_diagonal(dd, np.inf)
+        pitch = float(np.median(dd.min(axis=1)))
+        lr = a.live_r if a.live_r > 0 else pitch
+        qx, qy = px + ox, py + oy
+        on_live = np.zeros(len(trig), bool)
+        inside = np.zeros(len(trig), bool)
+        for k in np.nonzero(sel)[0]:
+            dk = np.hypot(gx - qx[k], gy - qy[k])
+            inside[k] = dk.min() <= pitch
+            near_k = dk <= max(lr, dk.min())
+            on_live[k] = inside[k] and glive[near_k].all()
+        sl = sel & on_live
+        nl = int(sl.sum())
+        r['pitch_mm'], r['live_r_mm'] = pitch, lr
+        r['frac_tags_on_live_area'] = nl / n if n else float('nan')
+        r['frac_tags_inside'] = float((sel & inside).sum() / n) if n else float('nan')
+        r['live_area'] = {'n_tagged': nl}
+        for lab, ok in (('any_position', P['has']), (f'within_{a.probe_r:.0f}mm', dmin < a.probe_r), ('within_50mm', dmin < 50)):
+            k = int((sl & ok).sum())
+            e = (k / nl - acc) / (1 - acc) if nl else float('nan')
+            r['live_area'][lab] = {'k': k, 'eff': e, 'err': float(np.sqrt(max(e * (1 - e), 0) / nl)) if nl else float('nan')}
+        # per tag, for the maps (scint_eff_maps.py): predicted point, live area, hit anywhere / within 50 mm
+        ks = np.nonzero(sel)[0]
+        r['tags_xy'] = {'x': np.round(qx[ks], 1).tolist(), 'y': np.round(qy[ks], 1).tolist(),
+                        'live': on_live[ks].astype(int).tolist(), 'any': P['has'][ks].astype(int).tolist(),
+                        'w50': (dmin[ks] < 50).astype(int).tolist()}
+        r['pads'] = {'x': gx.round(2).tolist(), 'y': gy.round(2).tolist(), 'live': glive.astype(int).tolist(),
+                     'vmm': pv.tolist(), 'ch': pc.tolist()}
         res[f'probe_{NAME[p]}'] = r
+        la = r['live_area']
+        print(f'   live area (all pads within {lr:.1f} mm of the predicted point live; pitch {pitch:.1f} mm): '
+              f'{nl} of {n} tags ({100 * r["frac_tags_on_live_area"]:.1f} %): any_position {la["any_position"]["eff"]:.3f} '
+              f'+- {la["any_position"]["err"]:.3f}, within_50mm {la["within_50mm"]["eff"]:.3f} +- {la["within_50mm"]["err"]:.3f}')
         print(f'scintillator-confirmed tag-and-probe, probe {NAME[p]} (clean clusters in {NAME[ta]} and {NAME[tb]}: {n}): '
               + ', '.join(f'{lab} {v["eff"]:.3f} +- {v["err"]:.3f}' for lab, v in r.items() if isinstance(v, dict) and 'eff' in v))
     json.dump(res, open(a.out_json, 'w'), indent=1, default=float)
