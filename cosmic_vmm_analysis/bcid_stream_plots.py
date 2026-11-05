@@ -12,6 +12,8 @@ tracks, against all hits.
   bcid_summary.json per run and pooled numbers
 
 Usage: bcid_stream_plots.py OUT_DIR bcid_run181.npz [bcid_run184.npz ...]   (the .json next to each npz is read)
+       bcid_stream_plots.py --setup sps OUT_DIR bcid_sps_run_46.npz ...   (bcid_stream_sps.py output: stations
+       P2_IN / P2_MID / P2_OUT in the det3 / det2 / det1 columns, the beam trigger VMM 0 ch 44 as "paddle" p0_44)
 """
 import json
 import os
@@ -36,10 +38,21 @@ def style(ax):
     ax.set_axisbelow(True)
 
 DETS = (3, 2, 1)
+NAMES = ['det3', 'det2', 'det1']                 # column names; --setup sps: P2_IN, P2_MID, P2_OUT
 PAIRS = (((1, 0), 'det2 - det3'), ((2, 0), 'det1 - det3'), ((2, 1), 'det1 - det2'))
+PADS = ('p0_44', 'p0_45', 'p0_41')
 COL = ('#2a6fb0', '#c2571a', '#3a8f4a')
 PADCOL = {'p0_44': '#7a3fa0', 'p0_45': '#b0902a', 'p0_41': '#2a9aa0'}
 PADNAME = {'p0_44': 'paddle 44 (bottom)', 'p0_45': 'paddle 45 (top)', 'p0_41': 'paddle 41 (top)'}
+HYB0 = 'hybrid-0 (paddle) hits'
+
+
+def setup_sps():
+    global NAMES, PAIRS, HYB0
+    NAMES = ['P2_IN', 'P2_MID', 'P2_OUT']
+    PAIRS = (((1, 0), 'P2_MID - P2_IN'), ((2, 0), 'P2_OUT - P2_IN'), ((2, 1), 'P2_OUT - P2_MID'))
+    PADNAME['p0_44'] = 'beam trigger (VMM 0 ch 44)'
+    HYB0 = 'hybrid-0 (trigger) hits'
 
 
 def load(paths):
@@ -116,7 +129,7 @@ def fig_tracks(P, out, ntr):
     style(ax)
     b = np.arange(-0.5, 21)
     for k, lab, c in (('foreign_ot', 'other over-threshold chamber hits', INK), ('foreign_nb', 'neighbour hits (flag 0)', COL[0]),
-                      ('foreign_pad', 'hybrid-0 (paddle) hits', COL[1])):
+                      ('foreign_pad', HYB0, COL[1])):
         x = P[k]
         ax.hist(np.clip(x, 0, 20), bins=b, histtype='step', lw=1.6, color=c, label=f'{lab}: {100 * np.mean(x > 0):.1f} % of tracks > 0')
     ax.set_yscale('log')
@@ -125,11 +138,11 @@ def fig_tracks(P, out, ntr):
     ax.legend(fontsize=8, frameon=False)
     ax = axs[1, 2]
     style(ax)
-    keys, cnt = np.unique([''.join(str(DETS[x]) for x in r) for r in P['order']], return_counts=True)
+    keys, cnt = np.unique(['-'.join(NAMES[x] for x in r) for r in P['order']], return_counts=True)
     o = np.argsort(-cnt)
     ax.bar(range(len(o)), cnt[o] / cnt.sum(), color=INK)
     ax.set_xticks(range(len(o)))
-    ax.set_xticklabels(['-'.join('det' + c for c in keys[x]) for x in o], rotation=30, fontsize=7.5)
+    ax.set_xticklabels([keys[x] for x in o], rotation=30, fontsize=7.5)
     ax.set_ylabel('fraction of tracks')
     ax.set_title('order of the chambers in the stream (first hit per chamber)', fontsize=9)
     fig.savefig(os.path.join(out, 'bcid_tracks.png'), dpi=100)
@@ -169,7 +182,7 @@ def fig_marker(P, G, out):
     ax = axs[1, 1]
     style(ax)
     e = E['late']
-    for key, lab, c in (('ot', 'over-threshold chamber hits', INK), ('pad', 'hybrid-0 (paddle) hits', COL[1])):
+    for key, lab, c in (('ot', 'over-threshold chamber hits', INK), ('pad', HYB0, COL[1])):
         h = G[f'h_late_{key}'].astype(float)
         frac = h[::-1].cumsum()[::-1] / h.sum()
         ax.step(e[:-1] * 1e-3, frac, where='post', color=c, lw=1.6, label=lab)
@@ -184,19 +197,23 @@ def fig_marker(P, G, out):
     ax = axs[1, 2]
     style(ax)
     b = np.arange(-10.5, 11)
-    for k in ('p0_44', 'p0_45', 'p0_41'):
+    for k in PADS:
         if k + '_hit' in P:
             m = P[k + '_hit'].astype(bool)
             ax.hist(P[k + '_dseq'][m], bins=b, histtype='step', lw=1.6, color=PADCOL[k], label=f'{PADNAME[k]} ({m.sum()})')
-    ax.set_xlabel('stream distance paddle pulse - det2 first hit [hit words]')
-    ax.set_title('the paddle pulses of the track in the list', fontsize=9)
+    ax.set_xlabel(f'stream distance {"trigger" if NAMES[1] == "P2_MID" else "paddle pulse"} - {NAMES[1]} first hit [hit words]')
+    ax.set_title(f'the {"trigger" if NAMES[1] == "P2_MID" else "paddle pulses"} of the track in the list', fontsize=9)
     ax.legend(fontsize=8, frameon=False)
     fig.savefig(os.path.join(out, 'bcid_marker.png'), dpi=100)
     plt.close(fig)
 
 
 def main():
-    out, paths = sys.argv[1], sys.argv[2:]
+    argv = sys.argv[1:]
+    if argv[:2] == ['--setup', 'sps']:
+        setup_sps()
+        argv = argv[2:]
+    out, paths = argv[0], argv[1:]
     os.makedirs(out, exist_ok=True)
     P, G, runs = load(paths)
     ntr = len(P['t2'])
@@ -207,31 +224,36 @@ def main():
                                     'frac_all_in_one_frame': js['tracks']['frac_all_in_one_frame'],
                                     'span_median': js['tracks']['span']['median'],
                                     'lateness_p99_ns': js['chamber_hits_lateness_ns']['p50_p90_p99_p999'][2],
-                                    'marker_rounds': js['marker_rounds']} for js, n in runs]}
+                                    'marker_rounds': js.get('marker_rounds')} for js, n in runs]}
     for (i, j), lab in PAIRS:
         S[lab] = {'dbcid': q(dbcid(P, i, j)), 'frac_abs_dbcid_le_1': float(np.mean(np.abs(dbcid(P, i, j)) <= 1)),
                   'frac_abs_dbcid_le_3': float(np.mean(np.abs(dbcid(P, i, j)) <= 3)),
                   'dt_ns': q(P['t'][:, i] - P['t'][:, j]), 'frac_same_marker': float(np.mean(P['srs'][:, i] == P['srs'][:, j])),
                   'dseq': q(P['seq'][:, i] - P['seq'][:, j]), 'dseq_chance': q(P['sb_seq'][:, i] - P['sb_seq'][:, j]),
                   'frac_same_frame': float(np.mean(P['pkt'][:, i] == P['pkt'][:, j]))}
-    for c, d in enumerate(DETS):
-        S[f'det{d}'] = {'chip_time_us': q(P['chip'][:, c] * 1e-3), 'offset': q(P['offs'][:, c]),
+    for c, d in enumerate(NAMES):
+        S[d] = {'chip_time_us': q(P['chip'][:, c] * 1e-3), 'offset': q(P['offs'][:, c]),
                         'words_since_marker': q(P['wsm'][:, c]), 'word_in_frame': q(P['w'][:, c]),
                         'n_hits': q(P['n'][:, c]), 'n_vmm': q(P['nvmm'][:, c]), 'frac_negative_offset': float(np.mean(P['offs'][:, c] < 0))}
     S['span'] = q(P['span'])
     S['span_chance'] = q(P['sb_span'])
     S['frac_span_le_track_hits'] = float(np.mean(P['span'] + 1 == P['n'].sum(1)))
     S['frac_all_in_one_frame'] = float(np.mean(P['pkt_span'] == 0))
-    for k in ('foreign_ot', 'foreign_nb', 'foreign_pad', 'own_nb'):
+    for k in ('foreign_ot', 'foreign_nb', 'foreign_pad', 'own_nb', 'foreign_hot'):
+        if k not in P:
+            continue
         S[k] = {'frac_gt0': float(np.mean(P[k] > 0)), 'mean': float(P[k].mean()), 'p99': float(np.percentile(P[k], 99))}
-    keys, cnt = np.unique([''.join(str(DETS[x]) for x in r) for r in P['order']], return_counts=True)
+    keys, cnt = np.unique(['-'.join(NAMES[x] for x in r) for r in P['order']], return_counts=True)
     S['stream_order'] = {k: float(v / cnt.sum()) for k, v in sorted(zip(keys, cnt), key=lambda kv: -kv[1])}
-    for k in ('p0_44', 'p0_45', 'p0_41'):
+    for k in PADS:
         if k + '_hit' in P:
             m = P[k + '_hit'].astype(bool)
             S[PADNAME[k]] = {'n': int(m.sum()), 'dseq_vs_det2': q(P[k + '_dseq'][m]),
                              'dbcid_det2_minus_paddle': q(((P['bcid'][m, 1] - P[k + '_bcid'][m] + 2048) % 4096) - 2048),
-                             'frac_same_marker_as_det2': float(np.mean(P[k + '_srs'][m] == P['srs'][m, 1]))}
+                             'frac_same_marker_as_det2': float(np.mean(P[k + '_srs'][m] == P['srs'][m, 1])),
+                             'dbcid_minus_paddle': {NAMES[c]: q(((P['bcid'][m, c] - P[k + '_bcid'][m] + 2048) % 4096) - 2048) for c in range(3)},
+                             'dseq_minus_paddle': {NAMES[c]: q(P['seq'][m, c] - P[k + '_seq'][m]) for c in range(3)} if k + '_seq' in P else None,
+                             'frac_same_marker': {NAMES[c]: float(np.mean(P[k + '_srs'][m] == P['srs'][m, c])) for c in range(3)}}
     h = G['h_late_ot'].astype(float)
     e = G['edges_late']
     S['lateness_all_chamber_hits'] = {f'frac_later_than_{x}us': float(h[e[:-1] >= x * 1e3].sum() / h.sum()) for x in (1, 5, 20, 50, 90)}
