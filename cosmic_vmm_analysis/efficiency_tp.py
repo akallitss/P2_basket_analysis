@@ -250,6 +250,30 @@ def probe(p, ta_d, tb_d, cl, hits, live_pads, a, chip_times=None, chan_times=Non
             pads.append([int(cv[q]), int(cc[q]), round(float(cx[q]), 1), round(float(cy[q]), 1), r['n_on'], r['n_off'],
                          r['k_on'], r['k_off'], int((mq & on & (own_s < np.inf)).sum())])
         out['per_pad_own'] = pads
+        if a.dump_tags:
+            # per-tag record for the resolution/efficiency unfolding: every fiducial on/off tag, its predicted point,
+            # the predicted pad, own-pad hit (window / sideband), the tag-pair slope, and every live probe pad that
+            # fired within 40 mm of the prediction in the window (pad centre, flattened with the tag index)
+            sel = np.nonzero(fid & (on | off))[0]
+            s0 = np.searchsorted(ht, pt[sel] + lat - a.win)
+            e0 = np.searchsorted(ht, pt[sel] + lat + a.win, side='right')
+            fi, fx, fy = [], [], []
+            for n_, (k, s1, e1) in enumerate(zip(sel, s0, e0)):
+                if e1 > s1:
+                    q = np.hypot(hx[s1:e1] - px[k], hy[s1:e1] - py[k]) < 40
+                    xy = np.unique(np.c_[hx[s1:e1][q], hy[s1:e1][q]], axis=0)
+                    fi += [n_] * len(xy); fx += xy[:, 0].tolist(); fy += xy[:, 1].tolist()
+            slope = np.hypot(xb[j] - xa[i], yb[j] - ya[i]) / abs(Z[tb_d] - Z[ta_d])
+            # signed time from the nearest scintillator coincidence (H0 VMM 0 ch 40) to the tag (+ ~210 ns for muons)
+            sc = a._scint
+            ks = np.clip(np.searchsorted(sc, pt[sel]), 1, max(len(sc) - 1, 1))
+            dts = (np.where(np.abs(pt[sel] - sc[ks - 1]) < np.abs(pt[sel] - sc[ks]), pt[sel] - sc[ks - 1], pt[sel] - sc[ks])
+                   if len(sc) > 1 else np.full(len(sel), np.inf))
+            a._dump[f'p{p}'] = dict(px=px[sel], py=py[sel], on=on[sel], vmm=cv[near[sel]], ch=cc[near[sel]], dt_scint=dts,
+                                    cx=cx[near[sel]], cy=cy[near[sel]], own=np.isfinite(own[sel]),
+                                    own_s=np.isfinite(own_s[sel]), slope=slope[sel],
+                                    tag_adc=np.minimum(aa[i], ab[j])[sel], fired_i=np.array(fi, int),
+                                    fired_x=np.array(fx), fired_y=np.array(fy), r_scale=np.array(r_scale))
     return out
 
 
@@ -274,7 +298,9 @@ def main():
     ap.add_argument('--off-hi', type=float, default=1900)
     ap.add_argument('--sideband', type=float, default=4000)
     ap.add_argument('--title', default='')
+    ap.add_argument('--dump-tags', default='', help='write the per-tag records of every probe to this .npz')
     a = ap.parse_args()
+    a._dump = {}
 
     X, Y = O.Mapper(a.conn_shift).xy_table(O.parse_orders(a.order))
     veto = parse_veto(a.veto)
@@ -317,6 +343,7 @@ def main():
     To = T[o]
     chan_times = {int(k): To[s0:e0] for k, s0, e0 in zip(ks, starts, list(starts[1:]) + [len(o)])}
     chip_times = {int(v): T[V == v] for v in np.unique(V)}
+    a._scint = np.sort(T[(V == 0) & (C == 40)])
     for p, tags in ((2, (3, 1)), (1, (3, 2)), (3, (2, 1))):
         r = probe(p, tags[0], tags[1], cl, hits, live_pads, a, chip_times, chan_times)
         res[f'probe_det{p}'] = r
@@ -338,6 +365,10 @@ def main():
         print('   vs tan(theta) of the tag pair: eff (tags):',
               {k: (v['eff'], v['n_sig']) for k, v in r['vs_tan_theta'].items()})
         print('   per chip:', {k: (v['eff'], v.get('err')) for k, v in r['per_chip'].items() if v['eff'] is not None})
+    vars(a).pop('_scint')
+    dump = vars(a).pop('_dump')  # res['params'] is vars(a): keep the arrays out of the json
+    if a.dump_tags:
+        np.savez_compressed(a.dump_tags, **{f'{p}_{k}': v for p, d in dump.items() for k, v in d.items()})
     json.dump(res, open(a.out_json, 'w'), indent=1, default=float)
 
 
