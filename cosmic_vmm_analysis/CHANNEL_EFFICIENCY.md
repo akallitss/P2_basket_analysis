@@ -3,7 +3,7 @@
 How efficient is ONE read-out channel (one pad) at a given threshold? This document explains the measurement in plain
 words, gives every command to run it on new data, lists the checks that tell you whether the answer can be trusted,
 and ends with a glossary. Code: `channel_efficiency.py` (this directory). Explainer with animations (CERN site):
-<https://alexandra-kallitsopoulou.web.cern.ch/notes/2026-11-17-single-channel-efficiency-on-the-vmm-cosmic-bench.html>.
+<https://alexandra-kallitsopoulou.web.cern.ch/notes/2026-11-16-single-channel-efficiency-on-the-vmm-cosmic-bench.html>.
 
 ## 1. The measurement in five sentences
 
