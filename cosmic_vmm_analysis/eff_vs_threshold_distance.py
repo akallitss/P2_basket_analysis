@@ -17,7 +17,9 @@ channel's threshold and its own baseline is therefore different for every channe
 Groupings: (a) all channels in bins of the distance, per chamber; (b) channels grouped by their baseline relative to
 the chip median (low / middle / high) against K; (c) channels grouped by absolute baseline (mixes chips/chambers).
 
-Usage: eff_vs_threshold_distance.py ANALYSIS_DIR MAP_DIR OUT_DIR
+--own: use per_pad_own (efficiency_tp.py with the own-pad criterion): a pad counts only when its OWN channel fired.
+
+Usage: eff_vs_threshold_distance.py ANALYSIS_DIR MAP_DIR OUT_DIR [--own]
        (MAP_DIR holds map_Km18_i5_unmasked.json, sdtcal.json, run_sdt.json)
 """
 import glob
@@ -37,7 +39,7 @@ PROBES = (('probe_det3', 3, 'P2_IN'), ('probe_det2', 2, 'P2_MID'), ('probe_det1'
 DBINS = np.r_[0, 14, 18, 22, 26, 30, 34, 40, 46, 52, 58, 64, 70, 100]
 
 
-def load(adir, mdir):
+def load(adir, mdir, own=False):
     mp = json.load(open(f'{mdir}/map_Km18_i5_unmasked.json'))
     cal = json.load(open(f'{mdir}/sdtcal.json'))['fit']
     rsdt = json.load(open(f'{mdir}/run_sdt.json'))
@@ -50,8 +52,14 @@ def load(adir, mdir):
         sdt = rsdt[cfg]['sdt']
         for key, det, _ in PROBES:
             r = E[key]['r_scale']
-            for v, c, x, y, n_on, n_off, k_on, k_off in E[key]['per_pad']:
-                rows.append((run, K, det, v, c, x, y, n_on - r * n_off, k_on - r * k_off, sdt[str(v)]))
+            if own:  # the pad's own channel must fire; random own-channel hits (sideband) subtracted
+                for v, c, x, y, n_on, n_off, k_on, k_off, acc_on in E[key]['per_pad_own']:
+                    n = n_on - r * n_off
+                    rows.append((run, K, det, v, c, x, y, n, k_on - r * k_off - (acc_on * n / n_on if n_on else 0),
+                                 sdt[str(v)]))
+            else:
+                for v, c, x, y, n_on, n_off, k_on, k_off in E[key]['per_pad']:
+                    rows.append((run, K, det, v, c, x, y, n_on - r * n_off, k_on - r * k_off, sdt[str(v)]))
     t = pd.DataFrame(rows, columns=['run', 'K', 'det', 'vmm', 'ch', 'x', 'y', 'n', 'k', 'sdt'])
     t['baseline'] = [mp['baseline'][str(v)][str(c)] for v, c in zip(t.vmm, t.ch)]
     thr = np.array([mp['threshold'][str(v)][str(c)] for v, c in zip(t.vmm, t.ch)], float)
@@ -69,8 +77,9 @@ def rel(d):
 
 def main():
     adir, mdir, odir = sys.argv[1:4]
+    own = '--own' in sys.argv[4:]
     os.makedirs(odir, exist_ok=True)
-    t = load(adir, mdir)
+    t = load(adir, mdir, own)
     t.to_csv(f'{odir}/rows.csv', index=False)
     g = t.groupby(['K', 'det', 'vmm', 'ch'], as_index=False).agg(n=('n', 'sum'), k=('k', 'sum'), dist=('dist', 'mean'),
                                                                 baseline=('baseline', 'first'))
@@ -102,8 +111,10 @@ def main():
     pd.set_option('display.width', 200)
     print(f'{g[["vmm", "ch"]].drop_duplicates().shape[0]} channels (>= 100 tags over the scan), '
           f'{g.n.sum():.0f} tags; tags per channel and K: median {g.n.median():.1f}')
-    print('\n(a) relative efficiency vs threshold - baseline, all chambers:')
-    print(a_all[['dbin', 'rel', 'err', 'n', 'channels']].round(3).to_string(index=False))
+    print('\n(a) efficiency vs threshold - baseline, all chambers (rel = / channel mean, eff = absolute):')
+    print(a_all[['dbin', 'rel', 'err', 'eff', 'n', 'channels']].round(3).to_string(index=False))
+    print('\nabsolute efficiency per chamber and K:')
+    print(perk.pivot(index='K', columns='det', values='eff').round(3))
     print('\n(b) relative efficiency vs K, channels grouped by baseline relative to the chip median:')
     print(b.pivot(index='K', columns='rbg', values='rel').round(3))
     print(b.pivot(index='K', columns='rbg', values='dist').round(1))
@@ -119,7 +130,6 @@ def main():
     ax[0].set_xlabel('threshold - baseline of the channel (mV)', color=INK, fontsize=8)
     ax[0].set_ylabel('efficiency / channel mean over the scan', color=INK, fontsize=8)
     ax[0].set_title('all channels, binned by their distance', color=INK, fontsize=9, loc='left')
-    ax[0].set_ylim(0.55, 1.2)
     ax[0].legend(frameon=False, fontsize=7)
     blues = {'low (< -2 mV)': '#9ec5f0', 'middle': '#4f94e0', 'high (> +2 mV)': '#1a4f94'}
     mk = {'low (< -2 mV)': 'v', 'middle': 'o', 'high (> +2 mV)': '^'}
@@ -130,11 +140,11 @@ def main():
     ax[1].axhline(1, color=MUTED, lw=0.8, ls=':')
     ax[1].set_xlabel('K (sdt counts from the chip base)', color=INK, fontsize=8)
     ax[1].set_title('channels grouped by baseline within their chip', color=INK, fontsize=9, loc='left')
-    ax[1].set_ylim(0.55, 1.2)
     ax[1].legend(frameon=False, fontsize=7)
     for x in ax:
         style(x)
-    fig.suptitle('wk2 global-threshold scan (runs 181-225): pad efficiency vs threshold - baseline', color=INK,
+    what = 'OWN-channel efficiency' if own else 'pad efficiency (any pad within 15 mm)'
+    fig.suptitle(f'wk2 global-threshold scan (runs 181-225): {what} vs threshold - baseline', color=INK,
                  fontsize=10, x=0.01, ha='left')
     fig.tight_layout()
     fig.savefig(f'{odir}/eff_vs_threshold_distance.png', dpi=150)

@@ -29,6 +29,11 @@ firing two chambers at once passes the off-time subtraction and has a cosmic-lik
 but sits near threshold, so the efficiency rising with the tag ADC cut and levelling off measures the real one; per chip
 and per pad.
 
+OWN-PAD efficiency (per_pad_own, all_own): the same tags, but a HIT only when the predicted pad's OWN channel fired
+within --win ns of the latency (its neighbours do not count); random hits of that channel from the --sideband window.
+This is the efficiency of one channel, to compare with its own threshold. per_pad_own rows:
+[vmm, ch, x, y, n_on, n_off, k_on, k_off, acc_on] (acc_on = on-time tags with a sideband hit on the pad).
+
 Usage: efficiency_tp.py f1.pcapng[,f2,...] OUT.json --conn-shift -1 --order 'P2_IN:3=bot:rev|top:lin' ...
        [--veto 2:27,6:44] [--dead-vmm 4,7,9] [--title run_124]
 """
@@ -163,7 +168,7 @@ def probe(p, ta_d, tb_d, cl, hits, live_pads, a, chip_times=None, chan_times=Non
     dmin = nearest_hit(px, py, pt, hx, hy, ht, lat - a.win, lat + a.win)
     smin = nearest_hit(px, py, pt, hx, hy, ht, lat - a.win + a.sideband, lat + a.win + a.sideband)
 
-    def est(mask_extra=None, probe_r=a.probe_r, dmin=dmin):
+    def est(mask_extra=None, probe_r=a.probe_r, dmin=dmin, smin=smin):
         m = fid if mask_extra is None else fid & mask_extra
         n_on, n_off = int((m & on).sum()), int((m & off).sum())
         k_on, k_off = int((m & on & (dmin < probe_r)).sum()), int((m & off & (dmin < probe_r)).sum())
@@ -223,6 +228,28 @@ def probe(p, ta_d, tb_d, cl, hits, live_pads, a, chip_times=None, chan_times=Non
         pads.append([int(cv[q]), int(cc[q]), round(float(cx[q]), 1), round(float(cy[q]), 1), r['n_on'], r['n_off'],
                      r['k_on'], r['k_off']])
     out['per_pad'] = pads
+    if chan_times is not None:
+        # own-pad hit: the predicted pad's own channel fired in the window (0 = hit, inf = none, as a "distance")
+        key = cv[near] * 64 + cc[near]
+        own = np.full(len(px), np.inf)
+        own_s = np.full(len(px), np.inf)
+        for kk in np.unique(key[fid]):
+            tt = chan_times.get(int(kk))
+            if tt is None or not len(tt):
+                continue
+            m = np.nonzero(fid & (key == kk))[0]
+            for dst, lo in ((own, lat - a.win), (own_s, lat - a.win + a.sideband)):
+                s0 = np.searchsorted(tt, pt[m] + lo)
+                e0 = np.searchsorted(tt, pt[m] + lo + 2 * a.win, side='right')
+                dst[m[e0 > s0]] = 0.0
+        out['all_own'] = est(dmin=own, smin=own_s)
+        pads = []
+        for q in np.unique(near[fid]):
+            mq = fid & (near == q)
+            r = est(near == q, dmin=own, smin=own_s)
+            pads.append([int(cv[q]), int(cc[q]), round(float(cx[q]), 1), round(float(cy[q]), 1), r['n_on'], r['n_off'],
+                         r['k_on'], r['k_off'], int((mq & on & (own_s < np.inf)).sum())])
+        out['per_pad_own'] = pads
     return out
 
 
@@ -298,6 +325,8 @@ def main():
               f'(purity {s.get("purity")}), eff {s["eff"]} +- {s.get("err")} (raw on-time {s.get("eff_raw_on")}, acc '
               f'{s.get("acc")}); dt0 {r["dt0_ns"]:.0f} ns, lat {r["latency_ns"]:.0f} ns, offset '
               f'{np.round(r["offset_mm"], 1)} mm', flush=True)
+        if 'all_own' in r:
+            print(f'   OWN pad only: eff {r["all_own"]["eff"]} +- {r["all_own"].get("err")} (acc {r["all_own"].get("acc")})')
         print('   vs probe-r:', {k: v['eff'] for k, v in r['vs_probe_r'].items()})
         print('   vs window +-ns:', {k: v['eff'] for k, v in r['vs_win_ns'].items()},
               '| hit anywhere in the chamber:', r['any_position']['eff'])
