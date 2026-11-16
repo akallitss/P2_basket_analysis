@@ -252,17 +252,24 @@ def probe(p, ta_d, tb_d, cl, hits, live_pads, a, chip_times=None, chan_times=Non
         out['per_pad_own'] = pads
         if a.dump_tags:
             # per-tag record for the resolution/efficiency unfolding: every fiducial on/off tag, its predicted point,
-            # the predicted pad, own-pad hit (window / sideband), the tag-pair slope, and every live probe pad that
-            # fired within 40 mm of the prediction in the window (pad centre, flattened with the tag index)
+            # the predicted pad, own-pad hit (window / sideband), the tag-pair slope, every live probe pad that
+            # fired within --dump-r mm of the prediction in the window (fired_*) and in the sideband window (side_*),
+            # as pad centres flattened with the tag index; dt_scint for the scintillator-confirmed selection
             sel = np.nonzero(fid & (on | off))[0]
-            s0 = np.searchsorted(ht, pt[sel] + lat - a.win)
-            e0 = np.searchsorted(ht, pt[sel] + lat + a.win, side='right')
-            fi, fx, fy = [], [], []
-            for n_, (k, s1, e1) in enumerate(zip(sel, s0, e0)):
-                if e1 > s1:
-                    q = np.hypot(hx[s1:e1] - px[k], hy[s1:e1] - py[k]) < 40
-                    xy = np.unique(np.c_[hx[s1:e1][q], hy[s1:e1][q]], axis=0)
-                    fi += [n_] * len(xy); fx += xy[:, 0].tolist(); fy += xy[:, 1].tolist()
+            def fired_lists(t0):
+                """flattened (tag index, pad centre) of the live probe pads fired within --dump-r mm of the prediction
+                in the window [t0 - win, t0 + win] relative to the tag time."""
+                s0 = np.searchsorted(ht, pt[sel] + t0 - a.win)
+                e0 = np.searchsorted(ht, pt[sel] + t0 + a.win, side='right')
+                fi, fx, fy = [], [], []
+                for n_, (k, s1, e1) in enumerate(zip(sel, s0, e0)):
+                    if e1 > s1:
+                        q = np.hypot(hx[s1:e1] - px[k], hy[s1:e1] - py[k]) < a.dump_r
+                        xy = np.unique(np.c_[hx[s1:e1][q], hy[s1:e1][q]], axis=0)
+                        fi += [n_] * len(xy); fx += xy[:, 0].tolist(); fy += xy[:, 1].tolist()
+                return np.array(fi, int), np.array(fx), np.array(fy)
+            fi, fx, fy = fired_lists(lat)
+            si, sx, sy = fired_lists(lat + a.sideband)   # random hits: same tags, window shifted by --sideband
             slope = np.hypot(xb[j] - xa[i], yb[j] - ya[i]) / abs(Z[tb_d] - Z[ta_d])
             # signed time from the nearest scintillator coincidence (H0 VMM 0 ch 40) to the tag (+ ~210 ns for muons)
             sc = a._scint
@@ -272,8 +279,9 @@ def probe(p, ta_d, tb_d, cl, hits, live_pads, a, chip_times=None, chan_times=Non
             a._dump[f'p{p}'] = dict(px=px[sel], py=py[sel], on=on[sel], vmm=cv[near[sel]], ch=cc[near[sel]], dt_scint=dts,
                                     cx=cx[near[sel]], cy=cy[near[sel]], own=np.isfinite(own[sel]),
                                     own_s=np.isfinite(own_s[sel]), slope=slope[sel],
-                                    tag_adc=np.minimum(aa[i], ab[j])[sel], fired_i=np.array(fi, int),
-                                    fired_x=np.array(fx), fired_y=np.array(fy), r_scale=np.array(r_scale))
+                                    tag_adc=np.minimum(aa[i], ab[j])[sel], fired_i=fi, fired_x=fx, fired_y=fy,
+                                    side_i=si, side_x=sx, side_y=sy, r_scale=np.array(r_scale),
+                                    dump_r=np.array(a.dump_r))
     return out
 
 
@@ -299,6 +307,8 @@ def main():
     ap.add_argument('--sideband', type=float, default=4000)
     ap.add_argument('--title', default='')
     ap.add_argument('--dump-tags', default='', help='write the per-tag records of every probe to this .npz')
+    ap.add_argument('--dump-r', type=float, default=80, help='fired pads kept within this distance (mm) in the dump')
+    ap.add_argument('--scint-ch', default='0:40', help='vmm:ch of the scintillator coincidence (dt_scint in the dump)')
     a = ap.parse_args()
     a._dump = {}
 
@@ -343,7 +353,8 @@ def main():
     To = T[o]
     chan_times = {int(k): To[s0:e0] for k, s0, e0 in zip(ks, starts, list(starts[1:]) + [len(o)])}
     chip_times = {int(v): T[V == v] for v in np.unique(V)}
-    a._scint = np.sort(T[(V == 0) & (C == 40)])
+    sv, sc_ = map(int, a.scint_ch.split(':'))
+    a._scint = np.sort(T[(V == sv) & (C == sc_)])
     for p, tags in ((2, (3, 1)), (1, (3, 2)), (3, (2, 1))):
         r = probe(p, tags[0], tags[1], cl, hits, live_pads, a, chip_times, chan_times)
         res[f'probe_det{p}'] = r

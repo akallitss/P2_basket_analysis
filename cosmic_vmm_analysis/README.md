@@ -19,6 +19,12 @@ Outputs are kept outside the repo, under `data/Lab_Measurements/VMM-cosmics/vmm_
 
 | script | what |
 |---|---|
+| **`channel_efficiency.py`** | **absolute single-channel efficiency** (the standard method, see `CHANNEL_EFFICIENCY.md`): `dump` (decode runs), `sdt-table`, `thr-table`, `measure` (counting estimator, scintillator-confirmed tags, no resolution model), `toy` (closure test) |
+| `channel_efficiency_report.py` | verification figures + `numbers.json` of a `measure` output (timing, prediction lattice, counting curves, R_lo scan, per run, methods, toy closure) |
+| `efficiency_tp.py` | tag-and-probe per run (self-made tags, off-time subtracted): pad / own-pad efficiency per chamber, chip, pad; `--dump-tags` writes the per-tag records `channel_efficiency.py` uses (fired pads within `--dump-r`, sideband window, scintillator time from `--scint-ch`) |
+| `test_channel_efficiency.py` | closure tests (3 s): resolution, lattice predictions, random hits, tails, impure tags |
+| `eff_vs_threshold_distance.py` | first pass: pad / own-pad efficiency RELATIVE to each channel's mean, vs threshold - baseline, grouped by baseline |
+| `eff_unfold.py` | cross-check: fit of the pad-firing profile around each pad (box x Gauss resolution): sigma, pad response width |
 | `coincidence_check.py` | shared pcapng reader `read_times(path, state, with_adc=False)` (absolute hit time) + chamber-pair time differences |
 | `noise_scan_summary.py` | per-channel hit rate of every point of a threshold scan |
 | `compare_hv_noise.py` | HV on vs HV off per-channel rates |
