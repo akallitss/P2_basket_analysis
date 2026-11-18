@@ -46,6 +46,7 @@ import numpy as np
 import orientation_check as O
 from coincidence_check import read_times, CHAMBER
 from straight_track_rate import parse_veto
+from spark_veto import WallClock
 
 Z = {3: 320.0, 2: 630.0, 1: 940.0}
 NAME = {3: 'det3 P2_IN', 2: 'det2 P2_MID', 1: 'det1 P2_OUT'}
@@ -54,11 +55,17 @@ for _v, _d in CHAMBER.items():
     DET[_v] = _d
 
 
-def load(files):
+def load(files, clock=None):
+    """hits of the capture files, time-ordered; with clock (a spark_veto.WallClock) every file is also anchored to wall
+    time by its first packet, so clock(t_ns) gives the DAQ-box epoch seconds of a hit."""
     state = {}
     V, T, C, A = [], [], [], []
     for p in files.split(','):
-        for v, t, ch, adc in read_times(p, state, with_adc=True):
+        recs = read_times(p, state, with_adc=True)
+        if clock is not None:
+            ts = [r[1] for r in recs if len(r[1])]
+            clock.add_file(p, min(x.min() for x in ts) if ts else None)
+        for v, t, ch, adc in recs:
             V.append(v); T.append(t); C.append(ch); A.append(adc)
     V, T, C, A = np.concatenate(V), np.concatenate(T), np.concatenate(C), np.concatenate(A)
     o = np.argsort(T, kind='stable')
@@ -282,6 +289,59 @@ def probe(p, ta_d, tb_d, cl, hits, live_pads, a, chip_times=None, chan_times=Non
                                     tag_adc=np.minimum(aa[i], ab[j])[sel], fired_i=fi, fired_x=fx, fired_y=fy,
                                     side_i=si, side_x=sx, side_y=sy, r_scale=np.array(r_scale),
                                     dump_r=np.array(a.dump_r))
+            if a.dump_diag:
+                a._dump[f'p{p}'].update(diag_fields(p, sel, px, py, pt, lat, hx, hy, ht, g_chip, g_chan, a))
+    return out
+
+
+def diag_fields(p, sel, px, py, pt, lat, hx, hy, ht, g_chip, g_chan, a):
+    """--dump-diag: per tag (same order as the other per-tag arrays) its time, wall time, the probe-chamber activity
+    around it and the dead-time gaps; flattened (fired_nr_*) every live probe hit within --diag-r mm of the prediction
+    and within +-(--diag-wide) ns of tag + latency: its time from tag + latency, ADC, distance and vmm*64+ch.
+    The fired_ prefix makes channel_efficiency.select_tags drop the flattened arrays instead of mis-indexing them."""
+    ha, hk = a._hits_adc[p], a._hits_key[p]
+    W, n = a.diag_wide, len(sel)
+    pts = pt[sel] + lat
+    s0 = np.searchsorted(ht, pts - W)
+    e0 = np.searchsorted(ht, pts + W, side='right')
+    n_any = np.zeros(n, int)                    # live probe hits anywhere in the chamber within +-win
+    d_win = np.full(n, np.inf)                  # nearest of them to the prediction (mm)
+    fi, fdt, fadc, fd, fk = [], [], [], [], []
+    for n_, (k, s1, e1) in enumerate(zip(sel, s0, e0)):
+        if e1 <= s1:
+            continue
+        dt_ = ht[s1:e1] - pts[n_]
+        dd = np.hypot(hx[s1:e1] - px[k], hy[s1:e1] - py[k])
+        inw = np.abs(dt_) <= a.win
+        n_any[n_] = int(inw.sum())
+        if n_any[n_]:
+            d_win[n_] = float(dd[inw].min())
+        q = dd < a.diag_r
+        if q.any():
+            fi += [n_] * int(q.sum()); fdt += dt_[q].tolist(); fadc += ha[s1:e1][q].tolist()
+            fd += dd[q].tolist(); fk += hk[s1:e1][q].tolist()
+    # chamber activity around the tag: all live hits and saturated hits (ADC >= --sat-adc) within +-100 us
+    sat_t = ht[ha >= a.sat_adc]
+    w = 1e5
+    n100 = np.searchsorted(ht, pts + w, side='right') - np.searchsorted(ht, pts - w)
+    s100 = np.searchsorted(sat_t, pts + w, side='right') - np.searchsorted(sat_t, pts - w)
+    return dict(t_tag=pt[sel], wall=a._clock(pt[sel]) if a._clock.anchors else np.full(n, np.nan),
+                n_any=n_any, d_win=d_win, n100us=n100, sat100us=s100,
+                prev_chip=g_chip[sel], prev_chan=g_chan[sel], latency=np.array(lat), win=np.array(a.win),
+                fired_nr_i=np.array(fi, int), fired_nr_dt=np.array(fdt), fired_nr_adc=np.array(fadc, int),
+                fired_nr_d=np.array(fd), fired_nr_key=np.array(fk, int))
+
+
+def second_rates(V, T, A, clock, sat_adc):
+    """per wall-clock second and chamber: live+dead hits and saturated hits (for the spark-flag check)."""
+    ws = clock(T)
+    t0 = np.floor(ws.min())
+    edges = np.arange(t0, np.ceil(ws.max()) + 1)
+    out = {'t0': np.array(t0)}
+    for d in (3, 2, 1):
+        m = DET[V] == d
+        out[f'hits_p{d}'] = np.histogram(ws[m], edges)[0].astype(np.int32)
+        out[f'sat_p{d}'] = np.histogram(ws[m & (A >= sat_adc)], edges)[0].astype(np.int32)
     return out
 
 
@@ -309,13 +369,20 @@ def main():
     ap.add_argument('--dump-tags', default='', help='write the per-tag records of every probe to this .npz')
     ap.add_argument('--dump-r', type=float, default=80, help='fired pads kept within this distance (mm) in the dump')
     ap.add_argument('--scint-ch', default='0:40', help='vmm:ch of the scintillator coincidence (dt_scint in the dump)')
+    ap.add_argument('--dump-diag', action='store_true', help='also dump the diagnostic fields (diag_fields) and the '
+                    'per-second chamber rates (rates_*): wall time of every tag, probe hits near the prediction with '
+                    'time and ADC, chamber activity, dead-time gaps')
+    ap.add_argument('--diag-wide', type=float, default=2000, help='+-ns around tag + latency for the fired_nr_* hits')
+    ap.add_argument('--diag-r', type=float, default=15, help='mm around the prediction for the fired_nr_* hits')
+    ap.add_argument('--sat-adc', type=int, default=1000, help='ADC from which a hit counts as saturated')
     a = ap.parse_args()
     a._dump = {}
+    a._clock = WallClock()
 
     X, Y = O.Mapper(a.conn_shift).xy_table(O.parse_orders(a.order))
     veto = parse_veto(a.veto)
     dead = {int(v) for v in a.dead_vmm.split(',') if v}
-    V, T, C, A = load(a.files)
+    V, T, C, A = load(a.files, a._clock if a.dump_diag else None)
     span = float(T[-1] - T[0]) * 1e-9
     counts = np.zeros((32, 64), int)
     np.add.at(counts, (V, C), 1)
@@ -333,9 +400,12 @@ def main():
     HX, HY = X[V, C], Y[V, C]
     cl = {d: chamber_clusters(d, V, T, C, A, HX, HY, live, bad_hit, burst_hit, a) for d in (3, 2, 1)}
     hits, live_pads = {}, {}
+    a._hits_adc, a._hits_key = {}, {}
     for d in (3, 2, 1):
         m = (DET[V] == d) & live[V, C]
         hits[d] = (HX[m], HY[m], T[m])
+        if a.dump_diag:
+            a._hits_adc[d], a._hits_key[d] = A[m], V[m] * 64 + C[m]
         vv, cc = np.nonzero(np.isfinite(X))
         k = DET[vv] == d
         live_pads[d] = (X[vv[k], cc[k]], Y[vv[k], cc[k]], vv[k], cc[k], live[vv[k], cc[k]])
@@ -377,6 +447,11 @@ def main():
               {k: (v['eff'], v['n_sig']) for k, v in r['vs_tan_theta'].items()})
         print('   per chip:', {k: (v['eff'], v.get('err')) for k, v in r['per_chip'].items() if v['eff'] is not None})
     vars(a).pop('_scint')
+    for k in ('_hits_adc', '_hits_key'):
+        vars(a).pop(k)
+    clock = vars(a).pop('_clock')
+    if a.dump_diag and a.dump_tags and clock.anchors:
+        a._dump['rates'] = second_rates(V, T, A, clock, a.sat_adc)
     dump = vars(a).pop('_dump')  # res['params'] is vars(a): keep the arrays out of the json
     if a.dump_tags:
         np.savez_compressed(a.dump_tags, **{f'{p}_{k}': v for p, d in dump.items() for k, v in d.items()})
