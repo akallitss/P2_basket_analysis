@@ -190,7 +190,8 @@ def spark_check(RATES, vetoes, out, lag_max=60):
             part = el.split('_')[1] if el.startswith('P2_') else el.split()[0]
             elec = el.split('_')[2] if el.startswith('P2_') else ''
             cls.setdefault(f'{w} {part} {elec}'.strip(), []).append(t)
-        cls['random'] = list(rng.uniform(t0 + lag_max, t1 - lag_max, 200))
+        if t1 - t0 > 3 * lag_max:
+            cls['random'] = list(rng.uniform(t0 + lag_max, t1 - lag_max, 200))
         lag = np.arange(-lag_max, lag_max + 1)
         for c, ts in cls.items():
             for t in ts:
@@ -216,7 +217,7 @@ def spark_check(RATES, vetoes, out, lag_max=60):
     lag = np.arange(-lag_max, lag_max + 1)
     near = np.abs(lag) <= 10
     for (c, q, d), L in prof.items():
-        if q != 'sat':
+        if q != 'sat' or ('random', 'sat', d) not in prof:
             continue
         A = np.nanmean(np.array(L), 0)
         H = np.nanmean(np.array(prof[(c, 'hits', d)]), 0)
@@ -226,7 +227,8 @@ def spark_check(RATES, vetoes, out, lag_max=60):
                          sat_random=float(np.nanmean(Rr)), sat_ratio=float(np.nanmax(A[near]) / max(np.nanmean(Rr), 1e-9)),
                          hits_peak=float(np.nanmax(H[near])), hits_random=float(np.nanmean(Rh)),
                          hits_ratio=float(np.nanmax(H[near]) / max(np.nanmean(Rh), 1e-9))))
-    F = pd.DataFrame(rows).sort_values(['cls', 'det'])
+    F = pd.DataFrame(rows, columns=['cls', 'det', 'n', 'sat_peak', 'sat_random', 'sat_ratio', 'hits_peak',
+                                    'hits_random', 'hits_ratio']).sort_values(['cls', 'det'])
     F.to_csv(f'{out}/spark_flag_check.csv', index=False)
     DS = pd.DataFrame(data_sparks)
     DS.to_csv(f'{out}/data_discharges.csv', index=False)
