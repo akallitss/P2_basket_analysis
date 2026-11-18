@@ -211,6 +211,8 @@ def cmd_dump(a):
         cmd = [sys.executable, os.path.join(HERE, 'efficiency_tp.py'), ','.join(files), f'{a.out}/eff_run{run}.json',
                f'--conn-shift={a.conn_shift}', '--dead-vmm', a.dead_vmm, '--dump-tags', f'{a.out}/tags_run{run}.npz',
                '--scint-ch', a.scint_ch, '--title', f'run_{run} {lab}']
+        if a.diag:
+            cmd.append('--dump-diag')
         for o in a.order or DEFAULT_ORDERS:
             cmd += ['--order', o]
         if a.mem:
@@ -268,9 +270,30 @@ def cmd_thr_table(a):
     print(f'{len(T)} rows, {T.run.nunique()} runs -> {a.o}')
 
 
-def measure_pads(tags_dir, thr, scint=None, clean=40.0, radii=RADII, conn_shift=-1, orders=None, verbose=True):
+def real_run(pid):
+    """real run number of a pseudo-run id (run x 100 + chunk, or run x 1000 + chunk for >= 100 chunks); a real run
+    number (< 1000) is returned as is."""
+    return pid if pid < 1000 else (pid // 1000 if pid >= 100000 else pid // 100)
+
+
+def bad_time_mask(tags, run, bad_times):
+    """True for the tags inside the HV/LV bad-time intervals of spark_veto.py (BAD_TIMES/veto_run_<run>.json);
+    needs the wall times of a --dump-diag dump. Missing veto file or wall times: an error, never silently no veto."""
+    from spark_veto import load_veto, in_intervals
+    f = f'{bad_times}/veto_run_{real_run(run)}.json'
+    if not os.path.exists(f):
+        raise SystemExit(f'--bad-times: no {f}')
+    if 'wall' not in tags:
+        raise SystemExit(f'--bad-times: run {run} has no wall times (dump it with --dump-diag)')
+    return in_intervals(tags['wall'], load_veto(f))
+
+
+def measure_pads(tags_dir, thr, scint=None, clean=40.0, radii=RADII, conn_shift=-1, orders=None, verbose=True,
+                 bad_times=None, veto_log=None):
     """per (run, chamber, live pad): the count curves (n, k, s, v) and the pad's threshold - baseline distance;
-    plus the tag - scintillator times of all on-time tags (to check the window)."""
+    plus the tag - scintillator times of all on-time tags (to check the window). bad_times: directory of
+    spark_veto.py json files; tags inside those intervals are dropped (counts per run and chamber in veto_log)."""
+    sys.path.insert(0, HERE)
     from scipy.spatial import cKDTree
     X, Y, area = pad_geometry(conn_shift, orders)
     thr = thr.set_index(['run', 'vmm', 'ch'])
@@ -281,6 +304,14 @@ def measure_pads(tags_dir, thr, scint=None, clean=40.0, radii=RADII, conn_shift=
         for p in (3, 2, 1):
             tags = load_tags(fz, p)
             dts.append(tags['dt_scint'][tags['on']])
+            if bad_times:
+                bad = bad_time_mask(tags, run, bad_times)
+                if veto_log is not None:
+                    sc = (tags['dt_scint'] >= scint[0]) & (tags['dt_scint'] <= scint[1]) if scint else True
+                    veto_log.append(dict(run=run, det=NAME[p], tags=int(len(bad)), vetoed=int(bad.sum()),
+                                         on_scint=int((tags['on'] & sc).sum()),
+                                         on_scint_vetoed=int((tags['on'] & sc & bad).sum())))
+                tags = select_tags(tags, ~bad)
             if scint:
                 tags = select_tags(tags, (tags['dt_scint'] >= scint[0]) & (tags['dt_scint'] <= scint[1]))
             allp = [(v, c) for v in DETV[p] for c in range(64) if np.isfinite(X[v, c])]
@@ -314,7 +345,15 @@ def cmd_measure(a):
     os.makedirs(a.out_dir, exist_ok=True)
     thr = pd.read_csv(a.thr_table)
     scint = tuple(map(float, a.scint.split(':'))) if a.scint else None
-    rows, dts = measure_pads(a.tags_dir, thr, scint, a.clean)
+    vlog = []
+    rows, dts = measure_pads(a.tags_dir, thr, scint, a.clean, bad_times=a.bad_times or None, veto_log=vlog)
+    if a.bad_times:
+        V = pd.DataFrame(vlog)
+        V.to_csv(f'{a.out_dir}/bad_times_vetoed.csv', index=False)
+        t = V.groupby('det')[['on_scint', 'on_scint_vetoed']].sum()
+        print('--bad-times', a.bad_times, ': scintillator-confirmed on-time tags vetoed per chamber:',
+              {d: f'{r.on_scint_vetoed}/{r.on_scint} ({100 * r.on_scint_vetoed / max(r.on_scint, 1):.1f} %)'
+               for d, r in t.iterrows()})
     h, e = np.histogram(dts[np.isfinite(dts)], np.arange(-1000, 1001, 25))
     print('tag time - scintillator time (on-time tags), 25 ns bins, non-empty:',
           {int(e[i]): int(h[i]) for i in np.nonzero(h)[0]})
@@ -465,6 +504,8 @@ def main():
     d.add_argument('--dead-vmm', default='0,1')
     d.add_argument('--scint-ch', default='0:40')
     d.add_argument('--force', action='store_true')
+    d.add_argument('--diag', action='store_true', help='efficiency_tp.py --dump-diag: wall time of every tag (needed by '
+                   'measure --bad-times), probe hits near the prediction with time and ADC, chamber activity')
     d.set_defaults(f=cmd_dump)
     s = sp.add_parser('sdt-table', help='chip thresholds (sdt) and masks of ext files')
     s.add_argument('ext_dir')
@@ -493,6 +534,8 @@ def main():
     m.add_argument('--clean', type=float, default=40, help='drop pads with a dead/masked pad within this distance')
     m.add_argument('--bins', type=float, nargs='+', default=[0, 14, 18, 22, 26, 30, 34, 40, 46, 52, 58, 64, 70, 100])
     m.add_argument('--plateau', type=float, nargs=2, default=[18, 40], help='distance range of the plateau summary')
+    m.add_argument('--bad-times', default='', help='directory of spark_veto.py veto_run_<run>.json: drop the tags in '
+                   'those HV/LV bad-time intervals (needs a --dump-diag dump, which has the wall time of every tag)')
     m.set_defaults(f=cmd_measure)
     o = sp.add_parser('toy', help='closure test on simulated muons')
     o.add_argument('--sigmas', type=float, nargs='+', default=[3, 8, 12])
