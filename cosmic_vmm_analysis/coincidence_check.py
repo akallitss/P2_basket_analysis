@@ -3,7 +3,9 @@
 """Is there a time coincidence between the three chambers? (feasibility check for the muon tracks)
 
 Reads whole capture files, rebuilds the absolute hit time as the QA does (vmm_qa/vmm_pcapng_qa.py):
-    t = srs_timestamp * 25 ns  +  ((offset*4096 + bcid + 1) * 22.5 ns - tdc * 60/255 ns)
+    t = srs_timestamp * 22.5 ns  +  ((offset*4096 + bcid + 1) * 22.5 ns - tdc * 60/255 ns)
+(the SRS marker tick is 22.5 ns, as the BCID clock: 2.67e9 ticks per 60.08 s of capture, bcid_stream.py; until 19 Nov 2026
+this used 25 ns, which stretched every time by 25/22.5 and broke the wall clock, per-second rates and gaps)
 with BCID Gray decoded and srs_timestamp the last marker word of the same VMM. Only over-threshold hits (flag 1) are used.
 Chambers: det3 = VMM 2-7 (P2_IN), det2 = VMM 8-13 (P2_MID), det1 = VMM 14-19 (P2_OUT).
 
@@ -20,6 +22,7 @@ import sys
 
 import numpy as np
 
+SRS_TICK_NS = 22.5   # ns per SRS marker timestamp tick (= the 44.44 MHz BCID clock); was 25.0 until 19 Nov 2026
 CH = {3: range(2, 8), 2: range(8, 14), 1: range(14, 20)}
 CHAMBER = {v: d for d, r in CH.items() for v in r}
 
@@ -95,7 +98,7 @@ def read_times(path, state, with_adc=False, max_bytes=None):
             tdc = (d2[sel] & 0xFF).astype(np.float64)
             chip = ((offs * 4096 + bcid + 1) * 22.5) - tdc * 60.0 / 255.0
             v = hv[sel]
-            t = srs_h * 25.0 + chip
+            t = srs_h * SRS_TICK_NS + chip
             ok = srs_h > 0
             rec = (v[ok], t[ok], ((d2[sel] >> 8) & 0x3F)[ok].astype(np.int64))
             if with_adc:
