@@ -288,11 +288,36 @@ def bad_time_mask(tags, run, bad_times):
     return in_intervals(tags['wall'], load_veto(f))
 
 
+def hull_edge_distance(pts, q):
+    """distance (mm) of the points q to the boundary of the convex hull of the pad centres pts (>= 0 inside)."""
+    from scipy.spatial import ConvexHull
+    hv = pts[ConvexHull(pts).vertices]
+    a, b = hv, np.roll(hv, -1, axis=0)
+    ab = b - a
+    t = np.clip(((q[:, None, :] - a[None]) * ab[None]).sum(-1) / (ab ** 2).sum(-1)[None], 0, 1)
+    d = np.hypot(*(q[:, None, :] - (a[None] + t[..., None] * ab[None])).transpose(2, 0, 1))
+    return d.min(1)
+
+
+def parse_fiducial(spec):
+    """'P2_IN:20,P2_OUT:20' -> {'P2_IN': 20.0, 'P2_OUT': 20.0}"""
+    out = {}
+    for item in filter(None, (spec or '').split(',')):
+        det, mm = item.split(':')
+        if det not in NAME.values():
+            raise SystemExit(f'--fiducial: unknown chamber {det} (one of {sorted(NAME.values())})')
+        out[det] = float(mm)
+    return out
+
+
 def measure_pads(tags_dir, thr, scint=None, clean=40.0, radii=RADII, conn_shift=-1, orders=None, verbose=True,
-                 bad_times=None, veto_log=None):
+                 bad_times=None, veto_log=None, fiducial=None):
     """per (run, chamber, live pad): the count curves (n, k, s, v) and the pad's threshold - baseline distance;
     plus the tag - scintillator times of all on-time tags (to check the window). bad_times: directory of
-    spark_veto.py json files; tags inside those intervals are dropped (counts per run and chamber in veto_log)."""
+    spark_veto.py json files; tags inside those intervals are dropped (counts per run and chamber in veto_log).
+    fiducial: {chamber: mm}; a pad whose centre is closer than mm to the outline (convex hull of all its chamber's pad
+    centres) counts as not clean, so it leaves every result (measure, regroup.py, checks.py) like a pad near a dead one;
+    d_edge (mm) is kept per pad either way."""
     sys.path.insert(0, HERE)
     from scipy.spatial import cKDTree
     X, Y, area = pad_geometry(conn_shift, orders)
@@ -320,11 +345,15 @@ def measure_pads(tags_dir, thr, scint=None, clean=40.0, radii=RADII, conn_shift=
             px, py = np.array([X[v, c] for v, c in live]), np.array([Y[v, c] for v, c in live])
             ok_clean = (cKDTree(deadxy).query(np.c_[px, py])[0] > clean) if (clean and len(deadxy)) else \
                 np.ones(len(live), bool)
+            allxy = np.array([(X[v, c], Y[v, c]) for v, c in allp])
+            d_edge = hull_edge_distance(allxy, np.c_[px, py])
+            ok_fid = d_edge >= (fiducial or {}).get(NAME[p], -1.0)
             n, k, s, v = count_curves(tags, px, py, radii, live=(px, py, [area[q] for q in live]))
             for j, (vv, cc) in enumerate(live):
                 d = thr.loc[(run, vv, cc)] if (run, vv, cc) in thr.index else None
                 out.append(dict(run=run, K=info['K'], det=NAME[p], vmm=vv, ch=cc, x=px[j], y=py[j], area=area[vv, cc],
-                                clean=bool(ok_clean[j]), dist_mV=float(d.dist_mV) if d is not None else np.nan,
+                                clean=bool(ok_clean[j] and ok_fid[j]), d_edge=float(d_edge[j]), fid=bool(ok_fid[j]),
+                                dist_mV=float(d.dist_mV) if d is not None else np.nan,
                                 n=n[j], k=k[j], s=s[j], v=v[j]))
         if verbose:
             print(f'run_{run} counted', flush=True)
@@ -346,7 +375,14 @@ def cmd_measure(a):
     thr = pd.read_csv(a.thr_table)
     scint = tuple(map(float, a.scint.split(':'))) if a.scint else None
     vlog = []
-    rows, dts = measure_pads(a.tags_dir, thr, scint, a.clean, bad_times=a.bad_times or None, veto_log=vlog)
+    fid = parse_fiducial(a.fiducial)
+    rows, dts = measure_pads(a.tags_dir, thr, scint, a.clean, bad_times=a.bad_times or None, veto_log=vlog,
+                             fiducial=fid)
+    if fid:
+        for det, mm in fid.items():
+            rr = [r for r in rows if r['det'] == det]
+            print(f'--fiducial {det}: pads closer than {mm:g} mm to the outline dropped: '
+                  f'{sum(not r["fid"] for r in rr)} of {len(rr)} (run x pad)')
     if a.bad_times:
         V = pd.DataFrame(vlog)
         V.to_csv(f'{a.out_dir}/bad_times_vetoed.csv', index=False)
@@ -532,6 +568,8 @@ def main():
     m.add_argument('--per-channel', action='store_true', help='also one fit per channel and distance bin (slow, '
                    'low statistics)')
     m.add_argument('--clean', type=float, default=40, help='drop pads with a dead/masked pad within this distance')
+    m.add_argument('--fiducial', default='', help="CHAMBER:MM[,...], e.g. 'P2_IN:20,P2_OUT:20': also drop the pads of "
+                   'that chamber whose centre is closer than MM to the outline of its pads (default: none)')
     m.add_argument('--bins', type=float, nargs='+', default=[0, 14, 18, 22, 26, 30, 34, 40, 46, 52, 58, 64, 70, 100])
     m.add_argument('--plateau', type=float, nargs=2, default=[18, 40], help='distance range of the plateau summary')
     m.add_argument('--bad-times', default='', help='directory of spark_veto.py veto_run_<run>.json: drop the tags in '
