@@ -10,14 +10,14 @@ few 10^5 numbers out of 10^8-10^9 hits. Two sources:
       the reduced column store, when the online pass kept the hit columns;
 
   raw_daq_data/<capture>.pcapng
-      streamed through vmm_decode.iter_chunks otherwise. Most of the campaign
+      streamed through p2_decode.iter_chunks otherwise. Most of the campaign
       was reduced with --drop-columns, so for those sub_runs this is the only
       way -- and it is cheap, because every chunk is filtered down to the
       wanted channel and thrown away immediately.
 
 Time base (see match_streams.py):
     t = srs_timestamp*22.5 + (offset*4096 + bcid)*22.5 + (22.5 - tdc*60/255)
-The SRS timestamp tick is 22.5 ns, NOT the 25 ns vmm_decode.derive assumes.
+The SRS timestamp tick is 22.5 ns, NOT the 25 ns p2_decode.derive assumes.
 
     ./extract_vmm_triggers.py run_57 driftscan_gap150V --out trig.npz
     ./extract_vmm_triggers.py run_25 meshscan_m00V --scan     # busy channels
@@ -67,14 +67,18 @@ def iter_columns(sub_dir, max_captures=None, source="auto", quiet=False):
                     print(f"  skip {name}: {e}")
         return
     try:
-        import vmm_decode
+        from p2_decode import iter_chunks
     except ImportError:
-        sys.exit("vmm_decode.py not importable -- put it on PYTHONPATH "
-                 "(it lives in P2_basket_online_analysis)")
+        sys.exit("p2_decode not importable -- pip install p2-decode "
+                 "(github.com/akallitss/p2-decode)")
+    # legacy_word_count=True: decode exactly as the old vmm_decode.py did (it
+    # skipped the last word of every packet), so the result matches the beam's
+    # own hits_store, which that decoder wrote during the July-Aug 2026 run.
+
     for fn in sorted(glob.glob(f"{sub_dir}/raw_daq_data/*.pcapng"))[:max_captures]:
         name = os.path.basename(fn).replace(".pcapng", "")
         try:
-            for c in vmm_decode.iter_chunks(fn):
+            for c in iter_chunks(fn, legacy_word_count=True):
                 yield name, c
         except Exception as e:                   # truncated final capture
             if not quiet:

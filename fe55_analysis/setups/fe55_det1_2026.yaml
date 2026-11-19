@@ -1,0 +1,53 @@
+# Saclay Fe55 bench, from 2026-09-09: ONE P2 basket detector (det1) read out
+# by nine VMM hybrids, one per connector, self-triggered on an Fe55 source.
+# A p2-mapping setup file (same schema as p2_mapping/data/setups/*.yaml),
+# loaded by path from fe55_analysis/vmm_det1_cabling.py.
+#
+# Source: vmm_det1_cabling.py in P2_basket_online_analysis (tag legacy-final),
+# cabling confirmed 2026-09-09 on the first Fe55 capture
+# (source_tests/enp4s0f1_20260909-150423_0.pcapng, 611,119 hits):
+#     VMM 0,1     0 hits            no hybrid 0 (no trigger hybrid)
+#     VMM 2,3     32, 18  (0.01 %)  connector 1 -- not plugged into det1
+#     VMM 4-17    34k-55k each      connectors 2-8, the seven live hybrids
+#     VMM 18,19   27, 154 (0.03 %)  connector 9 -- not plugged into det1
+# Hybrid n carries VMM 2n (bottom) / 2n+1 (top), the SPS convention.
+# Live: sectors 1-7, connectors 2-8, VMM 4-17, 896 of the 1280 pads.
+#
+# Within-half channel order: the p2_basket default ('reverse') on every half.
+# Not independently validated for this bench cabling: run
+# `vmm_fe55_map.py <captures> --scan-mapping` and, for a half it determines
+# differently, add bottom_order / top_order to that hybrid's row below.
+#
+# NOT covered: the later 5-hybrid configuration of the cable-length study
+# (2026-09-29 onwards, VMM 4-13). Add it as a new dated cabling entry once its
+# connectors are recorded; until then the Fe55 tools assume this entry.
+
+name: fe55_det1_2026
+site: lab
+description: "Saclay Fe55 bench, Sep 2026: det1 on hybrids 2-8 (connectors 2-8), self-triggered"
+design: p2_basket
+
+detectors:
+  - {name: det1}
+
+# no trigger: the VMMs self-trigger on the source
+
+cabling:
+  - valid_from: 2026-09-09T00:00:00
+    note: "det1, drift 750 V / mesh 420 V; connectors 1 and 9 not plugged in, connector 10 not cabled"
+    hybrids:
+      - {detector: det1, connector: 2, hybrid: 2, bottom_vmm: 4,  top_vmm: 5}
+      - {detector: det1, connector: 3, hybrid: 3, bottom_vmm: 6,  top_vmm: 7}
+      - {detector: det1, connector: 4, hybrid: 4, bottom_vmm: 8,  top_vmm: 9}
+      - {detector: det1, connector: 5, hybrid: 5, bottom_vmm: 10, top_vmm: 11}
+      - {detector: det1, connector: 6, hybrid: 6, bottom_vmm: 12, top_vmm: 13}
+      - {detector: det1, connector: 7, hybrid: 7, bottom_vmm: 14, top_vmm: 15}
+      - {detector: det1, connector: 8, hybrid: 8, bottom_vmm: 16, top_vmm: 17}
+
+# Not part of the p2-mapping schema (it keeps unknown keys in Setup.extra):
+# hybrids powered on the FEC whose connector is NOT plugged into det1. Their
+# VMMs must stay (nearly) silent; vmm_det1_cabling.verify_cabling uses them to
+# check the numbering convention from data, and the self-test re-plugs them.
+disconnected:
+  - {connector: 1, hybrid: 1, bottom_vmm: 2,  top_vmm: 3}
+  - {connector: 9, hybrid: 9, bottom_vmm: 18, top_vmm: 19}
