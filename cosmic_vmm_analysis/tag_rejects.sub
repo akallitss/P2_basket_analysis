@@ -1,0 +1,9 @@
+executable     = tag_rejects_job.sh
+output         = tag_rejects.$(ClusterId).out
+error          = tag_rejects.$(ClusterId).err
+log            = tag_rejects.$(ClusterId).log
+request_cpus   = 4
+request_memory = 8000
++JobFlavour    = "workday"
+getenv         = False
+queue
