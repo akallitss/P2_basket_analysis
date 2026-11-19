@@ -41,14 +41,24 @@ def lattice(t, P0, tol):
     """(t0, P, k of the on-lattice hits, mask of on-lattice hits) for one pulsed channel."""
     if len(t) < 20:
         return None
-    d = np.diff(t)
-    ok = (d > 0.9 * P0) & (d < 1.1 * P0)
-    P = float(np.median(d[ok])) if ok.sum() > 10 else P0
+    # start from the NOMINAL period: the pulse comes once per 4096-BC frame, so P0 is exact. A period from the median
+    # interval is biased by up to ~5 ns (noise pairs of a noisy pulsed channel, chip 8 in run_270) or ~0.2 ns (ns
+    # rounding of the hit times, chip 11), and over 650 000 frames the lattice walks off the pulses. The least-squares
+    # step below still refines P on the selected pulses.
+    P = float(P0)
     t0 = float(t[0])
     for _ in range(3):
         k = np.round((t - t0) / P)
         r = t - t0 - k * P
-        on = np.abs(r - np.median(r)) < tol
+        # phase = peak of the residuals (200 ns bins), not their median: noise hits spread over the whole frame pull
+        # the median away from the pulses
+        h, e = np.histogram(r, bins=np.arange(-P / 2, P / 2 + 200, 200))
+        r0 = 0.5 * (e[np.argmax(h)] + e[np.argmax(h) + 1])
+        # re-centre the lattice on the pulses (t[0] may be a noise hit half a frame off: residuals would wrap at +-P/2)
+        t0 += r0
+        k = np.round((t - t0) / P)
+        r = t - t0 - k * P
+        on = np.abs(r) < tol
         if on.sum() < 10:
             return None
         A = np.vstack([np.ones(on.sum()), k[on]]).T
