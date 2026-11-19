@@ -102,9 +102,13 @@ LaCie copies (rsync `--no-o --no-g --no-p`): `.../vmm_threshold_scan/analysis_we
    49 files: **99.82-99.87 % of test pulses received on all six chips** (`pulser_tick225/results_run270.log`);
    missing frames are independent per chip (53 of 31.9 M frames lost on >= 5 chips at once). Around the silent muons
    both pulses arrived 98.7-100 %. Against the packet clock (`deadtime_sparks/results/pulser_summary.csv`) 99.84-99.91 %.
-   Run_283 (set A at gain 9, `gscan_hvon10_hvm_tpA`, 49 chunks) is **running** (lxplus996 since ~20:25, ->
-   `pulser_tick225/results_run283b/` + `.log`); a waiter that should have done it (`run_pulser_fixed.sh`) did not
-   start - check whether `results_run283/` appears too and keep one.
+   **Run_283 (set A at gain 9, `gscan_hvon10_hvm_tpA`, 49 chunks, done 20:45, `pulser_tick225/results_run283b.log`):
+   chips 2, 14, 17 at 99.86 % as in run_270, but chip 5 0.970, chip 11 0.988 and **chip 8 0.877** (3.9 M of 31.9 M
+   pulses missing, only 0.47 M of them in runs of >= 5 frames). Around silent muons the pulses of chip 8 were
+   received 0.81, chip 5 0.94. PRELIMINARY: mostly isolated missing pulses -> candidate = channel busy with noise hits
+   at gain 9 (chips 8 and 11 were the noisy ones in the 18 Nov coarse probe); check the hit rate of 5:31, 8:31,
+   11:31 in run_283 vs run_270 and the gaps (pulser_gaps.csv) before calling it a read-out loss. At gain 9 this is
+   part of the lower MID efficiency (0.70).
 2. **Dead time is real but small.** Silent fraction vs time since the previous hit on the predicted chip, against
    that chip's own rate in the run: excess only below ~10 us (0.58 at < 100 ns, 0.24 at 1-3 us vs ~0.15) = **83 of
    28 480 muons, 0.29 %** (2 % of the silent ones). The < 100 ns bin partly counts the muon's own early hit
@@ -175,7 +179,7 @@ LaCie copies (rsync `--no-o --no-g --no-p`): `.../vmm_threshold_scan/analysis_we
 
 ## 5. Next steps (suggested order)
 
-1. **Run_283 pulser** result (section 4.1): confirm ~99.8 % on all six chips at gain 9; then set-B runs (tpB, chips
+1. **Gain-9 pulser losses** (section 4.1, run_283: chip 8 0.88, chip 5 0.97, chip 11 0.99): noise-busy or real? Then set-B runs (tpB, chips
    3 6 9 12 15 18) as they appear (`post_t225.sh w_pulser <run>` now uses the fixed `pulser_readout.py`).
 2. **Matched-definition table for the write-up**: for every configuration of the weekend grid, MID any-hit given IN
    and OUT (`scint_any_hit.py` on all files, not 15) and per connector (`conn_eff.py`) next to the counting eps,
