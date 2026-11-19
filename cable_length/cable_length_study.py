@@ -18,7 +18,7 @@ Two campaigns, one observable per channel each:
            are swapped in most June runs but not in all of them.
 
   fe55     source_tests/ (vmm_daplxa), det on 5 hybrids (VMM 4-13), pcapng
-           decoded with vmm_decode. Per channel: Fe55 photopeak position
+           decoded with p2-decode. Per channel: Fe55 photopeak position
            (windowed median of the over-threshold spectrum), and the
            over-threshold rate in the no-source reference runs. Per-file
            photopeaks are kept for the gain-stability check.
@@ -26,9 +26,16 @@ Two campaigns, one observable per channel each:
 Edge channels: the VMM channels at the connector borders, 0, 31, 32, 63.
 
     python3 cable_length/cable_length_study.py [--refresh] [--jobs N]
+                                               [--legacy-word-count]
+
+Needs p2-decode (github.com/akallitss/p2-decode) and, through ../fe55_analysis
+(capture_window, windowed_median_peak), p2-mapping; on dphppcj15 the p2-monitor
+checkout's .venv has both plus uproot.
 
 Caches per-run tables in cable_length/cache/, writes figures and
-summary.txt to cable_length/figs/ (both regenerable, gitignored).
+summary.txt to cable_length/figs/ (both regenerable, gitignored). A Fe55 cache
+file records how it was decoded; one made by another decoder (the old
+vmm_decode.py, or the other --legacy-word-count setting) is rebuilt.
 """
 import argparse
 import datetime as dt
@@ -54,11 +61,15 @@ PULSER_DIR = os.path.join(DATA, "pulser_hybrid_performance")
 # 7 Oct runs: the curated source_tests/cable_length/ set (byte-identical copies
 # of the source_tests/ files where they overlap); 29 Sep refs: source_tests/
 FE55_DIRS = (os.path.join(DATA, "fe55_cable_length"), os.path.join(DATA, "fe55_source_tests"))
-ONLINE_REPO = "/local/home/ak271430/Documents/PostDocSaclay/P2_basket_online_analysis"
-sys.path.insert(0, ONLINE_REPO)
-from vmm_decode import iter_chunks              # noqa: E402
+sys.path.insert(0, os.path.join(HERE, "..", "fe55_analysis"))
+from p2_decode import iter_chunks               # noqa: E402
 from vmm_det1_cabling import capture_window     # noqa: E402
 from vmm_fe55_map import windowed_median_peak   # noqa: E402
+
+# How the Fe55 captures are decoded, stored in every cache file. p2-decode reads
+# every word of a packet; legacy_word_count=True skips the last one, as the old
+# vmm_decode.py did (~0.07 % fewer hits), to reproduce the earlier caches.
+DECODER = "p2_decode"
 
 CACHE = os.path.join(HERE, "cache")
 FIGS = os.path.join(HERE, "figs")
@@ -336,12 +347,12 @@ def _fe55_files(stem):
     return sorted(fs, key=lambda p: int(re.search(r"_(\d+)\.pcapng$", p).group(1)))
 
 
-def _fe55_file(path):
+def _fe55_file(path, legacy=False):
     """ADC histograms of VMM 4-13 for one capture: over-threshold hits, and
     neighbour-trigger hits (not over threshold = baseline + noise + crosstalk)."""
     h = np.zeros((len(FE55_VMMS), 64, 1024), np.int32)
     h_nb = np.zeros_like(h)
-    for ch in iter_chunks(path):
+    for ch in iter_chunks(path, legacy_word_count=legacy):
         v = ch["vmm"].astype(int) - FE55_VMMS[0]
         c = ch["ch"].astype(int)
         a = np.clip(ch["adc"].astype(int), 0, 1023)
@@ -359,13 +370,23 @@ def _peaks(h, nmin):
                       for c in range(64)] for v in range(h.shape[0])])
 
 
-def _fe55_run(stem, kind):
+def _cache_ok(path, legacy):
+    """A cache file made by this decoder, in this word-count mode."""
+    if not os.path.exists(path):
+        return False
+    z = np.load(path)
+    return ("h_nb" in z.files and "decoder" in z.files
+            and str(z["decoder"]) == DECODER
+            and bool(z["legacy_word_count"]) == bool(legacy))
+
+
+def _fe55_run(stem, kind, legacy=False):
     out = os.path.join(CACHE, f"{stem}.npz")
-    if os.path.exists(out) and "h_nb" in np.load(out).files:
+    if _cache_ok(out, legacy):
         return out
     hsum, nbsum, per_file_pk, t_start, t_live = None, None, [], [], 0.0
     for f in _fe55_files(stem):
-        h, h_nb, t0, t1 = _fe55_file(f)
+        h, h_nb, t0, t1 = _fe55_file(f, legacy)
         hsum = h if hsum is None else hsum + h
         nbsum = h_nb if nbsum is None else nbsum + h_nb
         t_start.append(t0)
@@ -373,18 +394,20 @@ def _fe55_run(stem, kind):
         if kind == "fe55":
             per_file_pk.append(_peaks(h, nmin=80))
     np.savez_compressed(out, h=hsum, h_nb=nbsum, t_start=np.array(t_start), live_s=t_live,
-                        file_peaks=np.array(per_file_pk) if per_file_pk else np.zeros(0))
+                        file_peaks=np.array(per_file_pk) if per_file_pk else np.zeros(0),
+                        decoder=DECODER, legacy_word_count=bool(legacy))
     return out
 
 
-def fe55_cache(refresh=False, jobs=6):
+def fe55_cache(refresh=False, jobs=6, legacy=False):
     if refresh:
         for _, _, _, _, _, stem in FE55_RUNS:
             p = os.path.join(CACHE, f"{stem}.npz")
             if os.path.exists(p):
                 os.remove(p)
     with ProcessPoolExecutor(jobs) as ex:
-        list(ex.map(_fe55_run, [r[5] for r in FE55_RUNS], [r[1] for r in FE55_RUNS]))
+        list(ex.map(_fe55_run, [r[5] for r in FE55_RUNS], [r[1] for r in FE55_RUNS],
+                    [legacy] * len(FE55_RUNS)))
     data = {}
     for label, kind, cable, length, gain, stem in FE55_RUNS:
         z = np.load(os.path.join(CACHE, f"{stem}.npz"))
@@ -1173,12 +1196,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("--refresh", action="store_true", help="rebuild the caches")
     ap.add_argument("--jobs", type=int, default=6, help="parallel pcapng decoders")
+    ap.add_argument("--legacy-word-count", action="store_true",
+                    help="decode as the old vmm_decode.py did, to reproduce earlier caches")
     args = ap.parse_args()
     os.makedirs(CACHE, exist_ok=True)
     os.makedirs(FIGS, exist_ok=True)
 
     tab = pulser_table(args.refresh)
-    data = fe55_cache(args.refresh, args.jobs)
+    data = fe55_cache(args.refresh, args.jobs, args.legacy_word_count)
 
     for volt in ("3V3", "1V8"):
         pc = pulser_per_channel(tab, volt)
