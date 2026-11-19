@@ -325,7 +325,17 @@ def diag_fields(p, sel, px, py, pt, lat, hx, hy, ht, g_chip, g_chan, a):
     w = 1e5
     n100 = np.searchsorted(ht, pts + w, side='right') - np.searchsorted(ht, pts - w)
     s100 = np.searchsorted(sat_t, pts + w, side='right') - np.searchsorted(sat_t, pts - w)
+    # hits (live and dead, any ADC) on each of the probe chamber's 6 chips within +-1 us and +-100 us of tag + latency
+    # (19 Nov: is the whole chip / hybrid silent when the chamber misses a muon?)
+    chips = [v for v in range(32) if DET[v] == p]     # fixed: the chamber's chips in ascending order (columns)
+    c1 = np.zeros((n, len(chips)), np.int32)
+    c100 = np.zeros((n, len(chips)), np.int32)
+    for j, v in enumerate(chips):
+        tv = a._chip_times.get(v, np.zeros(0))
+        c1[:, j] = np.searchsorted(tv, pts + 1e3, side='right') - np.searchsorted(tv, pts - 1e3)
+        c100[:, j] = np.searchsorted(tv, pts + 1e5, side='right') - np.searchsorted(tv, pts - 1e5)
     return dict(t_tag=pt[sel], wall=a._clock(pt[sel]) if a._clock.anchors else np.full(n, np.nan),
+                chip_n1us=c1, chip_n100us=c100,
                 n_any=n_any, d_win=d_win, n100us=n100, sat100us=s100,
                 prev_chip=g_chip[sel], prev_chan=g_chan[sel], latency=np.array(lat), win=np.array(a.win),
                 fired_nr_i=np.array(fi, int), fired_nr_dt=np.array(fdt), fired_nr_adc=np.array(fadc, int),
@@ -425,6 +435,7 @@ def main():
     chip_times = {int(v): T[V == v] for v in np.unique(V)}
     sv, sc_ = map(int, a.scint_ch.split(':'))
     a._scint = np.sort(T[(V == sv) & (C == sc_)])
+    a._chip_times = chip_times
     for p, tags in ((2, (3, 1)), (1, (3, 2)), (3, (2, 1))):
         r = probe(p, tags[0], tags[1], cl, hits, live_pads, a, chip_times, chan_times)
         res[f'probe_det{p}'] = r
@@ -447,11 +458,18 @@ def main():
               {k: (v['eff'], v['n_sig']) for k, v in r['vs_tan_theta'].items()})
         print('   per chip:', {k: (v['eff'], v.get('err')) for k, v in r['per_chip'].items() if v['eff'] is not None})
     vars(a).pop('_scint')
+    vars(a).pop('_chip_times')
     for k in ('_hits_adc', '_hits_key'):
         vars(a).pop(k)
     clock = vars(a).pop('_clock')
     if a.dump_diag and a.dump_tags and clock.anchors:
         a._dump['rates'] = second_rates(V, T, A, clock, a.sat_adc)
+    if a.dump_diag and a.dump_tags:
+        # per-channel ADC histogram of ALL hits (19 Nov: threshold in ADC = lower edge of the noise spectrum);
+        # 64 bins of 16 ADC, aligned on the DNL period (every 16th code is ~2x wide)
+        H = np.zeros((32, 64, 64), np.int32)
+        np.add.at(H, (V, C, np.clip(A, 0, 1023) // 16), 1)
+        a._dump['adchist'] = {'h': H}
     dump = vars(a).pop('_dump')  # res['params'] is vars(a): keep the arrays out of the json
     if a.dump_tags:
         np.savez_compressed(a.dump_tags, **{f'{p}_{k}': v for p, d in dump.items() for k, v in d.items()})
