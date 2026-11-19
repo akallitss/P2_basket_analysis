@@ -14,18 +14,40 @@ Answers, from one or more pcapng captures:
 
 | File | What it is |
 |---|---|
-| `vmm_det1_cabling.py` | `(vmm, ch) → pad` for this bench cabling, plus live time from the pcapng packet clock |
+| `setups/fe55_det1_2026.yaml` | the bench cabling, as a [p2-mapping](https://github.com/akallitss/p2-mapping) setup file |
+| `vmm_det1_cabling.py` | `(vmm, ch) → pad` for this bench (built by p2-mapping from the setup above), the cabling check, live time from the pcapng packet clock (p2-decode) |
 | `vmm_fe55_map.py` | the analysis — rate map, source fit, gain map, spectra |
+| `vmm_fe55_pad_spectra.py` | per-pad spectra of the brightest pads: is the photopeak real? |
+| `vmm_fe55_gain_map.py` | relative and (provisional) absolute gain map from the per-pad photopeak |
 | `vmm_fe55_merge.py` | stitches per-pad gains from several source positions into one map |
 | `vmm_fe55_selftest.py` | synthetic data with a known answer; five scenarios |
 
-They sit beside `vmm_stations.py` and share `P2_BASKET_mapping.csv`, but are
-independent of it: `vmm_stations` is the three-station SPS telescope that the
-live beam QA runs on and is deliberately left untouched.
+## Requirements
+
+Decoding is [p2-decode](https://github.com/akallitss/p2-decode), the pad map is
+[p2-mapping](https://github.com/akallitss/p2-mapping); nothing here parses a
+pcapng or carries a copy of the pad geometry. Tested with p2-decode 0.9.0 and
+p2-mapping 0.6.0.
+
+```bash
+pip install -e ../../p2-decode -e ../../p2-mapping   # sibling checkouts, or pinned:
+pip install "p2-decode @ git+https://github.com/akallitss/p2-decode@v0.9.0" \
+            "p2-mapping @ git+https://github.com/akallitss/p2-mapping@v0.6.0"
+pip install numpy pandas scipy matplotlib
+```
+
+On `dphppcj15` the `p2-monitor` checkout's `.venv` already has all of it:
+`../../p2-monitor/.venv/bin/python vmm_fe55_map.py ...`.
+
+These tools moved here from `P2_basket_online_analysis` (tag `legacy-final`),
+where they carried their own decoder (`vmm_decode.py`) and pad CSV. See
+*Moved onto p2-decode / p2-mapping* below for what that changed.
 
 ## Cabling this assumes
 
-Recorded in `vmm_det1_cabling.py`, confirmed 2026-09-09:
+Recorded in `setups/fe55_det1_2026.yaml` (cabling entry from 2026-09-09; the
+tools use the entry in force at `vmm_det1_cabling.CABLING_WHEN`), confirmed
+2026-09-09:
 
 ```
 hybrid n  ->  connector n  ->  VMM 2n bottom / 2n+1 top
@@ -47,9 +69,18 @@ connectors are what caught it: base 0 predicts VMM 0,1 and 16,17 silent, base 2
 predicts VMM 2,3 and 18,19 silent, and the data shows the latter
 (VMM 2,3 = 0.01 % of hits; VMM 18,19 = 0.03 %; VMM 4–17 = 34k–55k each).
 
-`sector = connector_N - 1` and `channel_id = sector*128 + (strip-1)`, identical
-to `vmm_stations.py` and `cosmic_bench_analysis/p2_mapping.py`, so a pad number
-means the same thing in all three.
+The strip/sector/pad arithmetic and the pad geometry are p2-mapping's
+(`sector = connector_N - 1`, `channel_id = sector*128 + (strip-1)`), the same
+chain the SPS and lab-cosmic setups use, so a pad number means the same thing
+everywhere. The two connectors that are powered but not plugged into det1 are
+listed under `disconnected:` in the setup file (p2-mapping keeps unknown keys in
+`Setup.extra`). The setup does **not** yet describe the later 5-hybrid
+cable-length configuration (from 2026-09-29, VMM 4–13): add it as a new dated
+cabling entry once its connectors are written down.
+
+If `--scan-mapping` determines a half differently from the default `reverse`,
+record it as `bottom_order:` / `top_order:` on that hybrid's row in the setup
+file; the scan prints the lines to add.
 
 The **two disconnected connectors are a free calibration of the numbering
 convention**: each candidate convention predicts a different pair of silent VMM
@@ -153,8 +184,8 @@ scale. Runs sharing nothing with the rest are reported, not silently floated.
 ## Validation
 
 `vmm_fe55_selftest.py` writes a real pcapng (SHB/IDB/EPB, Ethernet/IPv4/UDP,
-SRS VM3 payloads with the bit layout `vmm_decode.py` unpacks), so it exercises
-the actual decoder rather than a mock, and checks five scenarios:
+SRS VM3 payloads with the bit layout p2-decode unpacks), so it exercises the
+actual decoder rather than a mock, and checks five scenarios:
 
 ```bash
 python3 vmm_fe55_selftest.py              # all scenarios
@@ -194,27 +225,39 @@ capture (54 files, 32.8 M hits, 3239.6 s) drove four fixes:
 * **Broad vs absent illumination** are distinguished. The first wording claimed
   there was no source when there was one — just very broad.
 
-## Deploying to the DAQ machine
+## Moved onto p2-decode / p2-mapping (2026-11-19)
 
-The beam DAQ runs its **own copy** under `DAQ_Control_VMM_Beam/vmm_qa/` — that
-directory is not this checkout. To use these there, copy all four modules plus
-`P2_BASKET_mapping.csv` into it and run with that repo's venv:
+What changed, checked on two real 9-Sep source positions (`20260909-150423`
+and `-163851`, 10 captures each: `vmm_fe55_map`, `--scan-mapping`,
+`vmm_fe55_pad_spectra`, `vmm_fe55_gain_map`, `vmm_fe55_merge`) against the
+`legacy-final` code:
 
-```bash
-cp vmm_det1_cabling.py vmm_fe55_map.py vmm_fe55_merge.py vmm_fe55_selftest.py \
-   ../DAQ_Control_VMM_Beam/vmm_qa/
-../DAQ_Control_VMM_Beam/.venv/bin/python \
-   ../DAQ_Control_VMM_Beam/vmm_qa/vmm_fe55_map.py <run_dir> --watch
-```
+* **Pad table:** row-for-row identical, dtypes included, for the default
+  cabling and every variant the tools and self-test build (each order, other
+  disconnected lists, swapped halves, per-half overrides).
+* **With `--legacy-word-count`:** every hit-derived product is bit-identical —
+  counts, photopeaks, gains, FWHMs, the merge, the mapping scan. Rates differ by
+  ≤ 8e-10 relative: capture times now come from p2-decode in float ns rather
+  than float s (238 ns at most, one float64 step at today's epoch).
+* **Default (full word count):** p2-decode reads the last word of every packet,
+  which `vmm_decode.py` skipped: +0.067 % hits (6,090,456 → 6,094,538 on
+  `-150423`), rates up by the same. The photopeak/gain is unchanged on 855 of
+  891 pads and within 2.6 % on the rest; the mapping scan picks the same order
+  on every half. Single-pad FWHMs on spectra with no clean half-maximum can
+  jump (one pad 467 → 271 ADC on a run already flagged "FWHM/peak = 51 %").
+* **Self-test:** synthetic packets no longer carry 6 padding bytes (they existed
+  only for the old decoder to skip); all five scenarios pass.
 
-Nothing here touches `vmm_pcapng_qa.py`, `vmm_stations.py` or `qa_watcher.py`,
-so the live beam QA is unaffected either way.
+`_summary.json` now records the decoder (`p2_decode` version,
+`legacy_word_count`) and the mapping (`p2_mapping` version, setup name and
+sha256, cabling date).
 
 ## First real file — suggested order
 
 1. `vmm_fe55_map.py <capture> --max-packets 2000` — quick look. Check the
    cabling line says `OK`. If it says `MISMATCH`, the numbering convention or
-   the `DISCONNECTED` list is wrong; the message names the VMM ids.
+   the `disconnected:` list in `setups/fe55_det1_2026.yaml` is wrong; the
+   message names the VMM ids.
 2. Look at `_spectra.png`. If there is no Ar escape peak at 0.50 × the main
    peak, what you have is probably a threshold turn-on, not the photopeak —
    raise the mesh or lower the threshold before mapping anything.

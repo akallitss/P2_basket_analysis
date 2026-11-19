@@ -78,8 +78,10 @@ from matplotlib.colors import LogNorm
 from matplotlib.patches import Ellipse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import p2_decode
+import p2_mapping
+
 import vmm_det1_cabling as dc
-import vmm_decode as vd
 
 ADC_BINS = 1024
 ADC_MAX = ADC_BINS - 1          # VMM3a ADC is 10 bit; 1023 is saturation
@@ -91,6 +93,12 @@ NKEY = 32 * 64                  # (vmm, ch) key space, vmm id is 5 bits
 # Resolving it is the standard proof that the main peak really is the photopeak
 # and not a threshold turn-on.
 ESCAPE_FRACTION = (5.90 - 2.96) / 5.90
+
+# p2-decode reads every 6-byte word of a packet; the old vmm_decode.py (and
+# p2-decode with legacy_word_count=True) skipped the last one, ~0.07 % of the
+# hits. False is the correct decode; True only reproduces products made with
+# the old decoder. Set by --legacy-word-count on every tool's command line.
+LEGACY_WORD_COUNT = False
 
 
 # ==========================================================================
@@ -172,15 +180,21 @@ def resolve_inputs(patterns):
 
 
 def accumulate(paths, min_adc=0, require_ot=False, max_packets=None,
-               data_format="SRS", progress=True):
-    """Fold every capture into one PadHistograms. Returns (hists, metas)."""
+               data_format="SRS", progress=True, legacy_word_count=None):
+    """Fold every capture into one PadHistograms. Returns (hists, metas).
+
+    Decoded with p2_decode.iter_chunks; `legacy_word_count` None means the
+    module default LEGACY_WORD_COUNT."""
+    if legacy_word_count is None:
+        legacy_word_count = LEGACY_WORD_COUNT
     h = PadHistograms()
     metas = []
     for i, p in enumerate(paths, 1):
         meta = {}
         try:
-            for cols in vd.iter_chunks(p, data_format=data_format,
-                                       max_packets=max_packets, meta=meta):
+            for cols in p2_decode.iter_chunks(
+                    p, data_format=data_format, max_packets=max_packets,
+                    meta=meta, legacy_word_count=legacy_word_count):
                 h.add_chunk(cols, min_adc=min_adc, require_ot=require_ot)
         except Exception as e:
             # A capture still being written by dumpcap has a truncated tail.
@@ -1201,11 +1215,11 @@ def scan_mapping(paths, args, strategies=("linear", "reverse", "pairswap"),
     changed = {k: v for k, v in sorted(determined.items()) if v != args.strategy}
     print()
     if changed:
-        print("Paste into vmm_det1_cabling.STRATEGY_OVERRIDES:")
-        print("STRATEGY_OVERRIDES = {")
-        for k, v in changed.items():
-            print(f"    {k!r}: {v!r},")
-        print("}")
+        print(f"Record these in {os.path.relpath(dc.SETUP_FILE)}, on the hybrid "
+              "row of each connector (bottom_order / top_order):")
+        for (n, h), v in changed.items():
+            key = "bottom_order" if h == dc.BOTTOM_VMM_HALF else "top_order"
+            print(f"    connector {n}: {key}: {v}")
     elif determined:
         print(f"every determined half agrees with WITHIN_STRATEGY = "
               f"{args.strategy!r}; no overrides needed.")
@@ -1298,6 +1312,11 @@ def analyse(paths, args, out_dir, base, title):
         "inputs": [os.path.basename(p) for p in paths],
         "n_captures": len(paths),
         "live_time": {k: v for k, v in live.items() if k != "per_file"},
+        "decoder": {"p2_decode": p2_decode.__version__,
+                    "legacy_word_count": bool(LEGACY_WORD_COUNT)},
+        "mapping": {"p2_mapping": p2_mapping.__version__,
+                    "setup": dc.SETUP.name, "setup_sha256": dc.SETUP.sha256,
+                    "cabling_when": dc.CABLING_WHEN},
         "cabling_check": cab,
         "conditions": args.conditions,
         "cabling": {"strategy": args.strategy,
@@ -1476,6 +1495,9 @@ def build_parser():
     p.add_argument("--max-packets", type=int, default=None,
                    help="decode at most N packets per capture (quick look)")
     p.add_argument("--data-format", default="SRS", choices=["SRS", "TRG"])
+    p.add_argument("--legacy-word-count", action="store_true",
+                   help="decode as the old vmm_decode.py did (skip the last "
+                        "word of every packet), to reproduce old products")
     p.add_argument("--capture-duration", type=float, default=None,
                    help="configured seconds per capture "
                         "(run_config_beam.CAPTURE_DURATION_S); used when the "
@@ -1522,7 +1544,9 @@ def build_parser():
 
 
 def main(argv=None):
+    global LEGACY_WORD_COUNT
     args = build_parser().parse_args(argv)
+    LEGACY_WORD_COUNT = args.legacy_word_count
     paths = resolve_inputs(args.inputs)
     if not paths:
         print("no pcapng found", file=sys.stderr)

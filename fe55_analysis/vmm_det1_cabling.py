@@ -2,39 +2,30 @@
 # -*- coding: utf-8 -*-
 """
 vmm_det1_cabling.py — (vmm, ch) -> pad for ONE P2 basket detector read out by
-nine VMM hybrids, one per connector.
+nine VMM hybrids, one per connector: the Fe55 bench.
 
-Why this exists next to vmm_stations.py
----------------------------------------
-`vmm_stations.build_pad_table()` is hardwired to the SPS telescope: three P2
-stations, connectors c4-c6 each, VMMs 2-19, hybrid 0 reserved for the external
-trigger. That geometry is what the live beam QA runs on and must not be
-disturbed. The Fe55 bench setup is a different animal:
+The cabling itself is a p2-mapping setup, `setups/fe55_det1_2026.yaml`, and the
+whole chain (vmm, ch) -> connector, half -> strip -> channel_id -> pad geometry
+is p2-mapping's (`p2_mapping.table.build_table`), so a pad number means the same
+thing here as at SPS and on the cosmic stand. Live time comes from p2-decode's
+pcapng walker. What is left in this module is the bench-specific part:
 
-  * ONE detector (det1), so there is no station axis at all;
-  * NINE hybrids on connectors 1-9, i.e. most of the fan is instrumented
-    instead of three connectors of it;
-  * hybrid n carries VMMs 2n and 2n+1 (the telescope's convention, kept), but
-    hybrid 0 is not populated, so VMM 0/1 -- the telescope's trigger digitiser
-    -- are simply absent from the data;
-  * no external trigger: the VMMs self-trigger on the source.
-
-Rather than bolt a second mode onto vmm_stations, the cabling lives here and
-the two files stay independent. Everything downstream of the pad map --
-`P2_BASKET_mapping.csv`, the strip/sector arithmetic, the within-half
-strategies -- is the same detector and is deliberately kept bit-identical to
-vmm_stations / cosmic_bench_analysis.p2_mapping so a pad number means the same
-thing in all three.
+  * the hybrids that are powered but NOT plugged into det1 (connectors 1 and 9),
+    kept in the setup file under `disconnected:` and used to check the VMM
+    numbering from data (`verify_cabling`);
+  * variants of the cabling for the mapping scan and the self-test (another
+    channel order, another disconnected list), built as modified p2-mapping
+    setups rather than with arithmetic of their own;
+  * the per-pad helpers the Fe55 tools share (pad keys, polygons, live time).
 
 Chain
 -----
     (vmm, ch)
-      -> hybrid, connector_N (1..9), half           HYBRID_CONNECTOR + halves
-      -> within = ch (0..63)
-      -> strip  = half_base + f(within)             WITHIN_STRATEGY
+      -> hybrid, connector_N (1..9), half           setups/fe55_det1_2026.yaml
+      -> strip  = half_base + f(within)             p2_mapping.routing (order)
       -> sector = connector_N - 1
       -> channel_id = sector*128 + (strip - 1)
-      -> pad_cx, pad_cy, ...                        P2_BASKET_mapping.csv
+      -> pad_cx, pad_cy, pad_area, ...              p2-mapping p2_basket_pads.csv
 
 CABLING AS OF 2026-09-09 (Alexandra, Fe55 bench, det1, drift 750 V / mesh 420 V)
   hybrid 1 -> connector 1 -> VMM 2 (bot) / 3 (top)
@@ -47,88 +38,105 @@ CABLING AS OF 2026-09-09 (Alexandra, Fe55 bench, det1, drift 750 V / mesh 420 V)
 So the live pads are sectors 1-7 (connectors 2-8), VMMs 4-17: 7*128 = 896 of
 the detector's 1280 pads.
 
+Moved from P2_basket_online_analysis (tag legacy-final), where it carried its
+own copy of the cabling arithmetic and of P2_BASKET_mapping.csv.
+
 @author: ak271430 Alexandra Kallitsopoulou
 """
 
+import dataclasses
 import os
-import struct
 
 import numpy as np
 import pandas as pd
 
+from p2_decode.pcapng import walk_blocks
+from p2_mapping import routing
+from p2_mapping.setups import load_setup
+from p2_mapping.table import build_table, load_pads
+
 __all__ = ["build_pad_table", "full_pad_map", "attach_pads", "pad_polygons",
            "vmm_half_map", "expected_vmms", "verify_cabling", "live_time",
-           "MAP_CSV"]
+           "capture_window", "SETUP_FILE", "CABLING_WHEN"]
+
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 # --------------------------------------------------------------------------
-# Detector constants — identical to vmm_stations / p2_mapping
+# The setup
 # --------------------------------------------------------------------------
-STRIPS_PER_CONN = 128       # one physical connector = 128 strips = 2 halves
-CH_PER_HALF = 64            # one VMM = 64 channels = one half
-N_CONNECTORS = 10           # the PCB has 10 connectors / 1280 pads
-N_PADS = N_CONNECTORS * STRIPS_PER_CONN
+SETUP_FILE = os.path.join(HERE, "setups", "fe55_det1_2026.yaml")
 
-MAP_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                       "P2_BASKET_mapping.csv")
+# Which cabling entry of the setup the tools use. Fixed rather than taken from
+# each capture's time: the self-test writes synthetic captures with arbitrary
+# timestamps, and a re-cabling of the bench is a new dated entry in the setup
+# file plus a new value here (or `when=` on the calls), not a silent change.
+CABLING_WHEN = "2026-09-09T00:00:00"
 
-# --------------------------------------------------------------------------
-# Cabling
-# --------------------------------------------------------------------------
+SETUP = load_setup(SETUP_FILE)
+DETECTOR = "det1"
+_DESIGN = routing.design(SETUP.design)
+
+STRIPS_PER_CONN = _DESIGN["strips_per_connector"]   # 128 = 2 halves
+CH_PER_HALF = _DESIGN["channels_per_half"]          # 64 = one VMM
+N_CONNECTORS = _DESIGN["n_connectors"]              # 10
+N_PADS = N_CONNECTORS * STRIPS_PER_CONN             # 1280
+
+# Kept for callers that ask where the geometry came from; it is p2-mapping's.
+MAP_CSV = str(routing.pads_path(SETUP.design))
+
+
+def _hybrid_rows(when=CABLING_WHEN):
+    """{hybrid: row} for every hybrid on the FEC, plugged in or not, and the
+    set of hybrids that are not plugged in. Rows are p2-mapping cabling rows."""
+    live = {int(r["hybrid"]): dict(r) for r in SETUP.cabling_at(when).hybrids}
+    dead = {}
+    for r in SETUP.extra.get("disconnected", ()):
+        r = {"detector": DETECTOR, **r}
+        dead[int(r["hybrid"])] = r
+    clash = set(live) & set(dead)
+    if clash:
+        raise ValueError(f"{SETUP_FILE}: hybrids {sorted(clash)} are both cabled "
+                         "and listed under disconnected")
+    return {**live, **dead}, set(dead)
+
+
+_ROWS, _DEAD = _hybrid_rows()
+
 # Hybrids present, in connector order. Hybrid n sits on connector n.
-HYBRIDS = tuple(range(1, 10))
-
-# Global VMM id of the BOTTOM chip of hybrid n.
-#
-# MEASURED 2026-09-09 on the first real Fe55 capture
-# (source_tests/enp4s0f1_20260909-150423_0.pcapng, 611,119 hits). Per-VMM
-# occupancy:
-#     VMM 0,1     0 hits            no hybrid 0 (no trigger hybrid, as expected
-#                                   for a self-triggered source run)
-#     VMM 2,3     32, 18  (0.01 %)  connector 1 -- DISCONNECTED
-#     VMM 4-17    34k-55k each      connectors 2-8, the seven live hybrids
-#     VMM 18,19   27, 154 (0.03 %)  connector 9 -- DISCONNECTED
-#     VMM 20-31   0 hits
-#
-# So hybrid n carries VMM 2n / 2n+1: hybrid 1 is VMM 2/3, hybrid 9 is VMM
-# 18/19. This is the SAME convention as run_config_beam.P2_VMM_CABLING, kept
-# even though hybrid 0 is not populated here.
-#
-# The initial guess was base = 0 ("vmm0 to the bottom connector"), which turns
-# out to describe the LOCAL chip numbering on the hybrid, not the global VMM
-# id. That guess shifted every connector by one sector -- the exact failure
-# this check exists to catch, and the two disconnected connectors are what
-# caught it: base = 0 predicts VMM 0,1 and 16,17 silent, base = 2 predicts
-# VMM 2,3 and 18,19 silent, and the data shows the latter.
-VMM_BASE = 2
-
-
-def hybrid_vmms(hybrid, base=VMM_BASE):
-    """(bottom_vmm, top_vmm) global ids for a hybrid."""
-    return base + 2 * (hybrid - 1), base + 2 * (hybrid - 1) + 1
-
-
+HYBRIDS = tuple(sorted(_ROWS))
 # Connectors with no hybrid plugged in. Their channels are omitted from the
 # table entirely, so their hits (there should be none) never reach a pad and
 # their pads never enter a gain/rate map as "dead pads".
-DISCONNECTED = (1, 9)
+DISCONNECTED = tuple(sorted(int(_ROWS[h]["connector"]) for h in _DEAD))
 
-# Which detector half the hybrid's BOTTOM VMM reads. 'bot' = strips 1-64,
-# which the map CSV labels mec8_connector 0. Swappable, like in vmm_stations:
-# it is a property of how the hybrid seats on the MEC8, not of the PCB.
-BOTTOM_VMM_HALF = "bot"
+# Global VMM id of the BOTTOM chip of hybrid 1: hybrid n carries VMM
+# base + 2(n-1) / base + 2(n-1) + 1. MEASURED 2026-09-09 (see the setup file):
+# the initial guess base = 0 described the LOCAL chip numbering on the hybrid,
+# shifted every connector by one sector, and was caught by the two disconnected
+# connectors -- base = 0 predicts VMM 0,1 and 16,17 silent, base = 2 predicts
+# VMM 2,3 and 18,19 silent, and the data shows the latter.
+VMM_BASE = int(_ROWS[HYBRIDS[0]]["bottom_vmm"]) - 2 * (HYBRIDS[0] - 1)
+for _h, _r in _ROWS.items():
+    if (_r["bottom_vmm"], _r["top_vmm"]) != (VMM_BASE + 2 * (_h - 1),
+                                             VMM_BASE + 2 * (_h - 1) + 1):
+        raise ValueError(f"{SETUP_FILE}: hybrid {_h} breaks the 2n/2n+1 VMM "
+                         "convention that VMM_BASE and the self-test assume")
 
-# Order of `within` (0..63) inside a 64-strip half. 'reverse' is validated for
-# the DREAM/K59V readout (p2_mapping.py, M3 track correlation r=0.93/0.88 on
-# run p2_det1_long_run_6-30-26) and is what the VMM telescope scan also settled
-# on for every half but two. It is NOT independently validated for this bench
-# cabling -- run `vmm_fe55_map.py <file> --scan-mapping` on the first Fe55 file
-# to confirm, exactly as vmm_map_rough.py does for the beam.
-WITHIN_STRATEGY = "reverse"
+# Which detector half the hybrid's BOTTOM VMM reads ('bot' = strips 1-64), and
+# the within-half order every half uses unless its row says otherwise: the
+# p2_basket design's defaults. 'reverse' is validated on the SPS beam and for
+# the DREAM/K59V readout; it is NOT independently validated for this bench
+# cabling -- run `vmm_fe55_map.py <file> --scan-mapping` to confirm.
+BOTTOM_VMM_HALF = _DESIGN["bottom_vmm_half"]
+WITHIN_STRATEGY = _DESIGN["default_order"]
 
-# Per-(connector_N, half) exceptions, for a ribbon cabled the other way round.
-# The telescope needed two of these on P2_IN (flipped c5/c6 top ribbons). Empty
-# until --scan-mapping says otherwise on THIS cabling.
+# Per-(connector_N, half) exceptions: the rows' own bottom_order / top_order.
 STRATEGY_OVERRIDES = {}
+for _r in _ROWS.values():
+    _top = "top" if BOTTOM_VMM_HALF == "bot" else "bot"
+    for _k, _half in (("bottom_order", BOTTOM_VMM_HALF), ("top_order", _top)):
+        if _r.get(_k):
+            STRATEGY_OVERRIDES[(int(_r["connector"]), _half)] = _r[_k]
 
 # Fe55 is a 5.9 keV photon: the conversion is a point on the scale of a 12 mm
 # pad, so charge is contained in one pad and the single-pad ADC spectrum IS the
@@ -136,32 +144,41 @@ STRATEGY_OVERRIDES = {}
 PAD_PITCH_MM = 12.0
 
 
-def _within_to_strip(within, half, strategy=WITHIN_STRATEGY):
-    """within (0..63) + half -> strip (1..128). Same forms as p2_mapping.py."""
-    base = 65 if half == "top" else 1
-    if strategy == "linear":
-        off = within
-    elif strategy == "reverse":
-        off = 63 - within
-    elif strategy == "pairswap":
-        off = within ^ 1
-    else:
-        raise ValueError(f"unknown strategy {strategy!r}")
-    return base + off
+def hybrid_vmms(hybrid, base=VMM_BASE):
+    """(bottom_vmm, top_vmm) global ids for a hybrid."""
+    return base + 2 * (hybrid - 1), base + 2 * (hybrid - 1) + 1
+
+
+def _setup_variant(disconnected=DISCONNECTED, base=VMM_BASE, hybrids=HYBRIDS,
+                   when=CABLING_WHEN):
+    """The p2-mapping setup with `hybrids` minus `disconnected` plugged in.
+
+    The real cabling is the default; other lists are how the self-test and the
+    command line describe a bench that is cabled differently. `base` shifts the
+    VMM ids of every row, for testing the numbering convention."""
+    drop = {int(c) for c in (disconnected or ())}
+    pool = _ROWS if when == CABLING_WHEN else _hybrid_rows(when)[0]
+    rows = []
+    for h in hybrids:
+        r = dict(pool[h]) if h in pool else {"detector": DETECTOR,
+                                               "connector": h, "hybrid": h}
+        if int(r["connector"]) in drop:
+            continue
+        r["bottom_vmm"], r["top_vmm"] = hybrid_vmms(h, base)
+        rows.append(r)
+    entry = dataclasses.replace(SETUP.cabling_at(when), hybrids=tuple(rows))
+    return dataclasses.replace(SETUP, cabling=(entry,))
 
 
 def vmm_half_map(disconnected=DISCONNECTED, bottom_half=BOTTOM_VMM_HALF,
                  base=VMM_BASE, hybrids=HYBRIDS):
     """{vmm_id: (connector_N, half)} for every instrumented VMM."""
     top_half = "top" if bottom_half == "bot" else "bot"
-    drop = {int(c) for c in (disconnected or ())}
     out = {}
-    for n in hybrids:
-        if n in drop:
-            continue
-        bot_vmm, top_vmm = hybrid_vmms(n, base)
-        out[int(bot_vmm)] = (int(n), bottom_half)
-        out[int(top_vmm)] = (int(n), top_half)
+    for r in _setup_variant(disconnected, base, hybrids).cabling[0].hybrids:
+        n = int(r["connector"])
+        out[int(r["bottom_vmm"])] = (n, bottom_half)
+        out[int(r["top_vmm"])] = (n, top_half)
     return out
 
 
@@ -173,16 +190,22 @@ def expected_vmms(**kw):
 # --------------------------------------------------------------------------
 # Pad map
 # --------------------------------------------------------------------------
-_GEOM_COLS = ("pad_cx", "pad_cy", "radius", "phi", "delta_phi",
-              "pad_w", "pad_h", "pad_angle", "pad_area", "mec8_connector")
+# p2-mapping's table carries pad_cx .. delta_phi; the Fe55 rates also need the
+# pad area, so these come straight from the same geometry table.
+_EXTRA_GEOM = ("pad_area", "mec8_connector")
+_TABLE_COLS = ["vmm", "ch", "hybrid", "connector_N", "half", "sector", "strip",
+               "channel_id", "pad_cx", "pad_cy", "radius", "phi", "delta_phi",
+               "pad_w", "pad_h", "pad_angle", "pad_area", "mec8_connector",
+               "mapped"]
 
 
 def load_pad_map(map_csv=None):
-    """The Gerber pad map indexed by channel_id (0..1279)."""
-    m = pd.read_csv(map_csv or MAP_CSV)
-    if "channel_id" not in m.columns:
-        raise ValueError(f"{map_csv or MAP_CSV} has no channel_id column")
-    m = m.set_index("channel_id").sort_index()
+    """The pad geometry indexed by channel_id (0..1279): p2-mapping's, or a
+    CSV of the same layout if one is given."""
+    if map_csv:
+        m = pd.read_csv(map_csv).set_index("channel_id").sort_index()
+    else:
+        m = load_pads(SETUP.design).copy()
     if len(m) != N_PADS:
         print(f"[det1_cabling] WARNING: map has {len(m)} rows, expected {N_PADS}")
     return m
@@ -190,31 +213,31 @@ def load_pad_map(map_csv=None):
 
 def build_pad_table(map_csv=None, strategy=WITHIN_STRATEGY,
                     bottom_half=BOTTOM_VMM_HALF, disconnected=DISCONNECTED,
-                    overrides=None, base=VMM_BASE, hybrids=HYBRIDS):
+                    overrides=None, base=VMM_BASE, hybrids=HYBRIDS,
+                    when=CABLING_WHEN):
     """One row per instrumented (vmm, ch), joined to pad geometry.
 
     Columns: vmm, ch, hybrid, connector_N, half, sector, strip, channel_id,
-             pad_cx, pad_cy, radius, phi, pad_w, pad_h, pad_angle, pad_area,
-             mec8_connector, mapped.
+             pad_cx, pad_cy, radius, phi, delta_phi, pad_w, pad_h, pad_angle,
+             pad_area, mec8_connector, mapped.
+
+    `strategy` is the within-half order of every half, `overrides` a
+    {(connector_N, half): order} on top of it (default: the setup rows' own
+    bottom_order / top_order).
     """
-    pad = load_pad_map(map_csv)
-    halves = vmm_half_map(disconnected, bottom_half, base, hybrids)
     over = dict(STRATEGY_OVERRIDES if overrides is None else overrides)
-
-    rows = []
-    for vmm, (n, half) in sorted(halves.items()):
-        sector = n - 1
-        strat = over.get((n, half), strategy)
-        for within in range(CH_PER_HALF):
-            strip = int(_within_to_strip(within, half, strat))
-            rows.append((vmm, within, n, n, half, sector, strip,
-                         sector * STRIPS_PER_CONN + (strip - 1)))
-
-    tab = pd.DataFrame(rows, columns=["vmm", "ch", "hybrid", "connector_N",
-                                      "half", "sector", "strip", "channel_id"])
-    have = [c for c in _GEOM_COLS if c in pad.columns]
+    setup = _setup_variant(disconnected, base, hybrids, when)
+    tab = build_table(setup, when, order=strategy, bottom_half=bottom_half,
+                      orders={(DETECTOR, n, h): o for (n, h), o in over.items()})
+    pad = load_pad_map(map_csv)
+    if map_csv:                         # geometry from the given CSV, not p2-mapping's
+        tab = tab.drop(columns=[c for c in pad.columns if c in tab.columns])
+        have = [c for c in pad.columns if c in _TABLE_COLS]
+    else:
+        have = [c for c in _EXTRA_GEOM if c in pad.columns]
     tab = tab.merge(pad[have], left_on="channel_id", right_index=True, how="left")
     tab["mapped"] = tab["pad_cx"].notna()
+    tab = tab[[c for c in _TABLE_COLS if c in tab.columns]]
 
     # A scrambled strategy would collide two channels onto one pad; a silent
     # duplicate would double-count that pad's rate. Cheap, so always checked.
@@ -226,7 +249,8 @@ def build_pad_table(map_csv=None, strategy=WITHIN_STRATEGY,
     tab.attrs.update(strategy=strategy, bottom_half=bottom_half,
                      overrides=dict(over), base=base,
                      disconnected=sorted(int(c) for c in (disconnected or ())),
-                     hybrids=list(hybrids))
+                     hybrids=list(hybrids), setup=SETUP.name,
+                     setup_sha256=SETUP.sha256, cabling_when=str(when))
     return tab
 
 
@@ -380,69 +404,23 @@ def format_cabling_report(rep):
 # vmm_stations documents that `offset` is stuck in this firmware, so there is
 # no BCID rollover counter and chip time is only unambiguous within 92.16 us
 # of a marker. The wall clock has no such caveat.
-_BT_SHB = 0x0A0D0D0A
-_BT_IDB = 0x00000001
-_BT_EPB = 0x00000006
-_BT_SPB = 0x00000003
-_BOM = 0x1A2B3C4D
-_DEFAULT_TSRESOL = 1e-6      # pcapng default when if_tsresol is absent
-
-
-def _tsresol_from_idb(body, endian):
-    """Seconds per timestamp tick from an IDB's if_tsresol option (code 9)."""
-    # body: linktype u16, reserved u16, snaplen u32, then (code u16, len u16,
-    # value, padded to 4) options terminated by code 0.
-    pos = 8
-    while pos + 4 <= len(body):
-        code, olen = struct.unpack_from(endian + "HH", body, pos)
-        pos += 4
-        if code == 0:
-            break
-        if code == 9 and olen >= 1:
-            v = body[pos]
-            return 2.0 ** -(v & 0x7F) if v & 0x80 else 10.0 ** -v
-        pos += (olen + 3) & ~3
-    return _DEFAULT_TSRESOL
-
-
 def capture_window(path):
     """(t_first, t_last, n_packets, tsresol) from a pcapng's packet clock.
 
-    Unix epoch seconds. Walks the block chain reading only headers, so the cost
-    is one iteration per packet (~1e3 for a 45 s capture) and the packet data is
-    never touched. Simple Packet Blocks carry no timestamp and are counted only.
+    Unix epoch seconds, from p2-decode's block walker (`walk_blocks`), which
+    reads only block headers and honours each interface's if_tsresol. Simple
+    Packet Blocks carry no timestamp and are counted only. `tsresol` is
+    returned as None: p2-decode converts to ns per interface and does not
+    expose it, and nothing downstream uses it beyond the per-file record.
     """
-    size = os.path.getsize(path)
-    if size < 12:
-        raise ValueError(f"{path}: too small to be a pcapng")
-    u8 = np.memmap(path, dtype=np.uint8, mode="r")
-    head = bytes(u8[:12])
-    if struct.unpack_from("<I", head, 0)[0] != _BT_SHB:
-        raise ValueError(f"{path}: not a pcapng")
-    endian = "<" if struct.unpack_from("<I", head, 8)[0] == _BOM else ">"
-
-    tsresol = _DEFAULT_TSRESOL
-    t_first = t_last = None
-    n_pkt = 0
-    pos = 0
-    while pos + 12 <= size:
-        btype, blen = struct.unpack_from(endian + "II", u8, pos)
-        if blen < 12 or blen % 4 or pos + blen > size:
-            break                       # truncated tail: dumpcap mid-write
-        if btype == _BT_EPB and blen >= 32:
-            hi, lo = struct.unpack_from(endian + "II", u8, pos + 12)
-            t = ((int(hi) << 32) | int(lo)) * tsresol
-            if t_first is None:
-                t_first = t
-            t_last = t
-            n_pkt += 1
-        elif btype == _BT_IDB and blen >= 20:
-            tsresol = _tsresol_from_idb(bytes(u8[pos + 8:pos + blen - 4]), endian)
-        elif btype == _BT_SPB:
-            n_pkt += 1
-        pos += blen
-    del u8
-    return t_first, t_last, n_pkt, tsresol
+    walked = walk_blocks(path, times=True)
+    t_ns = walked[4]
+    del walked
+    n_pkt = int(t_ns.size)
+    t_ns = t_ns[np.isfinite(t_ns)]
+    if t_ns.size == 0:
+        return None, None, n_pkt, None
+    return float(t_ns[0]) / 1e9, float(t_ns[-1]) / 1e9, n_pkt, None
 
 
 def live_time(paths, capture_duration_s=None, srs_span_s=None):

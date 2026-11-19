@@ -15,7 +15,7 @@ know the chain works before the real Fe55 data exists is to feed it data whose
 answer is known.
 
 The generator writes a real pcapng -- SHB/IDB/EPB blocks, Ethernet/IPv4/UDP
-frames, SRS VM3 payloads with the same bit layout vmm_decode.py unpacks -- so
+frames, SRS VM3 payloads with the same bit layout p2-decode unpacks -- so
 the test exercises the actual decoder, not a mock of it.
 
 Truth model
@@ -116,7 +116,7 @@ def _srs_payload(frame_counter, vmm, ch, adc, bcid, tdc, over_threshold=1,
                  marker_vmms=(), marker_value=0):
     """One VM3 UDP payload: 16-byte header, then 6-byte words.
 
-    Bit layout, matching vmm_decode.iter_chunks exactly:
+    Bit layout, matching p2_decode.iter_chunks exactly:
       d1 (32b): [31:27] offset  [26:22] vmm  [21:12] adc  [11:0] bcid (gray)
       d2 (16b): [15] 1=hit  [14] over_threshold  [13:8] ch  [7:0] tdc
       marker  : d2[15]=0, d2[14:10]=vmm id, srs_ts = (d1 << 10) | d2[9:0]
@@ -134,12 +134,13 @@ def _srs_payload(frame_counter, vmm, ch, adc, bcid, tdc, over_threshold=1,
             | ((int(ch[i]) & 0x3F) << 8) | (int(tdc[i]) & 0xFF)
         words.append(struct.pack(">IH", d1, d2))
 
-    # plen - 22 must round up to exactly len(words) 6-byte words, so the
-    # payload is a 16-byte header + the words + 6 trailing bytes.
+    # A 16-byte header and the words, nothing after them, as the FEC sends
+    # it: p2-decode reads every word. (The old vmm_decode.py skipped the last
+    # word, so this used to append 6 padding bytes for it to skip.)
     header = struct.pack(">I", frame_counter & 0xFFFFFFFF) \
         + b"VM3" + bytes([(FEC_ID & 0x0F) << 4]) \
         + struct.pack(">II", 0, 0)
-    return header + b"".join(words) + b"\x00" * 6
+    return header + b"".join(words)
 
 
 def write_pcapng(path, vmm, ch, adc, t_start=1.757e9, duration_s=60.0,

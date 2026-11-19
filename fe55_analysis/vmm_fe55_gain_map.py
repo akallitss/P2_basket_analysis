@@ -361,6 +361,9 @@ def main(argv=None):
     ap.add_argument("--name", default="fe55_gainmap")
     ap.add_argument("--conditions", default=None)
     ap.add_argument("--max-packets", type=int, default=None)
+    ap.add_argument("--legacy-word-count", action="store_true",
+                    help="decode as the old vmm_decode.py did, to reproduce "
+                         "old products")
     ap.add_argument("--fit-min", type=int, default=150)
     ap.add_argument("--min-hits", type=int, default=500,
                     help="pads with fewer hits get no gain measurement")
@@ -384,6 +387,7 @@ def main(argv=None):
                         "scan. Supersedes --vmm-gain and removes the nominal "
                         "full-scale assumption.")
     args = ap.parse_args(argv)
+    fm.LEGACY_WORD_COUNT = args.legacy_word_count
 
     paths = fm.resolve_inputs(args.inputs)
     print(f"decoding {len(paths)} capture(s)")
