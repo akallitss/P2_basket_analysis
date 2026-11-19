@@ -18,12 +18,15 @@ Usage:
 import argparse
 import glob
 import os
-import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import vmm_decode                                            # noqa: E402
+from p2_decode import iter_chunks
+
+# legacy_word_count=True: decode exactly as the old vmm_decode.py did (it
+# skipped the last word of every packet), so the result matches the beam's
+# own hits_store, which that decoder wrote during the July-Aug 2026 run.
+LEGACY_WORD_COUNT = True
 
 KEEP = ('vmm', 'ch', 'bcid', 'tdc', 'srs_timestamp')
 DTYPE = dict(vmm=np.int8, ch=np.int8, bcid=np.uint16, tdc=np.uint8,
@@ -35,7 +38,7 @@ def decode_one(pcap, out_dir):
     os.makedirs(out_dir, exist_ok=True)
     acc = {k: [] for k in KEEP}
     n_raw = 0
-    for chunk in vmm_decode.iter_chunks(pcap):
+    for chunk in iter_chunks(pcap, legacy_word_count=LEGACY_WORD_COUNT):
         v = np.asarray(chunk['vmm'])
         n_raw += v.size
         m = np.isin(v, WANTED_VMMS)
