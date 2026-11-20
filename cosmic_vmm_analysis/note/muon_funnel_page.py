@@ -620,8 +620,12 @@ def gain_section(GS):
     F = GS['fits']
     rows = sorted([r for r in GS['configs'] if r['det'] == 'P2_MID'], key=lambda r: r['thr_fC'])
     A('<h2>7. Does the electronics gain change the efficiency?</h2>')
-    A('<p>The weekend grid sets the VMM gain to 3, 4.5, 6 and 9 mV/fC, and at each gain the per-channel thresholds '
-      'to a noise rate of R = 2, 10 or 50 Hz; "bscan" is a threshold scan at gain 4.5 and REF the reference. For each '
+    A('<p>The weekend grid sets the VMM gain to 3, 4.5, 6 and 9 mV/fC. At each gain every chip\'s global threshold '
+      'and every channel\'s trim were set (<code>bscan_target.py</code>, from the HV-on noise scans of 18 Nov) so that '
+      '<b>each channel sits where its own measured noise rate is R = 2, 10 or 50 Hz</b>: optimal for equal noise per '
+      'channel, not chosen for efficiency. Channels whose trim would have to go beyond its range are clipped and stay '
+      'higher: 0-24 at gain 3, 28-167 at gain 6, 360-708 at gain 9 (of 1152). "bscan" is the same at gain 4.5, REF '
+      'the reference equalisation. For each '
       'setting the threshold is converted to charge: (threshold - baseline) in mV divided by the nominal gain. '
       'This is a nominal charge (the transfer function is not measured yet). The quantity plotted is the one that '
       'does not depend on positions: <b>SILENT</b>, the share of muons (two clean tags, prediction on a live pad) for '
@@ -640,8 +644,10 @@ def gain_section(GS):
     A('<p><b>What it says.</b></p><ol>'
       '<li><b>The electronics gain itself does not matter, the threshold in charge does.</b> Gains 3, 4.5 and 6 '
       'put the threshold at 3.2-4.4 fC (the noise-rate rule gives about the same charge at every gain) and give the '
-      'same silent share, 12.4-14.5 % for P2_MID. Gain 9 sits at 6.7-8 fC (the trims cannot reach lower) and loses '
-      'clearly more: 22-25 %.</li>'
+      'same silent share, 12.4-14.5 % for P2_MID. Gain 9 sits at 6.7-8 fC and loses clearly more (22-25 %), but it is '
+      'not a fair "more gain" point: its per-channel trims could not reach their noise-rate target on 360-708 of the '
+      '1152 channels (clipped, the threshold stays higher), and the target itself is higher in charge (5.1-5.8 fC '
+      'against 3.4-3.8 fC at gain 3). The same, milder, for gain 6 at R = 2 Hz (167 channels clipped, 5.3 fC).</li>'
       f'<li><b>Over the whole range</b> the silent share grows by {100 * fm["slope_per_fC"]:.1f} ± '
       f'{100 * fm["slope_err"]:.1f} points per fC (P2_MID; P2_OUT and P2_IN similar).</li>'
       f'<li><b>Inside the reachable range</b> (3.2-4.4 fC, the shaded band) the slope is only {100 * fl["slope_per_fC"]:.1f} ± '
