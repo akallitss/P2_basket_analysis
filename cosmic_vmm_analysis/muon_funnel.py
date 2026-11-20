@@ -18,6 +18,12 @@ coincidence ends in exactly one class:
                                           not within +-(--win) ns of tag time + latency (the tag-and-probe window)
   OK  found                               a live pad within --probe-r mm in the tag-and-probe window
 
+--pointing POINTING.json (pointing_resolution.py): the probe search radius is set PER PROBE (probe_r = k sigma_res,
+which is ~2x larger for the extrapolated IN / OUT than for the interpolated MID) instead of the eff json's fixed
+--probe-r, and a prediction closer than margin_mm (m sigma_point) to the chamber outline is counted as outside_area
+(the true crossing point may be outside the chamber); 'margin_cut' counts, per would-be class, the tracks this removes.
+--margin-live: the margin is measured from the live pads (dead / masked pads are holes) instead of the outline.
+
 Random hits: the probe classes are re-evaluated with the probe window shifted by --offset ns (same tags), and every
 class count gets the shifted-window version subtracted in the summary.
 
@@ -39,6 +45,9 @@ import orientation_check as O
 from efficiency_tp import DET, load, split_groups, Z
 from straight_track_rate import parse_veto
 
+# unit vectors at full and half radius: the fiducial-margin test points around the prediction
+_ang = np.linspace(0, 2 * np.pi, 16, endpoint=False)
+RING = np.r_[np.c_[np.cos(_ang), np.sin(_ang)], 0.5 * np.c_[np.cos(_ang), np.sin(_ang)]]
 NAME = {3: 'P2_IN', 2: 'P2_MID', 1: 'P2_OUT'}
 TAGS = {2: (3, 1), 1: (3, 2), 3: (2, 1)}
 CLASSES = ['no_tag_both', 'no_tag_A', 'no_tag_B', 'tag_rejected', 'outside_area', 'dead_pad', 'probe_silent',
@@ -278,6 +287,11 @@ def one_run(path, a, acc):
         res = acc['probes'].setdefault(key, {'on': Counter(), 'off': Counter(), 'chip': defaultdict(Counter),
                                              'd_far': Counter(), 'd_found': Counter(),
                                              'paddle': defaultdict(Counter)})
+        probe_r = a._pr[key]['probe_r'] if a._pr else p['probe_r']
+        margin = a._pr[key]['margin_mm'] if a._pr else 0.0
+        res['probe_r'], res['margin_mm'] = probe_r, margin
+        res.setdefault('margin_cut', Counter())
+        res.setdefault('margin_cut_off', Counter())
         lat = J[f'probe_det{pr}']['latency_ns']
         off_xy = J[f'probe_det{pr}']['offset_mm']
         cx, cy, cv, cc, cl = pads[pr]
@@ -307,6 +321,12 @@ def one_run(path, a, acc):
                 t_tag = CH[ta].t0[ga]
                 chip = int(cv[q])
                 pm = paddle_miss(a._paddles, Z[ta], xa, ya, Z[tb], xb, yb) if a._paddles else None
+                in_margin = True
+                if margin > 0:
+                    mx_, my_ = (cx[cl], cy[cl]) if a.margin_live else (cx, cy)
+                    rx, ry = px + margin * RING[:, 0], py + margin * RING[:, 1]
+                    dm = np.hypot(mx_[None, :] - rx[:, None], my_[None, :] - ry[:, None]).min(1)
+                    in_margin = bool(np.all(dm < p['fid_r']))
                 if d2[q] >= p['fid_r']:
                     cls = 'outside_area'
                 elif not cl[q]:
@@ -317,21 +337,28 @@ def one_run(path, a, acc):
                             c_ = 'probe_silent'
                         else:
                             dn = CH[pr].nearest_live(px, py, ts + lo + sh, ts + hi + sh)
-                            if dn > p['probe_r']:
+                            if dn > probe_r:
                                 c_ = 'probe_far'
                             elif CH[pr].nearest_live(px, py, t_tag + lat - p['win'] + sh,
-                                                     t_tag + lat + p['win'] + sh) <= p['probe_r']:
+                                                     t_tag + lat + p['win'] + sh) <= probe_r:
                                 c_ = 'found'
                             else:
                                 c_ = 'probe_near_late'
-                            if w == 'on':
+                            if w == 'on' and in_margin:
                                 b = 'inf' if not np.isfinite(dn) else str(int(min(dn, 300) // 5 * 5))
                                 res['d_far' if c_ == 'probe_far' else 'd_found'][b] += 1
-                        if w == 'on':
+                        if not in_margin:          # inside the chamber, but closer than the margin to its edge
+                            res['margin_cut' if w == 'on' else 'margin_cut_off'][c_] += 1
+                            if w == 'on':
+                                cls = 'outside_area'
+                        elif w == 'on':
                             cls = c_
                             res['chip'][str(chip)][c_] += 1
                         else:
                             res['off'][c_] += 1
+                if not in_margin and cls == 'dead_pad':
+                    res['margin_cut']['dead_pad'] += 1
+                    cls = 'outside_area'
             res['on'][cls] += 1
             if px is not None and pm is not None:
                 res['paddle'][pmiss_bin(pm)][cls] += 1
@@ -354,7 +381,10 @@ def main():
     ap.add_argument('--examples', type=int, default=4)
     ap.add_argument('--paddles', default='', help='trigger_acceptance_mc.py fit.json (model "geometry"): paddle '
                     'centres and angles in the pad frame; tagged muons are then binned by how far their line misses')
+    ap.add_argument('--pointing', default='', help='pointing_resolution.py json: per-probe probe_r and edge margin')
+    ap.add_argument('--margin-live', action='store_true', help='edge margin from live pads (dead pads are holes)')
     a = ap.parse_args()
+    a._pr = json.load(open(a.pointing))['probes'] if a.pointing else None
     a._paddles = None
     if a.paddles:
         F = json.load(open(a.paddles))
