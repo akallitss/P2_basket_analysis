@@ -18,6 +18,10 @@ counts every fake tag as a missed probe. Here the tag pairs are built from the t
   * HIT: a live probe pad within --probe-r mm of the prediction, hit within --win ns of the probe latency (median
     probe-minus-tag time on on-time pairs); random probe hits: the same search --sideband ns later (acc);
   * eff = (k_on - r k_off) / (n_on - r n_off), then corrected for random probe hits: (eff - acc) / (1 - acc).
+  * --pointing POINTING.json (pointing_resolution.py, 20 Nov): the search radius is set PER PROBE to k sigma_res of
+    that probe (the extrapolated IN / OUT point ~2x worse than the interpolated MID: ~26 / 14 mm instead of a common
+    --probe-r), and the fiducial also requires the prediction to be margin_mm (m sigma_point) inside the chamber
+    outline (--margin-live: inside the live pads). Without it: the old fixed --probe-r and no margin.
 
 Map: read-out connectors shifted by --conn-shift, per-connector channel order from --order (orientation_check.Mapper).
 --veto vmm:ch,...: hits of these channels are dropped and so are the clusters of their chamber group (a discharging
@@ -172,10 +176,28 @@ def probe(p, ta_d, tb_d, cl, hits, live_pads, a, chip_times=None, chan_times=Non
         near[s0:s0 + 4000] = np.argmin(d2, 1)
         dpad[s0:s0 + 4000] = np.sqrt(d2.min(1))
     fid = (dpad < a.fid_r) & clive[near]
+    pr_name = NAME[p].split()[-1]
+    probe_r = a._pr[pr_name]['probe_r'] if a._pr else a.probe_r
+    margin = a._pr[pr_name]['margin_mm'] if a._pr else 0.0
+    in_margin = np.ones(len(px), bool)
+    if margin > 0:
+        # every point of the circle of radius margin (and margin / 2) around the prediction is within --fid-r of a pad
+        mx_, my_ = (cx[clive], cy[clive]) if a.margin_live else (cx, cy)
+        cand = np.nonzero(fid & (on | off))[0]          # only the pairs that are counted
+        ok = np.ones(len(cand), bool)
+        for ang in np.linspace(0, 2 * np.pi, 16, endpoint=False):
+            for rr in (margin, 0.5 * margin):
+                qx, qy = px[cand] + rr * np.cos(ang), py[cand] + rr * np.sin(ang)
+                for s0 in range(0, len(cand), 4000):
+                    d2 = (qx[s0:s0 + 4000, None] - mx_[None]) ** 2 + (qy[s0:s0 + 4000, None] - my_[None]) ** 2
+                    ok[s0:s0 + 4000] &= d2.min(1) < a.fid_r ** 2
+        in_margin[cand] = ok
+    n_fid_nomargin = int((fid & on).sum())
+    fid &= in_margin
     dmin = nearest_hit(px, py, pt, hx, hy, ht, lat - a.win, lat + a.win)
     smin = nearest_hit(px, py, pt, hx, hy, ht, lat - a.win + a.sideband, lat + a.win + a.sideband)
 
-    def est(mask_extra=None, probe_r=a.probe_r, dmin=dmin, smin=smin):
+    def est(mask_extra=None, probe_r=probe_r, dmin=dmin, smin=smin):
         m = fid if mask_extra is None else fid & mask_extra
         n_on, n_off = int((m & on).sum()), int((m & off).sum())
         k_on, k_off = int((m & on & (dmin < probe_r)).sum()), int((m & off & (dmin < probe_r)).sum())
@@ -198,7 +220,8 @@ def probe(p, ta_d, tb_d, cl, hits, live_pads, a, chip_times=None, chan_times=Non
 
     out = {'tags': [NAME[ta_d], NAME[tb_d]], 'dt0_ns': dt0, 'latency_ns': lat, 'offset_mm': off_xy,
            'r_scale': r_scale, 'dt_hist_ns': np.histogram(dt - dt0, bins=np.arange(-2000, 2001, 20))[0].tolist(),
-           'all': est(), 'vs_probe_r': {str(r): est(probe_r=r) for r in (5, 10, 15, 20, 30, 50)}}
+           'probe_r_mm': probe_r, 'margin_mm': margin, 'n_on_fid_before_margin': n_fid_nomargin,
+           'all': est(), 'vs_probe_r': {str(r): est(probe_r=r) for r in sorted({5, 10, 15, 20, 30, 50, probe_r})}}
     slope = np.hypot(xb[j] - xa[i], yb[j] - ya[i]) / abs(Z[tb_d] - Z[ta_d])
     edges = (0, 0.1, 0.2, 0.3, 0.5, 0.8, 1.5, 10)
     out['vs_tan_theta'] = {f'{lo}-{hi}': est((slope >= lo) & (slope < hi)) for lo, hi in zip(edges[:-1], edges[1:])}
@@ -212,7 +235,7 @@ def probe(p, ta_d, tb_d, cl, hits, live_pads, a, chip_times=None, chan_times=Non
     h_on, h_off = np.zeros(len(edges_t) - 1), np.zeros(len(edges_t) - 1)
     for k in np.nonzero(fid & (on | off))[0]:
         s0, e0 = np.searchsorted(ht, pt[k] + lat - 2000), np.searchsorted(ht, pt[k] + lat + 2000)
-        q = np.hypot(hx[s0:e0] - px[k], hy[s0:e0] - py[k]) < a.probe_r
+        q = np.hypot(hx[s0:e0] - px[k], hy[s0:e0] - py[k]) < probe_r
         hh = np.histogram(ht[s0:e0][q] - pt[k] - lat, bins=edges_t)[0]
         if on[k]:
             h_on += hh
@@ -385,7 +408,10 @@ def main():
     ap.add_argument('--diag-wide', type=float, default=2000, help='+-ns around tag + latency for the fired_nr_* hits')
     ap.add_argument('--diag-r', type=float, default=15, help='mm around the prediction for the fired_nr_* hits')
     ap.add_argument('--sat-adc', type=int, default=1000, help='ADC from which a hit counts as saturated')
+    ap.add_argument('--pointing', default='', help='pointing_resolution.py json: per-probe search radius and margin')
+    ap.add_argument('--margin-live', action='store_true', help='margin from the live pads (dead pads are holes)')
     a = ap.parse_args()
+    a._pr = json.load(open(a.pointing))['probes'] if a.pointing else None
     a._dump = {}
     a._clock = WallClock()
 
@@ -443,7 +469,7 @@ def main():
         print(f'{NAME[p]} (tags {r["tags"][0]} + {r["tags"][1]}): on {s["n_on"]} off {s["n_off"]} -> tags {s["n_sig"]} '
               f'(purity {s.get("purity")}), eff {s["eff"]} +- {s.get("err")} (raw on-time {s.get("eff_raw_on")}, acc '
               f'{s.get("acc")}); dt0 {r["dt0_ns"]:.0f} ns, lat {r["latency_ns"]:.0f} ns, offset '
-              f'{np.round(r["offset_mm"], 1)} mm', flush=True)
+              f'{np.round(r["offset_mm"], 1)} mm; probe-r {r["probe_r_mm"]} mm, margin {r["margin_mm"]} mm', flush=True)
         if 'all_own' in r:
             print(f'   OWN pad only: eff {r["all_own"]["eff"]} +- {r["all_own"].get("err")} (acc {r["all_own"].get("acc")})')
         print('   vs probe-r:', {k: v['eff'] for k, v in r['vs_probe_r'].items()})
@@ -458,6 +484,7 @@ def main():
               {k: (v['eff'], v['n_sig']) for k, v in r['vs_tan_theta'].items()})
         print('   per chip:', {k: (v['eff'], v.get('err')) for k, v in r['per_chip'].items() if v['eff'] is not None})
     vars(a).pop('_scint')
+    vars(a).pop('_pr')
     vars(a).pop('_chip_times')
     for k in ('_hits_adc', '_hits_key'):
         vars(a).pop(k)
