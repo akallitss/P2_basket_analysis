@@ -3,7 +3,9 @@
 """Build the note body "Where do the missed muons go?" from muon_funnel_summary.py output (20 Nov 2026).
 
 Self-contained HTML (inline SVG, no scripts from outside). Replaces the <div class="note-body"> of NOTE_HTML.
-Usage: muon_funnel_page.py SUMMARY.json NOTE_HTML
+Usage: muon_funnel_page.py SUMMARY.json NOTE_HTML [GAIN_SCAN_JSON [POINTING_JSON [OLD_SUMMARY_JSON]]]
+  POINTING_JSON: pointing_resolution.py output (the per-probe search radius and edge margin SUMMARY was made with);
+  OLD_SUMMARY_JSON: the same funnel with the fixed 15 mm radius and no margin, for the before / after table.
 """
 import html
 import json
@@ -19,6 +21,11 @@ REF, ALL = G['REF'], G['ALL']
 PADS = S['pads']
 EX = S['examples']
 GS = json.load(open(sys.argv[3])) if len(sys.argv) > 3 else None
+PT = json.load(open(sys.argv[4])) if len(sys.argv) > 4 else None
+OLD = json.load(open(sys.argv[5]))['groups'] if len(sys.argv) > 5 else None
+RAD = {p: (PT['probes'][p]['probe_r'] if PT else 15.0) for p in ('P2_IN', 'P2_MID', 'P2_OUT')}
+MARG = {p: (PT['probes'][p]['margin_mm'] if PT else 0.0) for p in ('P2_IN', 'P2_MID', 'P2_OUT')}
+PILLAR = 0.057   # as-built bulk pillar lattice of these chambers (SPS fit): triangular, d = 2.995 mm, diameter 0.75 mm
 FIGDIR = os.path.basename(sys.argv[2]).replace('.html', '_files/')
 PROBES = ['P2_MID', 'P2_OUT', 'P2_IN']
 TAGS = {'P2_MID': ('P2_IN', 'P2_OUT'), 'P2_OUT': ('P2_IN', 'P2_MID'), 'P2_IN': ('P2_MID', 'P2_OUT')}
@@ -38,7 +45,7 @@ CLS = [  # key, short label, css var, step
     ('found', 'FOUND', '--k-ok', 5),
 ]
 LAB = {k: l for k, l, _, _ in CLS}
-SHORT = {'found': 'found', 'probe_silent': 'silent (no hit at all)', 'probe_far': 'far (> 15 mm)',
+SHORT = {'found': 'found', 'probe_silent': 'silent (no hit at all)', 'probe_far': 'far (outside the search radius)',
          'probe_near_late': 'near, but late'}
 
 
@@ -159,9 +166,9 @@ def cluster_kinds():
 def probe_kinds():
     def pred(s):
         return ''
-    a = pad_grid(9, [(4, 4, 'hit-mid')], title='FOUND: a pad within 15 mm', circle=(4, 4, 1.25))
+    a = pad_grid(9, [(4, 4, 'hit-mid')], title='FOUND: a pad within the radius', circle=(4, 4, 1.25))
     b = pad_grid(9, [], title='SILENT: no hit in the chamber', circle=(4, 4, 1.25))
-    c = pad_grid(9, [(8, 1, 'hit-mid')], title='FAR: hit, but > 15 mm away', circle=(4, 4, 1.25))
+    c = pad_grid(9, [(8, 1, 'hit-mid')], title='FAR: hit, outside the radius', circle=(4, 4, 1.25))
     d = pad_grid(9, [(4, 4, 'hit-late')], title='LATE: near, outside tag window', circle=(4, 4, 1.25))
     return f'<div class="row4">{a}{b}{c}{d}</div>'
 
@@ -182,7 +189,7 @@ def svg_prediction():
              f'y2="{zy(630)}" class="axis"/><line x1="{xm}" y1="{zy(630) - 5}" x2="{xm}" y2="{zy(630) + 5}" class="axis"/>')
     o.append(f'<text x="{xa + 14}" y="{zy(320) - 6}" class="lbl">tag A (IN): clean cluster, its centre</text>')
     o.append(f'<text x="{xb + 14}" y="{zy(940) + 4}" class="lbl">tag B (OUT): clean cluster</text>')
-    o.append(f'<text x="{xm + 24}" y="{zy(630) + 4}" class="lbl">prediction in the probe (MID) ± 15 mm</text>')
+    o.append(f'<text x="{xm + 24}" y="{zy(630) + 4}" class="lbl">prediction in the probe (MID) ± {RAD["P2_MID"]:.0f} mm</text>')
     o.append(f'<text x="380" y="{H - 8}" class="lbl small" text-anchor="middle">straight line through the two tag '
              f'centres (+ the run\'s median offset); for OUT or IN as probe the line is extrapolated, not interpolated</text>')
     o.append('</svg>')
@@ -205,11 +212,12 @@ def svg_funnel(g, p, w=900):
             ('no_tag_B', f'{B[3:]} did not fire')]),
         (n1, f'both tag chambers ({A[3:]} and {B[3:]}) fired', [('tag_rejected', 'a tag hit group is not a clean cluster')]),
         (n2, 'two clean tags = a tagged muon with a predicted point', [
-            ('outside_area', f'prediction outside {p[3:]}\'s read-out area'), ('dead_pad', 'prediction on a dead pad')]),
+            ('outside_area', f'prediction outside {p[3:]}\'s read-out area' +
+                             (f' or < {MARG[p]:.0f} mm from its edge' if MARG[p] else '')), ('dead_pad', 'prediction on a dead pad')]),
         (n3, f'muon expected on a live pad of {p[3:]} = the efficiency denominator', [
             ('probe_silent', f'{p[3:]} SILENT'), ('probe_far', f'{p[3:]} fired far away'),
             ('probe_near_late', 'near, outside the tag window')]),
-        (n4, f'FOUND: {p[3:]} fired within 15 mm, in the window', []),
+        (n4, f'FOUND: {p[3:]} fired within {RAD[p]:.0f} mm, in the window', []),
     ]
     row, x0, bw = 64, 250, w - 270
     H = row * len(steps) + 10
@@ -297,7 +305,7 @@ def svg_chips(p, g):
     return ''.join(o)
 
 
-def svg_hist(edges, vals, xlabel, w=430, H=210, cls='bar', vals2=None, cls2='bar2', log=False, mark=None):
+def svg_hist(edges, vals, xlabel, w=430, H=210, cls='bar', vals2=None, cls2='bar2', log=False, mark=None, curve=None):
     x0, y0 = 50, 170
     f = (lambda v: math.log10(v + 1)) if log else (lambda v: v)
     m = max(f(max(vals)), 1e-9)
@@ -313,10 +321,14 @@ def svg_hist(edges, vals, xlabel, w=430, H=210, cls='bar', vals2=None, cls2='bar
                      f'class="{cls2}"/>')
     for i in range(0, len(edges), max(1, len(edges) // 6)):
         o.append(f'<text x="{x0 + i * bw:.1f}" y="{y0 + 15}" class="lbl small" text-anchor="middle">{edges[i]}</text>')
-    if mark is not None:
-        xm = x0 + (mark - edges[0]) / (edges[1] - edges[0]) * bw
-        o.append(f'<line x1="{xm:.1f}" y1="{y0 - 155}" x2="{xm:.1f}" y2="{y0}" class="markl"/>'
-                 f'<text x="{xm + 5:.1f}" y="{y0 - 142}" class="lbl small">{mark} mm</text>')
+    if curve:      # expected counts per bin (e.g. a fit), drawn as a line through the bin centres
+        pts = ' '.join(f'{x0 + (i + 0.5) * bw:.1f},{y0 - 150 * max(f(c), 0) / m:.1f}' for i, c in enumerate(curve))
+        o.append(f'<polyline points="{pts}" fill="none" class="fitl"/>')
+    marks = [] if mark is None else (mark if isinstance(mark, list) else [(mark, f'{mark} mm', 'markl')])
+    for j, (mv, ml, mc) in enumerate(marks):
+        xm = x0 + (mv - edges[0]) / (edges[1] - edges[0]) * bw
+        o.append(f'<line x1="{xm:.1f}" y1="{y0 - 155}" x2="{xm:.1f}" y2="{y0}" class="{mc}"/>'
+                 f'<text x="{xm + 5:.1f}" y="{y0 - 142 + 13 * j}" class="lbl small">{esc(ml)}</text>')
     ticks = [1, 10, 100, 1000, 10000] if log else [max(vals)]
     for t in ticks:
         if f(t) <= m * 1.001:
@@ -381,7 +393,7 @@ def svg_chamber(name, hits, role, pred=None, w=250):
                  f'class="{cl}"><title>VMM {v} ch {c}: {dt} ns after the scintillator, ADC {adc}'
                  f'{"" if ok else ", dead/masked pad"}</title></rect>')
     if pred:
-        o.append(f'<circle cx="{X(pred[0]):.1f}" cy="{Y(pred[1]):.1f}" r="{15 * sc:.1f}" class="circ"/>'
+        o.append(f'<circle cx="{X(pred[0]):.1f}" cy="{Y(pred[1]):.1f}" r="{RAD['P2_MID'] * sc:.1f}" class="circ"/>'
                  f'<circle cx="{X(pred[0]):.1f}" cy="{Y(pred[1]):.1f}" r="1.6" class="predc"/>')
     o.append(f'<text x="{w / 2}" y="{h + 16:.0f}" class="lbl" text-anchor="middle">{name}: {esc(role)}</text>'
              f'<text x="{w / 2}" y="{h + 32:.0f}" class="lbl small" text-anchor="middle">{nin} hit(s) in the muon window'
@@ -675,6 +687,140 @@ def gain_section(GS):
 
 
 # ------------------------------------------------------------------------------------------- the page
+def frac4(on):
+    n = sum(on.get(k, 0) for k in PKEYS)
+    return n, {k: on.get(k, 0) / n if n else float('nan') for k in PKEYS}
+
+
+def pointing_section(exp):
+    """3b: the per-probe search radius from the pointing resolution, and the before / after table."""
+    o = ['<h3>3b. The search radius follows the pointing resolution (updated 20 Nov)</h3>']
+    o.append('<p>The predicted point is the straight line through the two tag clusters. For P2_MID it is an '
+             '<b>interpolation</b> (tags IN and OUT, half-way); for P2_IN and P2_OUT it is an <b>extrapolation</b> by one '
+             'full gap beyond the nearer tag. With z = 320 / 630 / 940 mm the prediction is p = w<sub>A</sub> a + '
+             'w<sub>B</sub> b and its error, per axis, σ<sub>point</sub><sup>2</sup> = w<sub>A</sub><sup>2</sup> '
+             'σ<sub>A</sub><sup>2</sup> + w<sub>B</sub><sup>2</sup> σ<sub>B</sub><sup>2</sup>; the probe hit adds its '
+             'own σ<sub>P</sub>. With the same resolution s in every chamber:</p>')
+    o.append('<table><tr><th>probe</th><th>tags</th><th>prediction</th><th>σ<sub>point</sub></th>'
+             '<th>σ<sub>res</sub> (hit − prediction)</th><th>measured σ<sub>res</sub> (REF)</th>'
+             '<th>15 mm keeps</th><th>radius now (99 %)</th><th>edge margin (2 σ<sub>point</sub>)</th></tr>')
+    for p in ('P2_IN', 'P2_MID', 'P2_OUT'):
+        md = PT['model'][p]
+        wa, wb = md['w']
+        ms = PT['measured'].get('REF', {}).get(p, {})
+        sg = ms.get('sigma_res')
+        keep = f'{100 * (1 - math.exp(-15 ** 2 / (2 * sg ** 2))):.0f} %' if sg else '-'
+        fs = math.hypot(wa, wb)
+        o.append(f'<tr><td>{p}</td><td>{TAGS[p][0][3:]} + {TAGS[p][1][3:]}</td><td>{wa:+.1f} a {wb:+.1f} b</td>'
+                 f'<td>{fs:.2f} s</td><td>{math.hypot(fs, 1):.2f} s</td>'
+                 f'<td><b>{sg:.1f} ± {ms.get("err", 0):.1f} mm</b></td><td>{keep}</td>'
+                 f'<td><b>{RAD[p]:.0f} mm</b></td><td>{MARG[p]:.0f} mm</td></tr>')
+    o.append('</table>')
+    mid = PT['measured'].get('REF', {}).get('P2_MID', {}).get('sigma_res', float('nan'))
+    o.append('<p>So with one fixed 15 mm radius the extrapolated chambers lose about a fifth of their real hits to the '
+             'tail of the pointing, while P2_MID loses almost none: that is the "FAR" excess of IN and OUT, a '
+             '<b>calculation</b> effect, not the electronics. The widths are <b>measured</b> on this stand: the radial '
+             'distance of the nearest probe hit (section 5a) is fitted with a 2-D Gaussian plus a flat part for unrelated '
+             f'hits (<code>pointing_resolution.py</code>). P2_MID gives σ<sub>res</sub> = {mid:.1f} mm, i.e. '
+             f's ≈ {mid / math.sqrt(1.5):.1f} mm per chamber - the 12 mm pads alone give 11.8/√12 = 3.4 mm, and the SPS '
+             'beam measured a pad-limited σ<sub>core</sub> ≈ 3.65 mm. Because the stand is equally spaced, the model '
+             'predicts σ<sub>res</sub>(IN, OUT) = 2 σ<sub>res</sub>(MID) for <i>any</i> mix of chamber resolutions; '
+             'the data give 1.8. Multiple scattering (~1 mrad over 310 mm) is negligible.</p>')
+    o.append('<p><b>New rule:</b> a probe hit is accepted within R<sub>P</sub> = 3.03 σ<sub>res,P</sub> (99 % of a '
+             '2-D Gaussian), and the predicted point must lie at least 2 σ<sub>point,P</sub> inside the chamber '
+             'outline (otherwise the muon may really have crossed outside the read-out area, and would count as '
+             'silent). The margin muons are counted with "outside the area" in the funnel.</p>')
+    if OLD:
+        o.append('<table><tr><th>probe (REF)</th><th>radius / margin</th><th>tested</th><th>found</th><th>silent</th>'
+                 '<th>far</th><th>late</th><th>removed by the margin (would have been: found / silent / far)</th></tr>')
+        for p in ('P2_IN', 'P2_MID', 'P2_OUT'):
+            for lab, G_, r_, m_ in (('before', OLD, 15.0, 0.0), ('now', G, RAD[p], MARG[p])):
+                P = G_['REF']['probes'][p]
+                n, f = frac4(P['on'])
+                mc = P.get('margin_cut', {}) if lab == 'now' else {}
+                cut = (f'{mc.get("found", 0):,} / {mc.get("probe_silent", 0):,} / {mc.get("probe_far", 0):,}'
+                       if lab == 'now' else '')
+                o.append(f'<tr><td>{p if lab == "before" else ""}</td><td>{lab}: {r_:.0f} mm / {m_:.0f} mm</td>'
+                         f'<td>{n:,}</td><td><b>{100 * f["found"]:.1f} %</b></td>'
+                         f'<td>{100 * f["probe_silent"]:.1f} %</td><td>{100 * f["probe_far"]:.1f} %</td>'
+                         f'<td>{100 * f["probe_near_late"]:.1f} %</td><td>{cut}</td></tr>')
+        o.append('</table>')
+        ex = []
+        for gk, lab in (('g3.0 gscan_hvon10_hvm', 'gain 3, R = 10 Hz'), ('g9.0 gscan_hvon10_hvm', 'gain 9, R = 10 Hz')):
+            if gk in OLD and gk in G:
+                ex.append(lab + ': ' + ', '.join(
+                    f'{p[3:]} {100 * frac4(OLD[gk]["probes"][p]["on"])[1]["found"]:.1f} → '
+                    f'{100 * frac4(G[gk]["probes"][p]["on"])[1]["found"]:.1f} %' for p in ('P2_IN', 'P2_OUT', 'P2_MID')))
+        o.append('<p class="faint">Chance hits (the same test 4 µs later) stay at ~0.01 % with the larger radius. The '
+                 'improvement is the same in every gain-scan setting (' + '; '.join(ex) + ').</p>')
+    return ''.join(o)
+
+
+def pillar_section(exp):
+    """3c: the bulk pillars set the ceiling below 100 %."""
+    o = ['<h3>3c. The ceiling is not 100 %: the bulk pillars</h3>']
+    o.append('<p>The mesh of these chambers stands on insulating <b>pillars</b>; a muon whose charge lands on a pillar '
+             'is not amplified. At the SPS (July, DREAM read-out, tracks from the µRWELL telescope at 0.2-0.3 mm) the '
+             'lattice of these three chambers was imaged directly: <b>triangular, d = 2.995 mm, ⌀ 0.75 mm</b> (not the '
+             'archived 4 mm artwork), i.e. <b>5.7 % of the area</b>. The efficiency it costs depends on the threshold, '
+             'because a pillar also removes part of the charge around it: 2.4-3.9 points per chamber at the high-gain '
+             'point, but 9.5 points for P2_IN at the nominal one. The Saclay cosmic bench uses the same accounting: on '
+             'det1 the measured "no hit" share (3.17 %) is the pillar area of its Gerber (3.43 %), so its efficiency is '
+             'quoted against a ceiling of ~96.6 %, not 100 %.</p>')
+    o.append('<p>Here the pads (12 mm) and the pointing (3-8 mm) cannot resolve a 3 mm lattice, so the pillar loss '
+             f'cannot be cut out muon by muon; it is a floor under the silent share. Taking the geometric '
+             f'{100 * PILLAR:.1f} % as the ceiling:</p>')
+    o.append('<table><tr><th>probe (REF)</th><th>found</th><th>found / (1 − pillars)</th><th>silent</th>'
+             '<th>silent beyond the pillars</th></tr>')
+    for p in ('P2_IN', 'P2_MID', 'P2_OUT'):
+        e = exp[p]
+        fo, si = e['found'] / e['n3'], e['probe_silent'] / e['n3']
+        o.append(f'<tr><td>{p}</td><td>{100 * fo:.1f} %</td><td><b>{100 * fo / (1 - PILLAR):.1f} %</b></td>'
+                 f'<td>{100 * si:.1f} %</td><td>{100 * (si - PILLAR):.1f} points</td></tr>')
+    o.append('</table>')
+    o.append('<p>P2_IN and P2_OUT are then at ~91-93 % of what the pillars allow, close to DREAM; P2_MID is still '
+             '~8 points short, all of it in the "no hit at all" class and spread evenly over its chips (section 5b). '
+             'That is the part left to explain.</p>')
+    return ''.join(o)
+
+
+def cuts_section():
+    """3d: every cut of the current estimate, in order."""
+    rows = [
+        ('reference', 'scintillator coincidence (top AND bottom paddles, VMM 0 ch 40)', 'a muon crossed the stand; '
+         'pulser configurations (_tpA / _tpB) excluded by name; first / last 10 µs of a file dropped'),
+        ('chamber "fired"', 'any hit 140-310 ns after the scintillator', 'hits grouped in time with a 100 ns gap'),
+        ('tag', 'both other chambers have a CLEAN group in the window: 1-6 hits, all on live pads, all within 15 mm of '
+         'their mean, not inside a stack burst (&gt; 36 hits in one group of the whole stack)',
+         'position = mean pad centre, time = earliest hit; otherwise "tag rejected" (not counted)'),
+        ('prediction', 'straight line through the two tag positions (z 320 / 630 / 940 mm) + the run\'s median '
+         'probe offset', ''),
+        ('fiducial', 'nearest probe pad within 9 mm of the prediction and live (≥ 1 hit in the run, not on a dead '
+         'chip, not vetoed); <b>new:</b> prediction at least 2 σ<sub>point</sub> inside the outline: ' +
+         ', '.join(f'{p[3:]} {MARG[p]:.0f} mm' for p in ('P2_IN', 'P2_MID', 'P2_OUT')),
+         'otherwise "outside the area" / "dead pad" (not counted)'),
+        ('silent', 'no hit at all in the probe chamber 140-310 ns after the scintillator', 'counted as a miss'),
+        ('far', '<b>new:</b> nearest live probe hit farther than R<sub>P</sub> = 3.03 σ<sub>res</sub>: ' +
+         ', '.join(f'{p[3:]} {RAD[p]:.0f} mm' for p in ('P2_IN', 'P2_MID', 'P2_OUT')) + ' (was 15 mm for all)',
+         'counted as a miss'),
+        ('late', 'a live hit within R<sub>P</sub> in 140-310 ns, but not within ±100 ns of tag time + latency',
+         'counted as a miss'),
+        ('found', 'a live hit within R<sub>P</sub> and within ±100 ns of tag time + latency', ''),
+        ('chance hits', 'every probe class re-evaluated with the window 4 µs later (same tags)', '~0.01 % found by '
+         'chance: negligible'),
+        ('efficiency', 'found / (found + silent + far + late)', f'ceiling: 1 − pillars ≈ {100 * (1 - PILLAR):.1f} % '
+         '(section 3c)'),
+    ]
+    o = ['<h3>3d. The cuts of the current estimate, in order</h3>',
+         '<table><tr><th>step</th><th>cut</th><th>note</th></tr>']
+    o += [f'<tr><td><b>{a}</b></td><td>{b}</td><td>{c}</td></tr>' for a, b, c in rows]
+    o.append('</table><p class="faint">Code: <code>muon_funnel.py --pointing pointing.json</code> (cuts and parameters '
+             'from the <code>efficiency_tp.py</code> json of each chunk; <code>efficiency_tp.py --pointing</code> applies '
+             'the same radius and margin to the self-tagged estimate). The efficiency definition itself is still on '
+             'hold.</p>')
+    return ''.join(o)
+
+
 def body():
     fm, nm = svg_funnel(REF, 'P2_MID')
     fo, no = svg_funnel(REF, 'P2_OUT')
@@ -697,6 +843,16 @@ def body():
       f'live pad, {pct(nm["found"], nm["n3"])} are found, <b>{pct(nm["probe_silent"], nm["n3"])} leave no hit at all '
       f'in the chamber</b>, {pct(nm["probe_far"], nm["n3"])} fire far from the prediction, '
       f'{pct(nm["probe_near_late"], nm["n3"])} fire near but outside the time window.</div>')
+    if PT:
+        no_, ni_ = exp['P2_OUT'], exp['P2_IN']
+        A('<div class="callout warn"><b>Update 20 Nov: two calculation effects corrected.</b> (1) The search radius now '
+          'follows the <b>pointing resolution</b> of each probe (section 3b): the extrapolated P2_IN and P2_OUT '
+          f'predictions are ~2x less precise than the interpolated P2_MID one, so they get {RAD["P2_IN"]:.0f} mm instead '
+          f'of 15 mm, and a {MARG["P2_IN"]:.0f} mm edge margin. P2_IN and P2_OUT go to {pct(ni_["found"], ni_["n3"])} '
+          f'and {pct(no_["found"], no_["n3"])} found (from 72-74 %); P2_MID does not move. (2) The ceiling is not '
+          f'100 %: the bulk pillars cover ~{100 * PILLAR:.1f} % of the area (section 3c). The cuts in use are listed in '
+          'section 3d. All numbers on this page use the new radius, except the PNG figures of section 8 (made with the '
+          'fixed 15 mm; P2_MID, which they show, changes by &lt; 0.3 points).</div>')
     A('<p class="faint">Data: lab cosmic stand, weekend scan from 19 Nov 2026, runs '
       f'{min(ALL["runs"])}-{max(ALL["runs"])} without the pulser runs (configurations ending in _tpA / _tpB). '
       f'Reference configuration REF (gain 4.5 mV/fC, trimmed thresholds Km18; chip config file '
@@ -756,12 +912,16 @@ def body():
           f'<td>{pct(n["probe_silent"], n["n3"])}</td><td>{pct(n["probe_far"], n["n3"])}</td>'
           f'<td>{pct(n["probe_near_late"], n["n3"])}</td><td>{pct(rnd, n_off)} of the tests have any probe hit</td></tr>')
     A('</table>')
+    if PT:
+        A(pointing_section(exp))
+    A(pillar_section(exp))
+    A(cuts_section())
 
     A('<h2>4. Each class, with a real event</h2>')
     A('<p>Each display is the three chambers seen from above; only the read-out area is drawn (the odd shape is the '
       'P2 pad fan, connectors 3-5). Light squares = pads. <b>Coloured</b> = a hit in the muon window (blue IN, orange '
       'MID, green OUT); <b>dark grey</b> = a hit on a dead/masked pad; <b>outlined</b> = a hit outside the muon window. '
-      'The dashed circle = the 15 mm search radius around the prediction in the probe (here P2_MID). Hover a pad for '
+      f'The dashed circle = the {RAD["P2_MID"]:.0f} mm search radius around the prediction in the probe (here P2_MID). Hover a pad for '
       'its chip, channel, time and ADC. All events are from the reference configuration.</p>')
     sections = [
         ('found', None, 'FOUND - the normal case', 'Both tags are one clean cluster each, the line through them points '
@@ -799,18 +959,39 @@ def body():
 
     A('<h2>5. Looking closer</h2>')
     A('<h3>5a. FAR: how far is the nearest probe hit?</h3>')
-    df = REF['probes']['P2_MID']['d_far']
-    dfd = REF['probes']['P2_MID']['d_found']
     edges = list(range(0, 155, 5))
-    vals = [df.get(str(e), 0) + dfd.get(str(e), 0) for e in edges[:-1]]
-    beyond = sum(v for k, v in df.items() if k != 'inf' and int(k) >= 150)
-    A(f'<figure>{svg_hist(edges, vals, "P2_MID: distance of the nearest probe hit to the prediction (mm), REF - log scale", w=900, log=True, mark=15)}'
-      f'<figcaption>Muons expected on a live pad whose probe fired in the muon window. Left of the 15 mm line = found '
-      f'(or late). Right of it = FAR: {sum(vals[3:6]):,} muons at 15-30 mm (the muon, slightly mis-predicted), '
-      f'{sum(vals[6:]) + beyond:,} further out (flat: unrelated hits).</figcaption></figure>')
+    HG = OLD['REF'] if OLD else REF        # the distance is measured without a radius cut; OLD has no edge margin
+    for p in PROBES:
+        df, dfd = HG['probes'][p]['d_far'], HG['probes'][p]['d_found']
+        vals = [df.get(str(e), 0) + dfd.get(str(e), 0) for e in edges[:-1]]
+        beyond = sum(v for k, v in df.items() if k != 'inf' and int(k) >= 150)
+        curve, mk, cap = None, 15, ''
+        if PT and 'REF' in PT.get('measured', {}) and p in PT['measured']['REF']:
+            ms = PT['measured']['REF'][p]
+            sg, ns = ms['sigma_res'], ms['n_sig']
+            curve = [ns * (math.exp(-lo ** 2 / (2 * sg ** 2)) - math.exp(-(lo + 5) ** 2 / (2 * sg ** 2)))
+                     for lo in edges[:-1]]
+            mk = [(15, 'old 15 mm', 'markl'), (RAD[p], f'new {RAD[p]:.0f} mm', 'markn')]
+            cap = (f' Dashed line: the fitted pointing spread, σ<sub>res</sub> = {sg:.1f} mm (2-D Gaussian; the flat '
+                   f'part is unrelated hits). Red dashed: the old 15 mm radius, which keeps '
+                   f'{100 * (1 - math.exp(-15 ** 2 / (2 * sg ** 2))):.0f} % of the real muon hits; green: the new '
+                   f'{RAD[p]:.0f} mm (99 %).')
+        if p == 'P2_MID':
+            near_mid = sum(vals[3:6])
+        A(f'<figure>{svg_hist(edges, vals, f"{p}: distance of the nearest probe hit to the prediction (mm), REF - log scale", w=900, log=True, mark=mk, curve=curve)}'
+          f'<figcaption>{p} as probe ({"interpolated" if p == "P2_MID" else "extrapolated"}). Muons expected on a live '
+          f'pad whose probe fired in the muon window: {sum(vals[3:6]):,} at 15-30 mm, {sum(vals[6:]) + beyond:,} '
+          f'further out.{cap}</figcaption></figure>')
+    vals = [0, 0, 0, near_mid, 0, 0]
     A('<h3>5b. Per chip: is the loss everywhere or in a few chips?</h3>')
-    A('<p>The chip is the one that reads the predicted pad. If the loss were a few broken chips it would show here; '
-      'for P2_MID it does not - every chip loses 16-22 %.</p>')
+    def chip_rng(p, k='probe_silent'):
+        fr = [v.get(k, 0) / sum(v.get(q, 0) for q in PKEYS) for v in REF['probes'][p]['chip'].values()
+              if sum(v.get(q, 0) for q in PKEYS) >= 50]
+        return f'{100 * min(fr):.0f}-{100 * max(fr):.0f} %' if fr else '-'
+    A('<p>The chip is the one that reads the predicted pad. If the loss were a few broken chips it would show here. '
+      f'P2_MID: every chip is silent for {chip_rng("P2_MID")} of its muons - a chamber-wide loss. P2_IN '
+      f'({chip_rng("P2_IN")}) and P2_OUT ({chip_rng("P2_OUT")}) are not uniform: their best chips are silent for only '
+      '3-5 %, about what the bulk pillars alone cost (section 3c).</p>')
     for p in PROBES:
         A(f'<figure>{svg_chips(p, REF)}<figcaption>{p} as probe (REF).</figcaption></figure>')
     A('<h3>5c. What are the extra pads that get tag groups rejected?</h3>')
@@ -904,21 +1085,35 @@ def body():
     A('<h2>6. So where does the inefficiency arise?</h2>')
     m = exp['P2_MID']
     n3 = m['n3']
-    near = sum(vals[3:6])
+
+    def near_of(p):      # far hits 15-30 mm from the prediction, with the radius in use
+        d = REF['probes'][p]['d_far']
+        return sum(d.get(str(b), 0) for b in (15, 20, 25) if b >= RAD[p] - 5)
+    near = near_of('P2_MID')
     A('<ol>'
       f'<li><b>Before the test (not inefficiency).</b> Of {m["n0"]:,} coincidences only {pct(m["n3"], m["n0"])} become a '
       'test of P2_MID. Most are lost because a tag chamber did not fire - mostly geometry: the muon did not cross its '
       'read-out area. Another ~15 % of the tagged muons are dropped for crosstalk pads in a tag. None of these count '
       'as a miss.</li>'
       f'<li><b>In the test, P2_MID: {pct(n3 - m["found"], n3)} of the expected muons are not found:</b><ul>'
-      f'<li>{pct(m["probe_silent"], n3)} the chamber records nothing at all - electronics: signal below threshold '
-      '(read-out, dead time and sparks are < 0.6 points of it);</li>'
-      f'<li>{pct(m["probe_far"] - near, n3)} only an unrelated hit far away - the same electronics loss, hidden;</li>'
-      f'<li>{pct(near, n3)} the muon fired 15-30 mm away - a calculation loss (radius);</li>'
+      f'<li>{pct(m["probe_silent"], n3)} the chamber records nothing at all;</li>'
+      f'<li>{pct(m["probe_far"] - near, n3)} only an unrelated hit far away (&gt; 30 mm) - the same loss, hidden;</li>'
+      f'<li>{pct(near, n3)} the muon fired 15-30 mm away - beyond 3 σ of the pointing, so a non-Gaussian tail '
+      '(wrong tag pad, crosstalk piece): a calculation loss;</li>'
       f'<li>{pct(m["probe_near_late"], n3)} late with respect to the tag hit - a calculation loss (clock).</li></ul></li>'
-      f'<li><b>Electronics ≈ {pct(m["probe_silent"] + m["probe_far"] - near, n3)}, calculation ≈ '
-      f'{pct(near + m["probe_near_late"], n3)}.</b> The silent part is the same 12-13 % "no hit at all" that the '
-      'reconstruction-free check (scintillator + IN + OUT: 0.875) gave.</li></ol>')
+      f'<li><b>Of the {pct(m["probe_silent"], n3)} silent, ~{100 * PILLAR:.0f} points are expected from the bulk '
+      'pillars</b> (section 3c; DREAM at the SPS lost 2.4-3.9 points to them at high gain, more at low gain). That '
+      f'leaves ~{100 * m["probe_silent"] / n3 - 100 * PILLAR:.0f} points of P2_MID '
+      'with no hit at all, not explained by the counting (read-out, dead time, sparks &lt; 0.6 points), the time '
+      'window (&lt; 1.5 points, below) or the pointing.</li>'
+      '<li><b>P2_IN and P2_OUT</b>, now with the radius scaled to their pointing: ' +
+      '; '.join(f'{p} silent {pct(exp[p]["probe_silent"], exp[p]["n3"])}, far {pct(exp[p]["probe_far"], exp[p]["n3"])}'
+                for p in ('P2_IN', 'P2_OUT')) +
+      '. Their silent share is within a few points of the pillar floor; P2_MID\'s is not.</li></ol>')
+    A('<p class="faint">Time window check (<code>time_window_check.py</code>, REF runs 268-269): for tagged muons the '
+      'first probe hit lies in 140-310 ns for 85.6 % (MID), 71.8 % (IN), 70.7 % (OUT; no fiducial cut here) against '
+      '86.9 / 73.4 / 71.7 % in -200 to +1500 ns: widening the window recovers at most 1.5 points in any chamber, and '
+      'P2_MID\'s hit times (1-99 %: 150-450 ns) are as tight as the others\'.</p>')
     A('<div class="callout warn"><b>Corrections to what I said before.</b><ul>'
       '<li>I said a probe window built from the scintillator time would recover 1-4 %. With the random hits removed it '
       f'is {pct(m["probe_near_late"], n3)} (LATE). The 1-4 % came from widening the window on all tags without the '
@@ -970,6 +1165,11 @@ def body():
       'muons?).</div>')
     A('<h2>9. Open points</h2><ol>'
       '<li><b>Efficiency definition</b>: on hold until the points below are understood.</li>'
+      '<li><b>P2_MID\'s extra silent share</b> (~8 points beyond the pillars, even over its chips, not the time window, '
+      'not the pointing): compare with DREAM on the same chamber and pads; a chamber swap (MID ↔ OUT position) would '
+      'tell a chamber property from a position-in-the-stack effect.</li>'
+      '<li><b>Pillar term for the VMM</b>: the SPS fold showed the pillar cost grows with the threshold (2.4 → 9.5 '
+      'points); the VMM threshold sits higher than DREAM\'s, so the 5.7 % may be a lower bound here.</li>'
       '<li><b>Detector gain</b>: a mesh-HV scan of P2_MID with REF electronics would measure directly how fast the '
       'silent share drops with signal (your call on the HV).</li>'
       '<li><b>bscan settings</b>: why the tag positions go wrong there (45 % FAR at R = 10 Hz).</li>'
@@ -1075,6 +1275,7 @@ STYLE = """
   .small-legend { font-size: .85rem; color: var(--fg-muted); }
   .reach { fill: var(--k-ok); opacity: .08; } .fitl { stroke: var(--ink2); stroke-width: 1.5; stroke-dasharray: 6 4; }
   .markl { stroke: var(--k-sil); stroke-width: 1.5; stroke-dasharray: 4 3; }
+  .markn { stroke: var(--k-ok); stroke-width: 2; }
   .chl { stroke: var(--ink); stroke-width: 1.6; }
   .chip-pad { fill: var(--c-mid); opacity: .28; }
   .sw { display: inline-block; width: .8em; height: .8em; border-radius: 2px; margin-right: .45em; vertical-align: -.05em; }
