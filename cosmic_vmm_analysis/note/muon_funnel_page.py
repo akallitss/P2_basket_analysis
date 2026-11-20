@@ -17,6 +17,7 @@ G = S['groups']
 REF, ALL = G['REF'], G['ALL']
 PADS = S['pads']
 EX = S['examples']
+GS = json.load(open(sys.argv[3])) if len(sys.argv) > 3 else None
 PROBES = ['P2_MID', 'P2_OUT', 'P2_IN']
 TAGS = {'P2_MID': ('P2_IN', 'P2_OUT'), 'P2_OUT': ('P2_IN', 'P2_MID'), 'P2_IN': ('P2_MID', 'P2_OUT')}
 Z = {'P2_IN': 320, 'P2_MID': 630, 'P2_OUT': 940}
@@ -559,6 +560,112 @@ def xtalk_totals(g):
     return out
 
 
+GAIN_COL = {3.0: '--g3', 4.5: '--g45', 6.0: '--g6', 9.0: '--g9'}
+
+
+def svg_gain_scan(GS, d, y='silent', w=440, H=300, ymax=0.30):
+    rows = [r for r in GS['configs'] if r['det'] == d and r['thr_fC'] is not None]
+    x0, y0, hh = 52, H - 55, H - 80
+    ww = w - 70
+    X = lambda t: x0 + (t - 2.5) / (9.0 - 2.5) * ww
+    Y = lambda v: y0 - v / ymax * hh
+    o = [f'<svg viewBox="0 0 {w} {H}" class="dia" role="img" aria-label="{y} vs threshold {d}">']
+    for f in range(0, int(ymax * 100) + 1, 5):
+        o.append(f'<line x1="{x0}" y1="{Y(f / 100):.1f}" x2="{x0 + ww}" y2="{Y(f / 100):.1f}" class="grid"/>'
+                 f'<text x="{x0 - 6}" y="{Y(f / 100) + 4:.1f}" class="lbl small" text-anchor="end">{f} %</text>')
+    for t in range(3, 10):
+        o.append(f'<text x="{X(t):.1f}" y="{y0 + 16}" class="lbl small" text-anchor="middle">{t}</text>')
+    o.append(f'<line x1="{x0}" y1="{y0}" x2="{x0 + ww}" y2="{y0}" class="axis"/>'
+             f'<text x="{x0 + ww / 2}" y="{y0 + 34}" class="lbl small" text-anchor="middle">threshold above baseline '
+             f'/ gain (fC, nominal)</text><text x="{x0}" y="14" class="lbl" font-weight="700">{d}: {y.upper()}</text>')
+    # reachable band: below ~4.4 fC
+    o.append(f'<rect x="{X(2.5):.1f}" y="{y0 - hh}" width="{X(4.45) - X(2.5):.1f}" height="{hh}" class="reach"/>'
+             f'<text x="{X(2.6):.1f}" y="{y0 - hh + 14}" class="lbl small">reachable (R = 2-50 Hz)</text>')
+    fit = GS['fits'].get(f'{d}:silent:all') if y == 'silent' else GS['fits'].get(f'{d}:found:no_bscan')
+    if fit:
+        a, b = fit['slope_per_fC'], fit['at_0fC']
+        lo, hi = fit['range_fC']
+        o.append(f'<line x1="{X(lo):.1f}" y1="{Y(a * lo + b):.1f}" x2="{X(hi):.1f}" y2="{Y(a * hi + b):.1f}" '
+                 f'class="fitl"/>')
+    for r in rows:
+        v, n = r[y], r['n']
+        if v is None or not n:
+            continue
+        e = math.sqrt(v * (1 - v) / n)
+        col = GAIN_COL.get(r['gain'], '--ink2')
+        bs = r['family'] == 'bscan'
+        ref = r['family'] == 'REF'
+        o.append(f'<line x1="{X(r["thr_fC"]):.1f}" y1="{Y(v - e):.1f}" x2="{X(r["thr_fC"]):.1f}" y2="{Y(v + e):.1f}" '
+                 f'style="stroke:var({col})" stroke-width="1.5"/>')
+        shape = (f'<rect x="{X(r["thr_fC"]) - 5:.1f}" y="{Y(v) - 5:.1f}" width="10" height="10"' if ref else
+                 f'<circle cx="{X(r["thr_fC"]):.1f}" cy="{Y(v):.1f}" r="5"')
+        style = (f'style="fill:var(--bg-elev);stroke:var({col});stroke-width:2"' if bs else
+                 f'style="fill:var({col});stroke:var(--bg-elev);stroke-width:1.5"')
+        o.append(f'{shape} {style}><title>{r["label"]}: {r["thr_fC"]:.2f} fC, {y} {100 * v:.1f} ± {100 * e:.1f} % '
+                 f'(n = {n})</title>{"</rect>" if ref else "</circle>"}')
+    o.append('</svg>')
+    return ''.join(o)
+
+
+def gain_legend():
+    items = ''.join(f'<span class="sw" style="background:var({c})"></span>gain {g:g} mV/fC &nbsp; '
+                    for g, c in GAIN_COL.items())
+    return (f'<p class="small-legend">{items} · square = REF · open circle = bscan (gain 4.5, threshold scan) · '
+            'dashed = straight line through all points · error bars = statistics</p>')
+
+
+def gain_section(GS):
+    out = []
+    A = out.append
+    F = GS['fits']
+    rows = sorted([r for r in GS['configs'] if r['det'] == 'P2_MID'], key=lambda r: r['thr_fC'])
+    A('<h2>7. Does the electronics gain change the efficiency?</h2>')
+    A('<p>The weekend grid sets the VMM gain to 3, 4.5, 6 and 9 mV/fC, and at each gain the per-channel thresholds '
+      'to a noise rate of R = 2, 10 or 50 Hz; "bscan" is a threshold scan at gain 4.5 and REF the reference. For each '
+      'setting the threshold is converted to charge: (threshold - baseline) in mV divided by the nominal gain. '
+      'This is a nominal charge (the transfer function is not measured yet). The quantity plotted is the one that '
+      'does not depend on positions: <b>SILENT</b>, the share of muons (two clean tags, prediction on a live pad) for '
+      'which the probe records no hit at all.</p>')
+    A(f'<figure>{svg_gain_scan(GS, "P2_MID", w=900, H=380)}</figure>')
+    A('<div class="row2">' + svg_gain_scan(GS, 'P2_IN') + svg_gain_scan(GS, 'P2_OUT') + '</div>')
+    A(gain_legend())
+    A('<div style="overflow-x:auto"><table><tr><th>P2_MID, setting</th><th>runs</th><th>threshold (fC)</th>'
+      '<th>muons</th><th>silent</th><th>found</th></tr>' +
+      ''.join(f'<tr><td>{esc(r["label"])}</td><td>{r["runs"]}</td><td>{r["thr_fC"]:.1f}</td><td>{r["n"]:,}</td>'
+              f'<td>{100 * r["silent"]:.1f} %</td><td>{100 * r["found"]:.1f} %'
+              f'{" (positions suspect)" if r["family"] == "bscan" and r["far"] > 0.15 else ""}</td></tr>'
+              for r in rows) + '</table></div>')
+    fm, fl = F['P2_MID:silent:all'], F['P2_MID:silent:below5fC']
+    fo = F['P2_OUT:silent:below5fC']
+    A('<p><b>What it says.</b></p><ol>'
+      '<li><b>The electronics gain itself does not matter, the threshold in charge does.</b> Gains 3, 4.5 and 6 '
+      'put the threshold at 3.2-4.4 fC (the noise-rate rule gives about the same charge at every gain) and give the '
+      'same silent share, 12.4-14.5 % for P2_MID. Gain 9 sits at 6.7-8 fC (the trims cannot reach lower) and loses '
+      'clearly more: 22-25 %.</li>'
+      f'<li><b>Over the whole range</b> the silent share grows by {100 * fm["slope_per_fC"]:.1f} ± '
+      f'{100 * fm["slope_err"]:.1f} points per fC (P2_MID; P2_OUT and P2_IN similar).</li>'
+      f'<li><b>Inside the reachable range</b> (3.2-4.4 fC, the shaded band) the slope is only {100 * fl["slope_per_fC"]:.1f} ± '
+      f'{100 * fl["slope_err"]:.1f} points per fC for P2_MID ({100 * fo["slope_per_fC"]:.1f} ± {100 * fo["slope_err"]:.1f} '
+      'for P2_OUT). At gains 3 and 4.5, going from R = 2 Hz to 50 Hz (25x more noise) lowers the threshold by about '
+      '0.5 fC and wins at most 1.4 points. The lowest settings we have, 3.2-3.5 fC, still leave 12.5-13 % of the '
+      'muons silent in P2_MID.</li>'
+      '<li><b>So with these chambers at this HV the VMM settings reach about 87 % "any hit" (P2_MID) and about 82 % '
+      'with our position and time cuts; the electronics settings cannot close the gap to Dream</b> (93-94 % on the same '
+      'pads). Lowering the threshold further is not possible without a large noise rate.</li>'
+      '<li><b>How much detector gain is needed is not determined by this scan.</b> If the silent share depends only '
+      'on charge / threshold, a slope of ~3 points per fC at a 4 fC threshold means each +25 % of detector gain '
+      '(equivalent to -0.8 fC) wins ~2-3 points, and removing the ~7 points to the Dream level would need the '
+      'equivalent of a 1.5 fC threshold, i.e. ~2.5x more detector gain. With the flatter slope seen at low threshold '
+      'it would need more, and the straight-line intercepts (3-9 % silent at 0 fC, depending on the fit) leave room '
+      'for a part of the 12.5 % that is not threshold at all. The direct measurement is a mesh-HV scan with REF '
+      'electronics: silent vs mesh HV.</li></ol>')
+    A('<p class="faint">Caveats: the threshold in fC uses the nominal gains and the DAC-vs-baseline distance, not a '
+      'measured transfer function; at gain 9 some trims are clipped, so its real thresholds are spread wider. The '
+      'bscan settings show up to 45 % FAR (probe fired, but far from the prediction) although random hits are below '
+      '1 %: the tag positions are wrong there for a reason still to find; their silent share is normal and is used.</p>')
+    return '\n'.join(out)
+
+
 # ------------------------------------------------------------------------------------------- the page
 def body():
     fm, nm = svg_funnel(REF, 'P2_MID')
@@ -811,8 +918,13 @@ def body():
       '<li>I proposed ranking clusters by time, paddle geometry and angle. The extra pieces turn out to be crosstalk '
       'pads, so a simpler rule (drop single, low-ADC, in-time pads 1-3 channels from a muon channel) should do; to be '
       'tested.</li></ul></div>')
-    A('<h2>7. Open points</h2><ol>'
+    if GS:
+        A(gain_section(GS))
+    A('<h2>8. Open points</h2><ol>'
       '<li><b>Efficiency definition</b>: on hold until the points below are understood.</li>'
+      '<li><b>Detector gain</b>: a mesh-HV scan of P2_MID with REF electronics would measure directly how fast the '
+      'silent share drops with signal (your call on the HV).</li>'
+      '<li><b>bscan settings</b>: why the tag positions go wrong there (45 % FAR at R = 10 Hz).</li>'
       '<li><b>Paddle positions</b>: the paddle check uses positions fitted to the October tag maps. Has the stand '
       '(paddles or chambers) moved since? A refit on the weekend data, or a measurement with a ruler, would turn '
       'the paddle check from "indicative" into a cut.</li>'
@@ -827,12 +939,12 @@ STYLE = """
   :root { --k-geo:#b9b7b0; --k-geo2:#cfcdc6; --k-geo3:#a3a19a; --k-rej:#6250d6; --k-fid:#e87ba4; --k-fid2:#c25b87;
           --k-sil:#e34948; --k-far:#eda100; --k-late:#2a78d6; --k-ok:#1baf7a;
           --c-in:#2a78d6; --c-mid:#eb6834; --c-out:#1baf7a; --pad:#ecebe6; --pad-line:#d6d4cc; --ink:#1d1f24;
-          --ink2:#5f6570; --dead:#55534e; --xk1:#e34948; --xk2:#eda100; --xk3:#6250d6; }
+          --ink2:#5f6570; --dead:#55534e; --xk1:#e34948; --xk2:#eda100; --xk3:#6250d6; --g3:#2a78d6; --g45:#eb6834; --g6:#1baf7a; --g9:#6250d6; }
   @media (prefers-color-scheme: dark) {
     :root { --k-geo:#6f6e68; --k-geo2:#5b5a55; --k-geo3:#84837c; --k-rej:#9085e9; --k-fid:#d55181; --k-fid2:#e87ba4;
             --k-sil:#e66767; --k-far:#c98500; --k-late:#3987e5; --k-ok:#199e70;
             --c-in:#3987e5; --c-mid:#d95926; --c-out:#199e70; --pad:#2a2d33; --pad-line:#3a3e45; --ink:#e8e8e4;
-            --ink2:#a5a9b1; --dead:#8c8a84; --xk1:#e66767; --xk2:#c98500; --xk3:#9085e9; }
+            --ink2:#a5a9b1; --dead:#8c8a84; --xk1:#e66767; --xk2:#c98500; --xk3:#9085e9; --g3:#3987e5; --g45:#d95926; --g6:#199e70; --g9:#9085e9; }
   }
   main.wrap, .site-header .wrap, .site-footer .wrap { max-width: 1180px; }
   .note-body { max-width: none; }
@@ -868,6 +980,7 @@ STYLE = """
   .xk2 { fill: none; stroke: var(--xk2); stroke-width: 2; } .xk2d { fill: var(--xk2); }
   .xk3 { fill: none; stroke: var(--xk3); stroke-width: 2; } .xk3d { fill: var(--xk3); }
   .small-legend { font-size: .85rem; color: var(--fg-muted); }
+  .reach { fill: var(--k-ok); opacity: .08; } .fitl { stroke: var(--ink2); stroke-width: 1.5; stroke-dasharray: 6 4; }
   .markl { stroke: var(--k-sil); stroke-width: 1.5; stroke-dasharray: 4 3; }
   .chl { stroke: var(--ink); stroke-width: 1.6; }
   .chip-pad { fill: var(--c-mid); opacity: .28; }
