@@ -7,14 +7,15 @@ source pipeline/env.sh
 export PYTHONPATH=$W/pipeline/cva:$PYTHONPATH
 RUNS=$(python3 -c "
 import json; d=json.load(open('pseudo/chunks.json'))
-print(' '.join(str(r) for r in sorted({v['run'] for v in d.values()}) if r not in (270, 283)))")
+print(' '.join(str(r) for r in sorted({v['run'] for v in d.values() if '_tp' not in v['cfg']})))")
 echo "start $(date '+%F %T') on $(hostname): runs $RUNS"
 one() {
     r=$1
     J=$(python3 -c "
 import json; d=json.load(open('pseudo/chunks.json'))
 print(' '.join(f'tags/eff_run{k}.json' for k, v in sorted(d.items()) if v['run'] == $r))")
-    python3 analysis/muon_funnel/muon_funnel.py $J --out analysis/muon_funnel/run$r.json > analysis/muon_funnel/run$r.log 2>&1
+    python3 analysis/muon_funnel/muon_funnel.py $J --paddles analysis/muon_funnel/paddles_fit_20261104.json \
+        --out analysis/muon_funnel/run$r.json > analysis/muon_funnel/run$r.log 2>&1
     echo "run $r rc=$? $(date '+%T')"
 }
 export -f one
