@@ -789,6 +789,260 @@ def pillar_section(exp):
     return ''.join(o)
 
 
+
+# ------------------------------------------------------------------------------- 5d illustrations (silent_tests.py)
+CHC = {'P2_IN': '--c-in', 'P2_MID': '--c-mid', 'P2_OUT': '--c-out'}
+
+
+def svg_bins(series, labels, ylabel, xlabel, ymax, w=440, H=270, extra=None, nmin=50):
+    """points with error bars per category bin; series = [(name, css var, [bin dicts f/err/n])]."""
+    x0, y0, x1, yt = 52, H - 52, w - 12, 14
+    bw = (x1 - x0) / len(labels)
+    Y = lambda v: y0 - (y0 - yt) * min(v, ymax) / ymax
+    o = [f'<svg viewBox="0 0 {w} {H}" class="dia" role="img" aria-label="{esc(ylabel)}">']
+    step = 0.05 if ymax <= 0.3 else 0.1
+    t = 0.0
+    while t <= ymax + 1e-9:
+        o.append(f'<line x1="{x0}" y1="{Y(t):.1f}" x2="{x1}" y2="{Y(t):.1f}" class="grid"/>'
+                 f'<text x="{x0 - 6}" y="{Y(t) + 4:.1f}" class="lbl small" text-anchor="end">{100 * t:.0f} %</text>')
+        t += step
+    for i, lab in enumerate(labels):
+        o.append(f'<text x="{x0 + (i + .5) * bw:.1f}" y="{y0 + 16}" class="lbl small" text-anchor="middle">'
+                 f'{esc(lab)}</text>')
+    if extra:
+        o.append(extra(x0, bw, Y))
+    for k, (name, col, bins) in enumerate(series):
+        dx = (k - (len(series) - 1) / 2) * 7
+        pts = []
+        for i, b in enumerate(bins[:len(labels)]):
+            if b['f'] is None or b['n'] < nmin:
+                continue
+            cx = x0 + (i + .5) * bw + dx
+            pts.append((cx, Y(b['f'])))
+            o.append(f'<line x1="{cx:.1f}" y1="{Y(b["f"] - b["err"]):.1f}" x2="{cx:.1f}" y2="{Y(b["f"] + b["err"]):.1f}" '
+                     f'style="stroke:var({col});stroke-width:1.5"/>'
+                     f'<circle cx="{cx:.1f}" cy="{Y(b["f"]):.1f}" r="4" style="fill:var({col})">'
+                     f'<title>{name}, {labels[i]}: {100 * b["f"]:.1f} ± {100 * b["err"]:.1f} % (n = {b["n"]:.0f})'
+                     f'</title></circle>')
+        if len(pts) > 1:
+            o.append('<polyline points="' + ' '.join(f'{a:.1f},{b:.1f}' for a, b in pts) +
+                     f'" fill="none" style="stroke:var({col});stroke-width:1.5;opacity:.6"/>')
+    lx = x0 + 6
+    for name, col, _ in series:
+        o.append(f'<circle cx="{lx + 5}" cy="{yt + 6}" r="4" style="fill:var({col})"/>'
+                 f'<text x="{lx + 13}" y="{yt + 10}" class="lbl small">{name}</text>')
+        lx += 72
+    o.append(f'<line x1="{x0}" y1="{y0}" x2="{x1}" y2="{y0}" class="axis"/>'
+             f'<text x="{(x0 + x1) / 2}" y="{H - 12}" class="lbl small" text-anchor="middle">{esc(xlabel)}</text>'
+             f'<text x="14" y="{(yt + y0) / 2}" class="lbl small" text-anchor="middle" '
+             f'transform="rotate(-90 14 {(yt + y0) / 2})">{esc(ylabel)}</text></svg>')
+    return ''.join(o)
+
+
+def svg_silent_event(w=900, H=250):
+    """side view: two tags fire, the line predicts a point in MID, MID has no hit on any chip within +-1 us."""
+    o = [f'<svg viewBox="0 0 {w} {H}" class="dia" role="img" aria-label="a silent event">']
+    zs = {'P2_IN': 40, 'P2_MID': 115, 'P2_OUT': 190}
+    for nm, y in zs.items():
+        o.append(f'<rect x="60" y="{y - 7}" width="420" height="14" rx="3" class="ch-full"/>'
+                 f'<text x="52" y="{y + 4}" class="lbl" text-anchor="end">{nm[3:]}</text>')
+    for k in range(6):          # MID chips
+        o.append(f'<rect x="{62 + k * 69.5:.1f}" y="108" width="66" height="14" rx="2" class="pad"/>'
+                 f'<text x="{95 + k * 69.5:.1f}" y="140" class="lbl small" text-anchor="middle">chip {8 + k}: 0 hits</text>')
+    o.append('<line x1="200" y1="10" x2="330" y2="225" class="tr-pred"/>'
+             '<circle cx="218.2" cy="40" r="6" class="hit-in"/><circle cx="263.6" cy="115" r="6" class="circ"/>'
+             '<circle cx="263.6" cy="115" r="2" class="predc"/><circle cx="309" cy="190" r="6" class="hit-out"/>'
+             '<text x="232" y="34" class="lbl small">tag: clean IN cluster</text>'
+             '<text x="323" y="196" class="lbl small">tag: clean OUT cluster</text>'
+             '<text x="282" y="104" class="lbl small">prediction on a live pad</text>')
+    # time strip
+    X = lambda t: 560 + (t + 1000) * 0.15
+    o.append(f'<text x="560" y="28" class="lbl">time after the scintillator (ns)</text>')
+    for nm, y, hit in (('IN', 60, True), ('MID', 115, False), ('OUT', 170, True)):
+        o.append(f'<line x1="{X(-1000)}" y1="{y}" x2="{X(1000)}" y2="{y}" class="axis"/>'
+                 f'<text x="{X(-1000) - 6}" y="{y + 4}" class="lbl small" text-anchor="end">{nm}</text>'
+                 f'<rect x="{X(140):.1f}" y="{y - 10}" width="{X(310) - X(140):.1f}" height="20" class="win-mu"/>')
+        if hit:
+            o.append(f'<circle cx="{X(215):.1f}" cy="{y}" r="5" class="hit-{nm.lower()}"/>')
+    o.append(f'<rect x="{X(-1000):.1f}" y="100" width="{X(1000) - X(-1000):.1f}" height="30" rx="4" '
+             'style="fill:none;stroke:var(--k-sil);stroke-width:1.6;stroke-dasharray:5 3"/>'
+             f'<text x="{X(0):.1f}" y="146" class="lbl small" text-anchor="middle" style="fill:var(--k-sil)">'
+             'no hit on any of the 6 chips within ±1 µs</text>')
+    for t in (-1000, 0, 140, 310, 1000):
+        o.append(f'<text x="{X(t):.1f}" y="{H - 30}" class="lbl small" text-anchor="middle">{t}</text>'
+                 f'<line x1="{X(t):.1f}" y1="{H - 44}" x2="{X(t):.1f}" y2="{H - 40}" class="axis"/>')
+    o.append(f'<text x="{X(225):.1f}" y="{H - 12}" class="lbl small" text-anchor="middle">muon window 140-310 ns</text>')
+    o.append('</svg>')
+    return ''.join(o)
+
+
+def svg_whole_chamber(R, w=440, H=230):
+    """per chamber: silent, of which no hit on any chip within +-1 us."""
+    x0, y0, bw, top = 70, H - 40, 110, 0.15
+    Y = lambda v: (y0 - 20) * v / top
+    o = [f'<svg viewBox="0 0 {w} {H}" class="dia" role="img" aria-label="whole chamber silent">']
+    for t in (0, .05, .10, .15):
+        o.append(f'<line x1="{x0}" y1="{y0 - Y(t):.1f}" x2="{w - 10}" y2="{y0 - Y(t):.1f}" class="grid"/>'
+                 f'<text x="{x0 - 6}" y="{y0 - Y(t) + 4:.1f}" class="lbl small" text-anchor="end">{100 * t:.0f} %</text>')
+    for i, p in enumerate(('P2_IN', 'P2_MID', 'P2_OUT')):
+        a, b = R[p]['silent'][0], R[p]['dead1us'][0]
+        x = x0 + 20 + i * (bw + 15)
+        o.append(f'<rect x="{x}" y="{y0 - Y(a):.1f}" width="{bw}" height="{Y(a):.1f}" style="fill:var({CHC[p]});opacity:.3"/>'
+                 f'<rect x="{x}" y="{y0 - Y(b):.1f}" width="{bw}" height="{Y(b):.1f}" style="fill:var({CHC[p]})"/>'
+                 f'<text x="{x + bw / 2}" y="{y0 - Y(a) - 6:.1f}" class="lbl small" text-anchor="middle">'
+                 f'{100 * a:.1f} % silent</text>'
+                 f'<text x="{x + bw / 2}" y="{y0 - Y(b) + 16:.1f}" class="lbl small inbar" text-anchor="middle">'
+                 f'{100 * b:.1f} %</text>'
+                 f'<text x="{x + bw / 2}" y="{y0 + 16}" class="lbl" text-anchor="middle">{p}</text>')
+    o.append(f'<text x="{x0}" y="14" class="lbl small">pale: silent in ±100 ns · solid: of those, no hit on ANY chip '
+             'within ±1 µs</text></svg>')
+    return ''.join(o)
+
+
+def svg_pillar_angle(w=900, H=245):
+    """drift-gap cross section: a vertical track's charge can fall on one pillar; an inclined one spreads out."""
+    o = [f'<svg viewBox="0 0 {w} {H}" class="dia" role="img" aria-label="pillars and track angle">']
+    sc = 30          # px per mm
+    x0, yd, ym = 40, 30, 30 + 4 * sc     # drift plane, mesh
+    o.append(f'<line x1="{x0}" y1="{yd}" x2="{w - 20}" y2="{yd}" class="axis"/>'
+             f'<text x="{w - 22}" y="{yd - 6}" class="lbl small" text-anchor="end">drift electrode</text>'
+             f'<line x1="{x0}" y1="{ym}" x2="{w - 20}" y2="{ym}" style="stroke:var(--ink);stroke-width:2"/>'
+             f'<text x="{w - 22}" y="{ym - 6}" class="lbl small" text-anchor="end">mesh (amplification below)</text>'
+             f'<text x="{x0 - 4}" y="{(yd + ym) / 2 + 4}" class="lbl small" text-anchor="end">4 mm</text>')
+    for k in range(8):           # pillars every 4 mm, 0.8 mm wide, below the mesh
+        cx = x0 + 40 + k * 4 * sc
+        o.append(f'<rect x="{cx - 0.4 * sc:.1f}" y="{ym}" width="{0.8 * sc:.1f}" height="{0.128 * sc * 10:.1f}" '
+                 'style="fill:var(--k-sil);opacity:.8"/>')
+    o.append(f'<text x="{x0 + 40 + 0.5 * sc:.1f}" y="{ym + 58}" class="lbl small">pillar ⌀ 0.8 mm, every 4 mm '
+             '(mask V1): no amplification above it</text>')
+    # vertical track onto a pillar
+    cx = x0 + 40 + 4 * sc
+    o.append(f'<line x1="{cx}" y1="{yd - 18}" x2="{cx}" y2="{ym}" class="tr-miss" />'
+             f'<text x="{cx + 8}" y="{yd - 6}" class="lbl small">tan θ = 0: all charge drifts onto the pillar → lost</text>')
+    for k in range(6):
+        o.append(f'<circle cx="{cx}" cy="{yd + 10 + k * 18}" r="2.4" style="fill:var(--k-sil)"/>')
+    # inclined track
+    t = 0.3
+    xa = x0 + 40 + 4 * 4 * sc - 0.6 * sc
+    xb = xa + 4 * sc * t
+    o.append(f'<line x1="{xa - 18 * t:.1f}" y1="{yd - 18}" x2="{xb:.1f}" y2="{ym}" class="tr-ok" />'
+             f'<rect x="{xa:.1f}" y="{ym - 5}" width="{xb - xa:.1f}" height="5" style="fill:var(--k-ok);opacity:.5"/>'
+             f'<text x="{xb + 8:.1f}" y="{yd + 20}" class="lbl small">tan θ = 0.3: charge spread over 4 tan θ = 1.2 mm '
+             'of mesh</text><text x="{0:.1f}" y="{1}" class="lbl small">→ at most part of it lands on a pillar</text>'
+             .replace('{0:.1f}', f'{xb + 8:.1f}').replace('{1}', f'{yd + 36}'))
+    for k in range(6):
+        xk = xa + (xb - xa) * (k + .5) / 6
+        o.append(f'<circle cx="{xk:.1f}" cy="{yd + 10 + k * 18}" r="2.4" style="fill:var(--k-ok)"/>')
+    o.append(f'<text x="{x0}" y="{H - 22}" class="lbl small">A hole (pillar, dead spot) therefore kills mostly vertical '
+             'tracks: its silent share must fall steeply with tan θ.</text>'
+             f'<text x="{x0}" y="{H - 7}" class="lbl small">A signal just below threshold hardly cares: the path is only '
+             '1/cos θ longer (+4 % charge at tan θ = 0.3).</text></svg>')
+    return ''.join(o)
+
+
+def svg_padmap(p, R, w=290):
+    """pads of the read-out area coloured by the silent share of the muons predicted on them (REF)."""
+    x0, x1, y0, y1 = BOUNDS[p]
+    sc = w / (x1 - x0)
+    h = (y1 - y0) * sc
+    X = lambda x: (x - x0) * sc
+    Y = lambda y: h - (y - y0) * sc
+    fr = {(v, c): (n, f_) for v, c, _, _, n, f_ in R[p]['pads']}
+    o = [f'<svg viewBox="0 0 {w} {h + 40:.0f}" class="dia" role="img" aria-label="silent map {p}">']
+    for x, y, v, c in PADS[p]:
+        q = fr.get((v, c))
+        if q:
+            op = min(q[1] / 0.30, 1.0)
+            st = f'style="fill:var(--k-sil);fill-opacity:{max(op, 0.04):.2f};stroke:var(--pad-line);stroke-width:.5"'
+            tt = f'<title>VMM {v} ch {c}: {100 * q[1]:.0f} % silent of {q[0]:.0f} muons</title>'
+        else:
+            st, tt = 'class="pad"', f'<title>VMM {v} ch {c}: fewer than 15 muons</title>'
+        o.append(f'<rect x="{X(x) - 6 * sc:.1f}" y="{Y(y) - 5.8 * sc:.1f}" width="{11.4 * sc:.1f}" '
+                 f'height="{11 * sc:.1f}" {st}>{tt}</rect>')
+    for bx, by in ((206.40, 118.98), (312.39, 180.36), (411.36, 237.50), (339.74, 331.97), (457.36, 128.25)):
+        if x0 <= bx <= x1 and y0 <= by <= y1:
+            o.append(f'<circle cx="{X(bx):.1f}" cy="{Y(by):.1f}" r="{3.075 * sc + 1.5:.1f}" '
+                     'style="fill:none;stroke:var(--ink);stroke-width:1.6"/>')
+    fs = sorted(r[5] for r in R[p]['pads'])
+    med = fs[len(fs) // 2] if fs else float('nan')
+    o.append(f'<text x="{w / 2}" y="{h + 16:.0f}" class="lbl" text-anchor="middle">{p}: median pad {100 * med:.1f} %'
+             f'</text><text x="{w / 2}" y="{h + 32:.0f}" class="lbl small" text-anchor="middle">mean '
+             f'{100 * R[p]["silent"][0]:.1f} %, {len(fs)} pads with ≥ 15 muons</text></svg>')
+    return ''.join(o)
+
+
+def svg_pad_scale(w=900, H=34):
+    o = [f'<svg viewBox="0 0 {w} {H}" class="dia" role="img" aria-label="colour scale">']
+    for i in range(7):
+        v = i * 0.05
+        o.append(f'<rect x="{250 + i * 52}" y="4" width="50" height="14" style="fill:var(--k-sil);'
+                 f'fill-opacity:{max(min(v / 0.30, 1), 0.04):.2f};stroke:var(--pad-line)"/>'
+                 f'<text x="{275 + i * 52}" y="31" class="lbl small" text-anchor="middle">'
+                 f'{100 * v:.0f}{" %+" if i == 6 else " %"}</text>')
+    o.append('<rect x="640" y="4" width="16" height="14" class="pad"/><text x="662" y="16" class="lbl small">'
+             '&lt; 15 muons</text><circle cx="770" cy="11" r="7" style="fill:none;stroke:var(--ink);stroke-width:1.6"/>'
+             '<text x="782" y="16" class="lbl small">big pillar ⌀ 6.15 mm</text>'
+             '<text x="240" y="16" class="lbl small" text-anchor="end">silent share of the muons predicted on the pad</text>'
+             '</svg>')
+    return ''.join(o)
+
+
+def svg_pad_hist(R, w=440, H=250):
+    """distribution of the per-pad silent share, one row per chamber, median marked."""
+    x0, x1 = 70, w - 12
+    X = lambda f_: x0 + (x1 - x0) * min(f_, 0.5) / 0.5
+    o = [f'<svg viewBox="0 0 {w} {H}" class="dia" role="img" aria-label="per-pad silent distribution">']
+    for i, p in enumerate(('P2_IN', 'P2_MID', 'P2_OUT')):
+        yb = 70 + i * 62
+        fs = sorted(r[5] for r in R[p]['pads'])
+        cnt = [0] * 20
+        for f_ in fs:
+            cnt[min(int(f_ / 0.025), 19)] += 1
+        m = max(cnt) or 1
+        for k, c in enumerate(cnt):
+            hh = 46 * c / m
+            o.append(f'<rect x="{X(k * 0.025) + 1:.1f}" y="{yb - hh:.1f}" width="{(x1 - x0) / 20 - 2:.1f}" '
+                     f'height="{hh:.1f}" style="fill:var({CHC[p]})"><title>{p}: {c} pads at {100 * k * 2.5:.1f}-'
+                     f'{100 * (k + 1) * 2.5:.1f} %</title></rect>')
+        med = fs[len(fs) // 2]
+        o.append(f'<line x1="{X(med):.1f}" y1="{yb - 52}" x2="{X(med):.1f}" y2="{yb + 2}" '
+                 'style="stroke:var(--ink);stroke-width:2"/>'
+                 f'<text x="{X(med) + 4:.1f}" y="{yb - 40}" class="lbl small">median {100 * med:.1f} %</text>'
+                 f'<text x="{x0 - 6}" y="{yb - 18}" class="lbl" text-anchor="end">{p[3:]}</text>'
+                 f'<line x1="{x0}" y1="{yb}" x2="{x1}" y2="{yb}" class="axis"/>')
+    lp = X(PILLAR)
+    o.append(f'<line x1="{lp:.1f}" y1="14" x2="{lp:.1f}" y2="{70 + 2 * 62}" class="markl"/>'
+             f'<text x="{lp + 4:.1f}" y="18" class="lbl small">pillar area 3.8 %</text>')
+    for t in (0, .1, .2, .3, .4, .5):
+        o.append(f'<text x="{X(t):.1f}" y="{H - 20}" class="lbl small" text-anchor="middle">{100 * t:.0f} %</text>')
+    o.append(f'<text x="{(x0 + x1) / 2}" y="{H - 4}" class="lbl small" text-anchor="middle">silent share of a pad '
+             '(pads with ≥ 15 muons, REF)</text></svg>')
+    return ''.join(o)
+
+
+def svg_tag_cartoon(w=440, H=250):
+    """real muon tag vs noise in time with the scintillator."""
+    o = [f'<svg viewBox="0 0 {w} {H}" class="dia" role="img" aria-label="real and fake tags">']
+    for x0, title in ((20, 'a real muon'), (230, 'if a tag were noise')):
+        for nm, y in (('IN', 50), ('MID', 115), ('OUT', 180)):
+            o.append(f'<rect x="{x0}" y="{y - 6}" width="165" height="12" rx="3" class="ch-full"/>'
+                     f'<text x="{x0 + 170}" y="{y + 4}" class="lbl small">{nm}</text>')
+        o.append(f'<text x="{x0 + 82}" y="22" class="lbl" text-anchor="middle">{title}</text>')
+    o.append('<line x1="80" y1="30" x2="150" y2="200" class="tr-ok"/>'
+             '<rect x="80" y="43" width="20" height="14" class="hit-in"/><rect x="108" y="108" width="20" height="14" class="hit-mid"/>'
+             '<rect x="135" y="173" width="20" height="14" class="hit-out"/>'
+             '<text x="115" y="225" class="lbl small" text-anchor="middle">tags with a normal pulse (ADC 150-400)</text>'
+             '<text x="115" y="240" class="lbl small" text-anchor="middle">→ MID fires</text>')
+    o.append('<line x1="300" y1="30" x2="380" y2="200" class="tr-pred"/>'
+             '<rect x="304" y="46" width="12" height="8" style="fill:var(--c-in);opacity:.5"/>'
+             '<circle cx="340" cy="115" r="9" class="circ"/>'
+             '<rect x="364" y="176" width="20" height="14" class="hit-out"/>'
+             '<text x="325" y="225" class="lbl small" text-anchor="middle">one tag is a small noise hit (low ADC)</text>'
+             '<text x="325" y="240" class="lbl small" text-anchor="middle">→ the line is wrong: MID "silent"</text>')
+    o.append('</svg>')
+    return ''.join(o)
+
+
 def silent_tests_section():
     """5d: angle, pad map, tag pulse height of the silent muons (silent_tests.py on the per-tag dumps)."""
     R = ST['REF']
@@ -799,6 +1053,16 @@ def silent_tests_section():
                  f'{p[3:]} {100 * R[p]["dead1us"][0]:.1f} of the {100 * R[p]["silent"][0]:.1f} %'
                  for p in ('P2_IN', 'P2_MID', 'P2_OUT')) +
              ' the whole chamber has no hit on any chip within ±1 µs.</p>')
+    o.append(f'<figure>{svg_silent_event()}<figcaption>What a SILENT muon is: the scintillator fired, IN and OUT each '
+             'have one clean cluster in the muon window, the line through them lands on a live MID pad well inside '
+             'the chamber - and MID has nothing, on any channel of any chip, for a full microsecond around the muon. '
+             '(Schematic.)</figcaption></figure>')
+    o.append(f'<figure style="max-width:520px">{svg_whole_chamber(R)}<figcaption>How many of the silent muons are '
+             'silent on the whole chamber (REF). Almost all of them: it is not one pad or one chip missing the hit.'
+             '</figcaption></figure>')
+    o.append('<h4>Test 1: does the silent share depend on the track angle?</h4>')
+    o.append(f'<figure>{svg_pillar_angle()}<figcaption>The idea of the test (to scale vertically: 4 mm drift gap, '
+             '0.8 mm pillars every 4 mm).</figcaption></figure>')
     hd = ''.join(f'<th>{b["lo"]}-{b["hi"]}</th>' for b in R['P2_MID']['vs_slope'][:5])
     o.append('<table><tr><th>silent vs tan θ (REF)</th>' + hd + '</tr>')
     for p in ('P2_IN', 'P2_MID', 'P2_OUT'):
@@ -806,6 +1070,19 @@ def silent_tests_section():
             f'<td>{100 * b["f"]:.1f} ± {100 * b["err"]:.1f} %<br><span class="faint">n {b["n"]:.0f}</span></td>'
             for b in R[p]['vs_slope'][:5]) + '</tr>')
     o.append('</table>')
+    def hole_sketch(x0, bw, Y):
+        a = R['P2_MID']['vs_slope'][0]['f'] or 0.14
+        b = R['P2_IN']['vs_slope'][3]['f'] or 0.06
+        pts = [(x0 + (i + .5) * bw, Y(b + (a - b) * max(0.0, 1 - c / 0.2)))
+               for i, c in enumerate((0.05, 0.15, 0.25, 0.35, 0.5))]
+        return ('<polyline points="' + ' '.join(f'{u:.1f},{v:.1f}' for u, v in pts) + '" fill="none" class="fitl"/>'
+                f'<text x="{pts[2][0]:.1f}" y="{pts[2][1] - 8:.1f}" class="lbl small">if it were a hole (sketch)</text>')
+    o.append('<figure style="max-width:560px">' + svg_bins(
+        [(p[3:], CHC[p], R[p]['vs_slope']) for p in ('P2_IN', 'P2_MID', 'P2_OUT')],
+        ['0-0.1', '0.1-0.2', '0.2-0.3', '0.3-0.4', '0.4-0.6'], 'silent share', 'tan θ of the tag line (REF)', 0.25,
+        extra=hole_sketch) + '<figcaption>Measured: flat within ~2 points for all three chambers. The dashed line '
+        'sketches what a hole would do (MID falling from its vertical value to the IN/OUT level by tan θ = 0.2).'
+        '</figcaption></figure>')
     o.append('<p><b>1. Angle: flat.</b> A hole in the amplification (pillar, dead area) swallows mostly vertical '
              'tracks: with the 4 mm drift gap an inclined track spreads its charge over 4 tan θ mm of mesh, more than '
              'a 0.8 mm pillar from tan θ ≈ 0.2. The silent share drops by only ~2 points from the vertical bin to '
@@ -815,6 +1092,19 @@ def silent_tests_section():
     for p in ('P2_IN', 'P2_MID', 'P2_OUT'):
         fr = sorted(r[5] for r in R[p]['pads'])
         med[p] = fr[len(fr) // 2] if fr else float('nan')
+    o.append('<h4>Test 2: where on the chamber are the silent muons?</h4>')
+    o.append('<div class="row3">' + ''.join(svg_padmap(p, R) for p in ('P2_IN', 'P2_MID', 'P2_OUT')) + '</div>' +
+             svg_pad_scale())
+    o.append(f'<figure style="max-width:560px">{svg_pad_hist(R)}<figcaption>The same pads as a distribution. IN and '
+             'OUT: most pads at 0-10 %, near the pillar line, plus a tail of bad pads. MID: the whole distribution is '
+             'shifted, its typical pad is at 12 %. Each pad has 15-40 muons, so ±5-8 % is pure statistics.'
+             '</figcaption></figure>')
+    o.append('<figure style="max-width:560px">' + svg_bins(
+        [(p[3:], CHC[p], R[p]['vs_dead_dist']) for p in ('P2_IN', 'P2_MID', 'P2_OUT')],
+        ['< 12', '12-18', '18-25', '25-40', '40-80', '> 80'], 'silent share',
+        'distance of the prediction to the nearest dead / masked pad (mm, REF)', 0.30) +
+        '<figcaption>Next to a dead pad the muon sometimes really crossed the dead pad: silent rises below one pad '
+        'pitch, but only ~5 % of the muons are there.</figcaption></figure>')
     o.append('<p><b>2. Place: MID is high everywhere.</b> Per predicted pad (REF, pads with ≥ 15 tags) the '
              'median pad is silent for ' + ', '.join(f'{p[3:]} {100 * med[p]:.1f} %' for p in ('P2_IN', 'P2_MID',
                                                                                               'P2_OUT')) +
@@ -829,6 +1119,13 @@ def silent_tests_section():
              f'{100 * ST["ALL"]["P2_MID"]["vs_big_pillar"][0]["f"]:.0f} %), worth &lt; 0.2 points. The worst pads '
              'repeat across chambers on the same channel numbers (e.g. channel 62 at (418, 139) mm on MID and OUT, '
              'channel 42 at (330, 115) mm): to follow up with more statistics.</p>')
+    o.append('<h4>Test 3: are some tags not muons?</h4>')
+    o.append('<div class="row2"><figure>' + svg_tag_cartoon() + '<figcaption>The idea: a noise hit in time with the '
+             'scintillator would be small, and would point the line to the wrong place.</figcaption></figure><figure>' +
+             svg_bins([(p[3:], CHC[p], R[p]['vs_tag_adc']) for p in ('P2_IN', 'P2_MID', 'P2_OUT')],
+                      ['0', '100', '150', '200', '300', '400'], 'silent share',
+                      'smaller tag\'s largest ADC, from (REF)', 0.25) +
+             '<figcaption>Measured: no rise at low tag ADC - the tags are muons.</figcaption></figure></div>')
     o.append('<p><b>3. Tag pulse height: no fake tags.</b> If some tags were noise in time with the scintillator, '
              'low-ADC tags would be followed by more silent probes. At REF the silent share is flat in the smaller '
              'tag\'s largest ADC (MID: ' + ', '.join(f'{b["lo"]}+: {100 * b["f"]:.0f} %' for b in
@@ -1307,6 +1604,8 @@ STYLE = """
   .row4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
   .row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; }
   .row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
+  .row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; margin: 1rem 0 .3rem; }
+  @media (max-width: 760px) { .row3 { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 760px) { .row4, .row2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
                               .row3 { grid-template-columns: 1fr; } }
   .lbl { fill: var(--ink); font-size: 13px; } .small { font-size: 11px; fill: var(--ink2); }
