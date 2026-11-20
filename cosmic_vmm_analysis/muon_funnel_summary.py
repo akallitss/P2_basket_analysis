@@ -40,12 +40,15 @@ def main():
     examples, pads = defaultdict(lambda: defaultdict(list)), None
 
     def grp(name):
-        return G.setdefault(name, {'n_scint': 0, 'runs': [], 'probes': {}, 'rejects': {}, '_extra': defaultdict(list)})
+        return G.setdefault(name, {'n_scint': 0, 'runs': [], 'probes': {}, 'rejects': {}, 'xtalk': {},
+                                   '_extra': defaultdict(list)})
 
     for f in sorted(glob.glob(os.path.join(a.indir, 'run*.json'))):
         run = int(re.search(r'run(\d+)\.json', f)[1])
         R = json.load(open(f))
         cfg = cfg_of_run[run]
+        if '_tp' in cfg:          # pulser runs: test pulses on some channels, not used
+            continue
         is_ref = 'trimmed_Km18' in cfg and 'tp' not in cfg
         pads = pads or R.get('pads')
         for name in {cfg, 'ALL', *(['REF'] if is_ref else [])}:
@@ -54,11 +57,20 @@ def main():
             g['runs'].append(run)
             for p, v in R['probes'].items():
                 q = g['probes'].setdefault(p, {'on': Counter(), 'off': Counter(), 'chip': defaultdict(Counter),
-                                               'd_far': Counter(), 'd_found': Counter()})
+                                               'd_far': Counter(), 'd_found': Counter(),
+                                               'paddle': defaultdict(Counter)})
                 for k in ('on', 'off', 'd_far', 'd_found'):
                     q[k].update(v[k])
                 for c, cc in v['chip'].items():
                     q['chip'][c].update(cc)
+                for c, cc in v.get('paddle', {}).items():
+                    q['paddle'][c].update(cc)
+            for d, v in R.get('xtalk', {}).items():
+                q = g['xtalk'].setdefault(d, {'n': [0] * 11, 'on': [[0] * 11 for _ in range(3)],
+                                              'off': [[0] * 11 for _ in range(3)]})
+                q['n'] = [x + y for x, y in zip(q['n'], v['n'])]
+                for w in ('on', 'off'):
+                    q[w] = [[x + y for x, y in zip(a_, b_)] for a_, b_ in zip(q[w], v[w])]
             for d, v in R['rejects'].items():
                 q = g['rejects'].setdefault(d, {'states': Counter(), 'states_off': Counter(), 'reasons': Counter(),
                                                 'pieces': Counter()})
@@ -83,6 +95,7 @@ def main():
                 'adc_edges': list(range(0, 1100, 50)), 'adc': hist(E[:, 2], range(0, 1100, 50))}
         for p in g['probes'].values():
             p['chip'] = {c: dict(v) for c, v in p['chip'].items()}
+            p['paddle'] = {c: dict(v) for c, v in p['paddle'].items()}
     out = {'groups': G, 'pads': pads,
            'examples': {p: {c: lst[:a.examples] for c, lst in byc.items()} for p, byc in examples.items()}}
     json.dump(out, open(a.out, 'w'))
@@ -94,6 +107,10 @@ def main():
         for d, v in g['rejects'].items():
             print('  ', d, dict(v['states']), dict(v['reasons']), dict(v['pieces']), 'same chip',
                   v['extra']['same_chip'], '/', v['extra']['n'])
+        for p, v in g['probes'].items():
+            print('  paddle', p, {b: dict(c) for b, c in sorted(v['paddle'].items())})
+        for d, v in g['xtalk'].items():
+            print('  xtalk', d, 'n', v['n'], 'on k=1', v['on'][0], 'off k=1', v['off'][0])
 
 
 if __name__ == '__main__':
