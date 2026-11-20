@@ -25,7 +25,8 @@ PT = json.load(open(sys.argv[4])) if len(sys.argv) > 4 else None
 OLD = json.load(open(sys.argv[5]))['groups'] if len(sys.argv) > 5 else None
 RAD = {p: (PT['probes'][p]['probe_r'] if PT else 15.0) for p in ('P2_IN', 'P2_MID', 'P2_OUT')}
 MARG = {p: (PT['probes'][p]['margin_mm'] if PT else 0.0) for p in ('P2_IN', 'P2_MID', 'P2_OUT')}
-PILLAR = 0.057   # as-built bulk pillar lattice of these chambers (SPS fit): triangular, d = 2.995 mm, diameter 0.75 mm
+PILLAR = 0.0378  # bulk pillars, mask V1 (Saclay bulk: det1-4, i.e. all three stand chambers): 0.8 mm on a 4 mm grid
+ST = json.load(open(sys.argv[6])) if len(sys.argv) > 6 else None   # silent_tests.py output
 FIGDIR = os.path.basename(sys.argv[2]).replace('.html', '_files/')
 PROBES = ['P2_MID', 'P2_OUT', 'P2_IN']
 TAGS = {'P2_MID': ('P2_IN', 'P2_OUT'), 'P2_OUT': ('P2_IN', 'P2_MID'), 'P2_IN': ('P2_MID', 'P2_OUT')}
@@ -760,16 +761,20 @@ def pillar_section(exp):
     """3c: the bulk pillars set the ceiling below 100 %."""
     o = ['<h3>3c. The ceiling is not 100 %: the bulk pillars</h3>']
     o.append('<p>The mesh of these chambers stands on insulating <b>pillars</b>; a muon whose charge lands on a pillar '
-             'is not amplified. At the SPS (July, DREAM read-out, tracks from the µRWELL telescope at 0.2-0.3 mm) the '
-             'lattice of these three chambers was imaged directly: <b>triangular, d = 2.995 mm, ⌀ 0.75 mm</b> (not the '
-             'archived 4 mm artwork), i.e. <b>5.7 % of the area</b>. The efficiency it costs depends on the threshold, '
-             'because a pillar also removes part of the charge around it: 2.4-3.9 points per chamber at the high-gain '
-             'point, but 9.5 points for P2_IN at the nominal one. The Saclay cosmic bench uses the same accounting: on '
-             'det1 the measured "no hit" share (3.17 %) is the pillar area of its Gerber (3.43 %), so its efficiency is '
-             'quoted against a ceiling of ~96.6 %, not 100 %.</p>')
+             'is not amplified. All three chambers of the stand were bulked at Saclay (det1-4) with insulation mask '
+             '<b>V1</b> (<code>Detector_Drawings/Version_Apr26/Insulation_masks/V1/P2_BASKET-Mask_M2_V1.gbr</code>): '
+             '12,477 pillars of ⌀ 0.8 mm on a 4 mm grid plus 5 big ⌀ 6.15 mm ones, <b>3.78 % of the pad area</b> - the '
+             'same mask and number the cosmic-bench (DREAM) analysis uses (<code>p2_qa_config.MASK_GBR_PATH</code>). '
+             '(The CERN-bulked det5 has a different mask, 0.5 mm on 2 mm = 4.87 %, and is not on this stand.) On det1 '
+             'that bench measured a "no hit" share of 3.17 % against its Gerber pillar area of 3.43 %, so its efficiency '
+             'is quoted against a ceiling of ~96.6 %, not 100 %. The SPS beam (DREAM, telescope at 0.2-0.3 mm) showed '
+             'that the cost grows with the threshold - a pillar also removes part of the charge around it: 2.4-3.9 '
+             'points per chamber at the high-gain point, 9.5 for P2_IN at the nominal one - so at the VMM threshold '
+             'the area is a floor, not the whole pillar cost.</p>')
     o.append('<p>Here the pads (12 mm) and the pointing (3-8 mm) cannot resolve a 3 mm lattice, so the pillar loss '
-             f'cannot be cut out muon by muon; it is a floor under the silent share. Taking the geometric '
-             f'{100 * PILLAR:.1f} % as the ceiling:</p>')
+             f'cannot be cut out muon by muon; it is a floor under the silent share (the five big ones can be, see 5d). Taking '
+             'the mask\'s'
+             f' {100 * PILLAR:.2f} % as the ceiling:</p>')
     o.append('<table><tr><th>probe (REF)</th><th>found</th><th>found / (1 − pillars)</th><th>silent</th>'
              '<th>silent beyond the pillars</th></tr>')
     for p in ('P2_IN', 'P2_MID', 'P2_OUT'):
@@ -778,9 +783,62 @@ def pillar_section(exp):
         o.append(f'<tr><td>{p}</td><td>{100 * fo:.1f} %</td><td><b>{100 * fo / (1 - PILLAR):.1f} %</b></td>'
                  f'<td>{100 * si:.1f} %</td><td>{100 * (si - PILLAR):.1f} points</td></tr>')
     o.append('</table>')
-    o.append('<p>P2_IN and P2_OUT are then at ~91-93 % of what the pillars allow, close to DREAM; P2_MID is still '
-             '~8 points short, all of it in the "no hit at all" class and spread evenly over its chips (section 5b). '
+    o.append('<p>P2_IN and P2_OUT are then at ~89-91 % of what the pillars allow; P2_MID is ~7 points further down, '
+             'all of it in the "no hit at all" class and spread evenly over its chips and pads (sections 5b, 5d). '
              'That is the part left to explain.</p>')
+    return ''.join(o)
+
+
+def silent_tests_section():
+    """5d: angle, pad map, tag pulse height of the silent muons (silent_tests.py on the per-tag dumps)."""
+    R = ST['REF']
+    o = ['<h3>5d. Why silent? Angle, place, tag pulse height</h3>']
+    o.append('<p>From the per-tag dumps of the same runs (scintillator-confirmed tags, random tag pairs subtracted, the '
+             'same edge margin; silent = no live probe hit within ±100 ns of the tag + latency). First: <b>a silent '
+             'muon really leaves nothing</b> - for ' + ', '.join(
+                 f'{p[3:]} {100 * R[p]["dead1us"][0]:.1f} of the {100 * R[p]["silent"][0]:.1f} %'
+                 for p in ('P2_IN', 'P2_MID', 'P2_OUT')) +
+             ' the whole chamber has no hit on any chip within ±1 µs.</p>')
+    hd = ''.join(f'<th>{b["lo"]}-{b["hi"]}</th>' for b in R['P2_MID']['vs_slope'][:5])
+    o.append('<table><tr><th>silent vs tan θ (REF)</th>' + hd + '</tr>')
+    for p in ('P2_IN', 'P2_MID', 'P2_OUT'):
+        o.append(f'<tr><td>{p}</td>' + ''.join(
+            f'<td>{100 * b["f"]:.1f} ± {100 * b["err"]:.1f} %<br><span class="faint">n {b["n"]:.0f}</span></td>'
+            for b in R[p]['vs_slope'][:5]) + '</tr>')
+    o.append('</table>')
+    o.append('<p><b>1. Angle: flat.</b> A hole in the amplification (pillar, dead area) swallows mostly vertical '
+             'tracks: with the 4 mm drift gap an inclined track spreads its charge over 4 tan θ mm of mesh, more than '
+             'a 0.8 mm pillar from tan θ ≈ 0.2. The silent share drops by only ~2 points from the vertical bin to '
+             'tan θ = 0.3 (about what the longer path, 1/cos θ, gives to a signal near threshold), so the silent muons '
+             'are <b>not</b> a geometric hole.</p>')
+    med = {}
+    for p in ('P2_IN', 'P2_MID', 'P2_OUT'):
+        fr = sorted(r[5] for r in R[p]['pads'])
+        med[p] = fr[len(fr) // 2] if fr else float('nan')
+    o.append('<p><b>2. Place: MID is high everywhere.</b> Per predicted pad (REF, pads with ≥ 15 tags) the '
+             'median pad is silent for ' + ', '.join(f'{p[3:]} {100 * med[p]:.1f} %' for p in ('P2_IN', 'P2_MID',
+                                                                                              'P2_OUT')) +
+             ': IN and OUT sit near the pillar floor on a typical pad and reach their mean through a few bad pads; '
+             'P2_MID\'s typical pad is already at 12 %. The pad-to-pad spread is only modestly above statistical (χ²/ndf ' +
+             ', '.join(f'{p[3:]} {R[p]["pad_chi2_ndf"][0]:.0f}/{R[p]["pad_chi2_ndf"][1]}' for p in ('P2_IN', 'P2_MID',
+                                                                                                    'P2_OUT')) +
+             '). Two local effects exist but are small: predictions within 12 mm of a dead / masked pad are silent '
+             f'{100 * R["P2_MID"]["vs_dead_dist"][0]["f"]:.0f} % (MID), ~0.3 points of the total; and the big ⌀ 6.15 mm '
+             f'pillars are visible in P2_MID (within 8 mm: {100 * R["P2_MID"]["vs_big_pillar"][0]["f"]:.0f} % silent, '
+             f'n = {R["P2_MID"]["vs_big_pillar"][0]["n"]:.0f}; all configurations: '
+             f'{100 * ST["ALL"]["P2_MID"]["vs_big_pillar"][0]["f"]:.0f} %), worth &lt; 0.2 points. The worst pads '
+             'repeat across chambers on the same channel numbers (e.g. channel 62 at (418, 139) mm on MID and OUT, '
+             'channel 42 at (330, 115) mm): to follow up with more statistics.</p>')
+    o.append('<p><b>3. Tag pulse height: no fake tags.</b> If some tags were noise in time with the scintillator, '
+             'low-ADC tags would be followed by more silent probes. At REF the silent share is flat in the smaller '
+             'tag\'s largest ADC (MID: ' + ', '.join(f'{b["lo"]}+: {100 * b["f"]:.0f} %' for b in
+                                                     R['P2_MID']['vs_tag_adc'][:5]) +
+             '). Over all configurations it even rises with tag ADC, because the high-gain settings have both larger '
+             'pulses and more silent muons.</p>')
+    o.append('<p class="faint">Conclusion of 5d: the P2_MID silent muons cross live, normal pads at normal angles '
+             'with genuine tags, and the chamber records nothing at all within a microsecond. What is left is a signal '
+             'below threshold over the whole chamber (lower gas gain, or a higher effective threshold, of P2_MID) - '
+             'the mesh-HV scan, or DREAM on the same chamber, decides. Code: <code>silent_tests.py</code>.</p>')
     return ''.join(o)
 
 
@@ -850,7 +908,7 @@ def body():
           f'predictions are ~2x less precise than the interpolated P2_MID one, so they get {RAD["P2_IN"]:.0f} mm instead '
           f'of 15 mm, and a {MARG["P2_IN"]:.0f} mm edge margin. P2_IN and P2_OUT go to {pct(ni_["found"], ni_["n3"])} '
           f'and {pct(no_["found"], no_["n3"])} found (from 72-74 %); P2_MID does not move. (2) The ceiling is not '
-          f'100 %: the bulk pillars cover ~{100 * PILLAR:.1f} % of the area (section 3c). The cuts in use are listed in '
+          f'100 %: the bulk pillars (mask V1) cover {100 * PILLAR:.2f} % of the pad area (section 3c). The cuts in use are listed in '
           'section 3d. All numbers on this page use the new radius, except the PNG figures of section 8 (made with the '
           'fixed 15 mm; P2_MID, which they show, changes by &lt; 0.3 points).</div>')
     A('<p class="faint">Data: lab cosmic stand, weekend scan from 19 Nov 2026, runs '
@@ -994,6 +1052,8 @@ def body():
       '3-5 %, about what the bulk pillars alone cost (section 3c).</p>')
     for p in PROBES:
         A(f'<figure>{svg_chips(p, REF)}<figcaption>{p} as probe (REF).</figcaption></figure>')
+    if ST:
+        A(silent_tests_section())
     A('<h3>5c. What are the extra pads that get tag groups rejected?</h3>')
     rows = []
     for d in ('P2_IN', 'P2_MID', 'P2_OUT'):
@@ -1169,7 +1229,7 @@ def body():
       'not the pointing): compare with DREAM on the same chamber and pads; a chamber swap (MID ↔ OUT position) would '
       'tell a chamber property from a position-in-the-stack effect.</li>'
       '<li><b>Pillar term for the VMM</b>: the SPS fold showed the pillar cost grows with the threshold (2.4 → 9.5 '
-      'points); the VMM threshold sits higher than DREAM\'s, so the 5.7 % may be a lower bound here.</li>'
+      'points); the VMM threshold sits higher than DREAM\'s, so the 3.8 % of mask V1 may be a lower bound here.</li>'
       '<li><b>Detector gain</b>: a mesh-HV scan of P2_MID with REF electronics would measure directly how fast the '
       'silent share drops with signal (your call on the HV).</li>'
       '<li><b>bscan settings</b>: why the tag positions go wrong there (45 % FAR at R = 10 Hz).</li>'
