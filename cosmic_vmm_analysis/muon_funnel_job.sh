@@ -11,9 +11,13 @@ print(' '.join(str(r) for r in sorted({v['run'] for v in d.values() if '_tp' not
 echo "start $(date '+%F %T') on $(hostname): runs $RUNS"
 one() {
     r=$1
+    # already done (delete the json, or FORCE=1, to redo); runs not dumped yet are skipped by having no chunks
+    if [ -s analysis/muon_funnel/run$r.json ] && [ -z "$FORCE" ]; then echo "run $r: exists"; return; fi
     J=$(python3 -c "
-import json; d=json.load(open('pseudo/chunks.json'))
-print(' '.join(f'tags/eff_run{k}.json' for k, v in sorted(d.items()) if v['run'] == $r))")
+import json, os; d=json.load(open('pseudo/chunks.json'))
+f = [f'tags/eff_run{k}.json' for k, v in sorted(d.items()) if v['run'] == $r]
+print(' '.join(f) if f and all(os.path.exists(x) for x in f) else '')")
+    if [ -z "$J" ]; then echo "run $r: not fully dumped yet, skipped"; return; fi
     python3 analysis/muon_funnel/muon_funnel.py $J --paddles analysis/muon_funnel/paddles_fit_20261104.json \
         --out analysis/muon_funnel/run$r.json > analysis/muon_funnel/run$r.log 2>&1
     echo "run $r rc=$? $(date '+%T')"
