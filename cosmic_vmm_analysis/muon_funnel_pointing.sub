@@ -1,0 +1,10 @@
+executable     = muon_funnel_job.sh
+output         = muon_funnel_pointing.$(ClusterId).out
+error          = muon_funnel_pointing.$(ClusterId).err
+log            = muon_funnel_pointing.$(ClusterId).log
+environment    = "OUTDIR=analysis/muon_funnel_pointing EXTRA='--pointing analysis/muon_funnel_pointing/pointing.json'"
+request_cpus   = 4
+request_memory = 8000
++JobFlavour    = "workday"
+getenv         = False
+queue
