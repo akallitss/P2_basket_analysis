@@ -10,6 +10,7 @@ import json
 import math
 import re
 import sys
+from collections import Counter
 
 S = json.load(open(sys.argv[1]))
 G = S['groups']
@@ -424,6 +425,140 @@ def pick(p, cls, sub=None):
     return event_display(p, ev).replace('</figcaption>', esc(extra) + '</figcaption>')
 
 
+PBINS = ['inside >60', 'inside 30-60', 'inside 15-30', 'inside 0-15', 'misses 0-15', 'misses 15-30',
+         'misses 30-60', 'misses 60-120', 'misses >120']
+PKEYS = ['found', 'probe_silent', 'probe_far', 'probe_near_late']
+
+
+def svg_paddle_diagram():
+    W, H = 900, 380
+    zy = lambda z: 30 + (z + 120) * (H - 60) / 1420
+    xx = lambda x: 450 + x * 0.9
+    o = [f'<svg viewBox="0 0 {W} {H}" class="dia" role="img" aria-label="tag line extrapolated to the paddles">']
+    for z0, z1, lab, x0, x1 in ((-100, 0, 'top paddles', -100, 100), (1225, 1275, 'bottom paddle', -60, 140)):
+        o.append(f'<rect x="{xx(x0)}" y="{zy(z0)}" width="{xx(x1) - xx(x0)}" height="{zy(z1) - zy(z0)}" class="pad-scint"/>'
+                 f'<text x="{xx(x1) + 8}" y="{(zy(z0) + zy(z1)) / 2 + 4}" class="lbl">{lab}</text>')
+    for name, z in Z.items():
+        o.append(f'<line x1="{xx(-330)}" y1="{zy(z)}" x2="{xx(330)}" y2="{zy(z)}" class="ch-line"/>'
+                 f'<text x="{xx(-340)}" y="{zy(z) + 4}" class="lbl" text-anchor="end">{name}</text>')
+    # good: IN at 0, OUT at 40 -> line inside both paddles
+    def line(xa, xb, cls):
+        f = lambda z: xa + (xb - xa) * (z - 320) / (940 - 320)
+        return (f'<line x1="{xx(f(-100))}" y1="{zy(-100)}" x2="{xx(f(1275))}" y2="{zy(1275)}" class="{cls}"/>'
+                f'<circle cx="{xx(xa)}" cy="{zy(320)}" r="6" class="hit-in"/><circle cx="{xx(xb)}" cy="{zy(940)}" r="6" '
+                f'class="hit-out"/>')
+    o.append(line(0, 40, 'tr-ok'))
+    o.append(line(-60, 230, 'tr-miss'))
+    o.append(f'<text x="{xx(325)}" y="{zy(1205)}" class="lbl tr-miss-t" text-anchor="end">misses the bottom paddle</text>')
+    o.append(f'<text x="{xx(12)}" y="{zy(200)}" class="lbl tr-ok-t">goes back through both</text>')
+    o.append(f'<text x="{W / 2}" y="{H - 6}" class="lbl small" text-anchor="middle">the scintillators fired, so the '
+             f'muon crossed both paddles; a tag line that misses them points to a wrong tag (or to the paddle-position '
+             f'uncertainty)</text></svg>')
+    return ''.join(o)
+
+
+def svg_paddle_bins(g, p, w=900):
+    P = g['probes'][p]['paddle']
+    rh, x0, xr = 30, 150, 150
+    H = rh * len(PBINS) + 46
+    o = [f'<svg viewBox="0 0 {w} {H}" class="dia" role="img" aria-label="classes vs paddle miss {p}">']
+    for i, b in enumerate(PBINS):
+        c = P.get(b, {})
+        n = sum(c.get(k, 0) for k in PKEYS)
+        y = 6 + i * rh
+        o.append(f'<text x="{x0 - 8}" y="{y + 16}" class="lbl" text-anchor="end">{esc(b)} mm</text>')
+        if not n:
+            continue
+        x = x0
+        for k in PKEYS:
+            ww = (w - x0 - xr) * c.get(k, 0) / n
+            o.append(f'<rect x="{x:.1f}" y="{y}" width="{max(ww - 1.5, 0):.1f}" height="22" style="fill:var({COL[k]})">'
+                     f'<title>{b}: {k} {c.get(k, 0)} of {n}</title></rect>')
+            if ww > 42:
+                o.append(f'<text x="{x + ww / 2:.1f}" y="{y + 16}" class="lbl inbar2" text-anchor="middle">'
+                         f'{100 * c.get(k, 0) / n:.0f} %</text>')
+            x += ww
+        o.append(f'<text x="{w - xr + 10}" y="{y + 16}" class="lbl small">n = {n:,} (+{c.get("outside_area", 0):,} '
+                 f'outside area)</text>')
+    o.append(legend4(x0, H - 12, 175))
+    o.append('</svg>')
+    return ''.join(o)
+
+
+def paddle_table(groups):
+    cuts = [('all tagged muons', None), ('line inside both paddles', 4), ('misses by at most 15 mm', 5),
+            ('misses by at most 30 mm', 6), ('misses by at most 60 mm', 7)]
+    rows = ['<table><tr><th>selection</th>' + ''.join(f'<th>{esc(lab)}: {p[3:]}</th>' for lab, _ in groups
+                                                        for p in PROBES) + '</tr>']
+    for lab, k in cuts:
+        cells = []
+        for _, g in groups:
+            for p in PROBES:
+                P = g['probes'][p]['paddle']
+                bins = PBINS if k is None else PBINS[:k]
+                tot = Counter()
+                for b in bins:
+                    tot.update(P.get(b, {}))
+                n = sum(tot.get(q, 0) for q in PKEYS)
+                cells.append(f'<td>{pct(tot.get("found", 0), n)}<br><span class="faint">{tot.get("probe_silent", 0) / n * 100 if n else 0:.1f} % silent'
+                             f', n={n:,}</span></td>')
+        rows.append(f'<tr><td>{esc(lab)}</td>' + ''.join(cells) + '</tr>')
+    rows.append('</table>')
+    return '<div style="overflow-x:auto">' + ''.join(rows) + '</div>'
+
+
+def svg_xtalk(g, w=440, H=250):
+    """P(neighbour channel c+-k fires within +-100 ns | muon pad with ADC in bin), on minus off, per chamber."""
+    out = []
+    for d in ('P2_IN', 'P2_MID', 'P2_OUT'):
+        X_ = g['xtalk'].get(d)
+        if not X_:
+            continue
+        x0, y0, ww, hh = 50, 200, w - 70, 175
+        vals = []
+        for k in range(3):
+            row = []
+            for b in range(11):
+                n = X_['n'][b]
+                row.append((X_['on'][k][b] - X_['off'][k][b]) / n if n >= 30 else None)
+            vals.append(row)
+        top = max([v for r in vals for v in r if v is not None] + [0.05])
+        top = math.ceil(top * 20) / 20
+        o = [f'<svg viewBox="0 0 {w} {H}" class="dia" role="img" aria-label="crosstalk {d}">']
+        for f in (0, .25, .5, .75, 1):
+            y = y0 - hh * f
+            o.append(f'<line x1="{x0}" y1="{y:.1f}" x2="{x0 + ww}" y2="{y:.1f}" class="grid"/><text x="{x0 - 5}" '
+                     f'y="{y + 4:.1f}" class="lbl small" text-anchor="end">{100 * top * f:.0f} %</text>')
+        X = lambda b: x0 + (b + .5) * ww / 11
+        for k, cls in zip(range(3), ('xk1', 'xk2', 'xk3')):
+            pts = [(X(b), y0 - hh * v / top) for b, v in enumerate(vals[k]) if v is not None]
+            if pts:
+                o.append(f'<polyline points="{" ".join(f"{x:.1f},{y:.1f}" for x, y in pts)}" class="{cls}"/>')
+                o.extend(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.5" class="{cls}d"/>' for x, y in pts)
+        for b in range(11):
+            lab = 'sat' if b == 10 else f'{b * 100}'
+            o.append(f'<text x="{X(b):.1f}" y="{y0 + 14}" class="lbl small" text-anchor="middle">{lab}</text>')
+        o.append(f'<text x="{x0 + ww / 2}" y="{y0 + 32}" class="lbl small" text-anchor="middle">ADC of the muon pad '
+                 f'(bins of 100; sat = 1000+)</text><text x="{x0}" y="14" class="lbl" font-weight="700">{d}</text>')
+        o.append('</svg>')
+        out.append(''.join(o))
+    leg = ('<p class="small-legend"><span class="sw" style="background:var(--xk1)"></span>channel ± 1 &nbsp; '
+           '<span class="sw" style="background:var(--xk2)"></span>± 2 &nbsp; '
+           '<span class="sw" style="background:var(--xk3)"></span>± 3 (chance rate from +4 µs subtracted)</p>')
+    return '<div class="row3">' + ''.join(out) + '</div>' + leg
+
+
+def xtalk_totals(g):
+    out = {}
+    for d, X_ in g['xtalk'].items():
+        n = sum(X_['n'])
+        out[d] = [(sum(X_['on'][k]) - sum(X_['off'][k])) / n if n else 0 for k in range(3)]
+        out[d + ':sat'] = [(X_['on'][k][10] - X_['off'][k][10]) / X_['n'][10] if X_['n'][10] else 0 for k in range(3)]
+        out[d + ':b0'] = [(X_['on'][k][0] - X_['off'][k][0]) / X_['n'][0] if X_['n'][0] else 0 for k in range(3)]
+        out[d + ':low'] = [(sum(X_['on'][k][:3]) - sum(X_['off'][k][:3])) / max(sum(X_['n'][:3]), 1) for k in range(3)]
+    return out
+
+
 # ------------------------------------------------------------------------------------------- the page
 def body():
     fm, nm = svg_funnel(REF, 'P2_MID')
@@ -447,10 +582,13 @@ def body():
       f'live pad, {pct(nm["found"], nm["n3"])} are found, <b>{pct(nm["probe_silent"], nm["n3"])} leave no hit at all '
       f'in the chamber</b>, {pct(nm["probe_far"], nm["n3"])} fire far from the prediction, '
       f'{pct(nm["probe_near_late"], nm["n3"])} fire near but outside the time window.</div>')
-    A('<p class="faint">Data: lab cosmic stand, weekend scan 19-20 Nov 2026, all runs 268-286 except the pulser runs 270 '
-      f'and 283. Reference configuration (gain 4.5, trimmed thresholds Km18): runs {sorted(set(REF["runs"]))}, '
-      f'{REF["n_scint"]:,} scintillator coincidences; all configurations: {ALL["n_scint"]:,}. Code: '
-      '<code>cosmic_vmm_analysis/muon_funnel.py</code> (same cuts as <code>efficiency_tp.py</code>).</p>')
+    A('<p class="faint">Data: lab cosmic stand, weekend scan from 19 Nov 2026, runs '
+      f'{min(ALL["runs"])}-{max(ALL["runs"])} without the pulser runs (configurations ending in _tpA / _tpB). '
+      f'Reference configuration REF (gain 4.5 mV/fC, trimmed thresholds Km18; chip config file '
+      f'<code>..._trimmed_Km18_v1_hvm.txt</code> in the logbook): runs {", ".join(map(str, sorted(set(REF["runs"]))))} '
+      f'(268 = the 20-min end-to-end test), {REF["n_scint"]:,} scintillator coincidences; all configurations: '
+      f'{ALL["n_scint"]:,}. Code: <code>cosmic_vmm_analysis/muon_funnel.py</code> (same cuts as '
+      '<code>efficiency_tp.py</code>).</p>')
 
     A('<h2>1. The set-up and the words</h2>')
     A('<h3>1a. The stand</h3>')
@@ -595,6 +733,59 @@ def body():
       'add ~15 % more tagged muons. It would not change the efficiency much: the lost muons fire the probe about as '
       'often as the kept ones (+1-3 points).</p>')
 
+    xt = xtalk_totals(REF)
+    A('<h3>5d. How often does crosstalk fire in muon data?</h3>')
+    A('<p>For every pad of a muon cluster (in any chamber, in the muon window): does the channel next to it on the same '
+      'chip (± 1, ± 2, ± 3) fire within ± 100 ns? The same channels 4 µs later give the chance rate (it is zero to '
+      '1 in 10 000). Plotted against the ADC of the muon pad:</p>')
+    A(svg_xtalk(REF))
+    A('<p>For a muon pad with a medium signal (ADC 200-700) a neighbour fires in about 1 % of the cases. When the '
+      f'muon pad <b>saturates</b> (ADC 1000+) the ± 1 neighbour fires in {100 * xt["P2_IN:sat"][0]:.0f} % (IN), '
+      f'{100 * xt["P2_MID:sat"][0]:.0f} % (MID), {100 * xt["P2_OUT:sat"][0]:.0f} % (OUT) of the cases, and the '
+      f'<b>± 2 neighbour even more</b>: {100 * xt["P2_IN:sat"][1]:.0f} %, {100 * xt["P2_MID:sat"][1]:.0f} %, '
+      f'{100 * xt["P2_OUT:sat"][1]:.0f} %; ± 3 stays at the per-cent level. The size agrees with the internal-pulser '
+      'study (16 Nov: the neighbour\'s baseline moves by ~3.5 % of the pulse): a saturated muon pad carries a charge '
+      'well above the ADC range, and a few per cent of it is above the threshold. So this is the crosstalk seen with '
+      'the pulser, now with real signals; here it costs tags, not probe efficiency. Two things to understand: why '
+      '± 2 couples more than ± 1 (the channel order on the hybrid / connector?), and the lowest-ADC bin (muon pad ADC '
+      f'&lt; 100: ± 1 fires in {100 * xt["P2_OUT:b0"][0]:.0f}-{100 * xt["P2_IN:b0"][0]:.0f} %), where the "muon pad" '
+      'is itself small and may not be the muon.</p>')
+
+    A('<h3>5e. Do the tagged muons go back to the scintillators?</h3>')
+    A(f'<figure>{svg_paddle_diagram()}</figure>')
+    A('<p>The scintillators fired, so the muon went through the top and the bottom paddles. We extend the line '
+      'through the two tag clusters up to the top paddles (z = -100 ... 0 mm) and down to the bottom paddle '
+      '(z = 1225 ... 1275 mm) and measure how far it is inside or outside them. The paddle positions are '
+      '<b>not measured</b>: they come from the 4 Nov fit of the October tag maps (statistical precision ~1-2 mm, '
+      'systematic unknown; the stand may have been touched since). The extrapolation also magnifies the tag position '
+      'errors (the bottom paddle is 335 mm below OUT). So a miss of a few cm is not yet proof of a wrong tag; '
+      'the test is whether the classes change with the miss.</p>')
+    A(f'<figure>{svg_paddle_bins(REF, "P2_MID")}<figcaption>P2_MID as probe (REF): the muons expected on a live pad, '
+      'binned by how far the tag line is inside the paddles (top) or misses them (bottom).</figcaption></figure>')
+    A('<details><summary>P2_OUT and P2_IN as probe</summary>' +
+      f'<figure>{svg_paddle_bins(REF, "P2_OUT")}<figcaption>P2_OUT (REF)</figcaption></figure>' +
+      f'<figure>{svg_paddle_bins(REF, "P2_IN")}<figcaption>P2_IN (REF)</figcaption></figure></details>')
+    A('<p><b>Found share</b> (and the silent share below it) when only the tag lines that go back to the paddles are '
+      'kept:</p>')
+    A(paddle_table([('REF', REF), ('all', ALL)]))
+    PM = REF['probes']['P2_MID']['paddle']
+    def share(bins, key):
+        t = Counter()
+        for b in bins:
+            t.update(PM.get(b, {}))
+        n = sum(t.get(q, 0) for q in PKEYS)
+        return 100 * t.get(key, 0) / n if n else 0, n
+    fi, ni = share(PBINS[:4], 'found')
+    fo, no_ = share(PBINS[4:], 'found')
+    si, _ = share(PBINS[:4], 'probe_silent')
+    so, _ = share(PBINS[4:], 'probe_silent')
+    A(f'<p>For P2_MID: {no_:,} of {ni + no_:,} tagged muons ({100 * no_ / (ni + no_):.0f} %) have a line that misses a '
+      f'paddle. They are found less often ({fo:.0f} % against {fi:.0f} %), mostly because more of them are FAR, '
+      f'which is what a wrong tag would give. But the SILENT share barely changes ({so:.0f} % against {si:.0f} %), '
+      'and keeping only the lines that go back through both paddles moves the efficiency by about one point. '
+      '<b>Discarding these muons is a reasonable cleaning step, but it does not change the picture: the chamber '
+      'stays silent for ~12-13 % of the muons that certainly crossed it.</b></p>')
+
     A('<h2>6. So where does the inefficiency arise?</h2>')
     m = exp['P2_MID']
     n3 = m['n3']
@@ -620,13 +811,15 @@ def body():
       '<li>I proposed ranking clusters by time, paddle geometry and angle. The extra pieces turn out to be crosstalk '
       'pads, so a simpler rule (drop single, low-ADC, in-time pads 1-3 channels from a muon channel) should do; to be '
       'tested.</li></ul></div>')
-    A('<h2>7. Questions for you</h2><ol>'
-      '<li>Is the neighbour-channel crosstalk known for this set-up (chip, hybrid, cables)? Channel differences of 1-3 '
-      'suggest it happens before the channel-to-pad routing.</li>'
-      '<li>For the write-up, shall we use this chain as the efficiency definition: scintillator-confirmed muons, two '
-      'clean tags, prediction on a live pad, probe hit within 15 mm in the muon window?</li>'
-      f'<li>The reference set includes run 284 (same configuration name as 268/269). Is that right, or was something '
-      'else changed for 284?</li></ol>')
+    A('<h2>7. Open points</h2><ol>'
+      '<li><b>Efficiency definition</b>: on hold until the points below are understood.</li>'
+      '<li><b>Paddle positions</b>: the paddle check uses positions fitted to the October tag maps. Has the stand '
+      '(paddles or chambers) moved since? A refit on the weekend data, or a measurement with a ruler, would turn '
+      'the paddle check from "indicative" into a cut.</li>'
+      '<li><b>Crosstalk</b>: measured here per muon pad vs ADC; next is a filter that drops single, in-time '
+      'neighbour-channel pads before the cluster cuts, and to count how many tags it recovers.</li>'
+      '<li><b>Crosstalk pattern</b>: why channel ± 2 fires more often than ± 1 next to a saturated pad, and why '
+      'the smallest "muon pads" (ADC &lt; 100) also show neighbours: to look at.</li></ol>')
     return '\n'.join(out)
 
 
@@ -634,12 +827,12 @@ STYLE = """
   :root { --k-geo:#b9b7b0; --k-geo2:#cfcdc6; --k-geo3:#a3a19a; --k-rej:#6250d6; --k-fid:#e87ba4; --k-fid2:#c25b87;
           --k-sil:#e34948; --k-far:#eda100; --k-late:#2a78d6; --k-ok:#1baf7a;
           --c-in:#2a78d6; --c-mid:#eb6834; --c-out:#1baf7a; --pad:#ecebe6; --pad-line:#d6d4cc; --ink:#1d1f24;
-          --ink2:#5f6570; --dead:#55534e; }
+          --ink2:#5f6570; --dead:#55534e; --xk1:#e34948; --xk2:#eda100; --xk3:#6250d6; }
   @media (prefers-color-scheme: dark) {
     :root { --k-geo:#6f6e68; --k-geo2:#5b5a55; --k-geo3:#84837c; --k-rej:#9085e9; --k-fid:#d55181; --k-fid2:#e87ba4;
             --k-sil:#e66767; --k-far:#c98500; --k-late:#3987e5; --k-ok:#199e70;
             --c-in:#3987e5; --c-mid:#d95926; --c-out:#199e70; --pad:#2a2d33; --pad-line:#3a3e45; --ink:#e8e8e4;
-            --ink2:#a5a9b1; --dead:#8c8a84; }
+            --ink2:#a5a9b1; --dead:#8c8a84; --xk1:#e66767; --xk2:#c98500; --xk3:#9085e9; }
   }
   main.wrap, .site-header .wrap, .site-footer .wrap { max-width: 1180px; }
   .note-body { max-width: none; }
@@ -671,6 +864,10 @@ STYLE = """
   .circ { fill: none; stroke: var(--ink); stroke-width: 1.4; stroke-dasharray: 4 3; } .predc { fill: var(--ink); }
   .fbar { fill: var(--ink2); opacity: .55; } .fbar.ok { fill: var(--k-ok); opacity: 1; }
   .bar { fill: var(--c-in); } .bar2 { fill: var(--c-mid); }
+  .xk1 { fill: none; stroke: var(--xk1); stroke-width: 2; } .xk1d { fill: var(--xk1); }
+  .xk2 { fill: none; stroke: var(--xk2); stroke-width: 2; } .xk2d { fill: var(--xk2); }
+  .xk3 { fill: none; stroke: var(--xk3); stroke-width: 2; } .xk3d { fill: var(--xk3); }
+  .small-legend { font-size: .85rem; color: var(--fg-muted); }
   .markl { stroke: var(--k-sil); stroke-width: 1.5; stroke-dasharray: 4 3; }
   .chl { stroke: var(--ink); stroke-width: 1.6; }
   .chip-pad { fill: var(--c-mid); opacity: .28; }
