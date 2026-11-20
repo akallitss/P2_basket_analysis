@@ -9,6 +9,7 @@ import html
 import json
 import math
 import re
+import os
 import sys
 from collections import Counter
 
@@ -18,6 +19,7 @@ REF, ALL = G['REF'], G['ALL']
 PADS = S['pads']
 EX = S['examples']
 GS = json.load(open(sys.argv[3])) if len(sys.argv) > 3 else None
+FIGDIR = os.path.basename(sys.argv[2]).replace('.html', '_files/')
 PROBES = ['P2_MID', 'P2_OUT', 'P2_IN']
 TAGS = {'P2_MID': ('P2_IN', 'P2_OUT'), 'P2_OUT': ('P2_IN', 'P2_MID'), 'P2_IN': ('P2_MID', 'P2_OUT')}
 Z = {'P2_IN': 320, 'P2_MID': 630, 'P2_OUT': 940}
@@ -644,10 +646,10 @@ def gain_section(GS):
     A('<p><b>What it says.</b></p><ol>'
       '<li><b>The electronics gain itself does not matter, the threshold in charge does.</b> Gains 3, 4.5 and 6 '
       'put the threshold at 3.2-4.4 fC (the noise-rate rule gives about the same charge at every gain) and give the '
-      'same silent share, 12.4-14.5 % for P2_MID. Gain 9 sits at 6.7-8 fC and loses clearly more (22-25 %), but it is '
-      'not a fair "more gain" point: its per-channel trims could not reach their noise-rate target on 360-708 of the '
-      '1152 channels (clipped, the threshold stays higher), and the target itself is higher in charge (5.1-5.8 fC '
-      'against 3.4-3.8 fC at gain 3). The same, milder, for gain 6 at R = 2 Hz (167 channels clipped, 5.3 fC).</li>'
+      'same silent share, 12.4-14.5 % for P2_MID. Gain 9 sits at 6.7-8 fC and loses clearly more (22-25 %). Two '
+      'things push its thresholds up: the same channel needs ~1.5x more charge for the same noise rate, and on '
+      '360-708 of the 1152 channels the trims could not reach their target (clipped). Section 8 shows that the '
+      'clipped channels are not more often silent, so clipping is not what makes gain 9 worse.</li>'
       f'<li><b>Over the whole range</b> the silent share grows by {100 * fm["slope_per_fC"]:.1f} ± '
       f'{100 * fm["slope_err"]:.1f} points per fC (P2_MID; P2_OUT and P2_IN similar).</li>'
       f'<li><b>Inside the reachable range</b> (3.2-4.4 fC, the shaded band) the slope is only {100 * fl["slope_per_fC"]:.1f} ± '
@@ -666,7 +668,7 @@ def gain_section(GS):
       'for a part of the 12.5 % that is not threshold at all. The direct measurement is a mesh-HV scan with REF '
       'electronics: silent vs mesh HV.</li></ol>')
     A('<p class="faint">Caveats: the threshold in fC uses the nominal gains and the DAC-vs-baseline distance, not a '
-      'measured transfer function; at gain 9 some trims are clipped, so its real thresholds are spread wider. The '
+      'measured transfer function (the muon pulse height confirms the nominal gains, section 8). The '
       'bscan settings show up to 45 % FAR (probe fired, but far from the prediction) although random hits are below '
       '1 %: the tag positions are wrong there for a reason still to find; their silent share is normal and is used.</p>')
     return '\n'.join(out)
@@ -926,7 +928,47 @@ def body():
       'tested.</li></ul></div>')
     if GS:
         A(gain_section(GS))
-    A('<h2>8. Open points</h2><ol>'
+    A('<h2>8. Checking that nothing is mixed up: four tests</h2>')
+    A('<p>Before concluding that more electronics gain cannot help, four checks (code in '
+      '<code>cosmic_vmm_analysis/</code>, products in <code>$W/analysis/gain_scan/out/</code>, see References). The '
+      'figures are the ones of the weekly-meeting deck of 20 Nov.</p>')
+    F = FIGDIR
+    A(f'<div class="row2"><figure><img src="{F}c_gain_real.png" alt="gain real"><figcaption><b>1. The gain is real.</b> '
+      'The muon pulse height (largest pad ADC minus ~40 ADC baseline, median) grows like the nominal gain: 1.8-2.2x at '
+      'gain 6, 2.8-3.2x at gain 9, in all three chambers. The settings were applied and the conversion to fC is '
+      'right.</figcaption></figure>'
+      f'<figure><img src="{F}c_noise_fC.png" alt="noise in charge"><figcaption><b>2. Effect 1: more gain, more noise in '
+      'charge.</b> For the same channel and the same noise rate, the threshold in charge is 1.19x (gain 6) and 1.47x '
+      '(gain 9) the one at gain 3 (bscan_target reports of 18 Nov). The noise grows faster than the signal, so the '
+      'threshold relative to the muon signal gets worse with gain.</figcaption></figure></div>')
+    A(f'<div class="row2"><figure><img src="{F}c_trim_spread.png" alt="trim spread"><figcaption><b>3a. Effect 2: the trim '
+      'range.</b> Inside one chip the needed thresholds spread over ~10 mV (gain 3), ~20 mV (gain 6) and 38-65 mV '
+      '(gain 9); a trim corrects at most ~34 mV, so at gain 9 360-708 channels stay higher (clipped).</figcaption>'
+      f'</figure><figure><img src="{F}c_clipped.png" alt="clipped"><figcaption><b>3b. But clipping does not cost '
+      'muons.</b> Muons predicted on clipped channels are not more often silent than on well-trimmed ones (gain 9: '
+      '19-23 % vs 20-24 %). Channels without a measured noise crossing (given the chip median) are worse at gain 6 '
+      'R = 2 Hz and gain 9 R = 10 Hz: a calibration gap.</figcaption></figure></div>')
+    A(f'<div class="row2"><figure><img src="{F}c_spectrum.png" alt="spectrum"><figcaption><b>4a. Is the silent share a '
+      'threshold tail?</b> Largest-pad ADC of the found muons (full resolution, ADC non-linearity corrected), relative '
+      'to the median. The threshold edge (dotted) is at 12-19 % of the typical signal; extending the spectrum below '
+      'it gives 2-6 % of the muons, against 13-14 % silent. Charge sharing is not the cause: 93-97 % of the found '
+      'muons fire one pad.</figcaption></figure>'
+      f'<figure><img src="{F}c_late.png" alt="late"><figcaption><b>4b. At gain 9 some "silent" muons are late.</b> A hit '
+      'near the prediction 100 ns - 1 µs after the window: ~3 % of the silent muons at REF, 14 % (P2_MID) and 25 % '
+      '(P2_IN) at gain 9; the found muons are on time at every gain.</figcaption></figure></div>')
+    A(f'<figure><img src="{F}c_silent_parts.png" alt="parts" style="max-width:720px"><figcaption><b>Putting it '
+      'together (P2_MID).</b> Orange: the threshold tail predicted from the spectrum (error bar: the two '
+      'extrapolations); navy: hits outside the time window; red: no hit at all, not explained by a smooth tail. '
+      'Gains 3 to 6: 13-14 % silent, of which 3-5 points look like a threshold tail and 8-10 points do not. Gain 9: '
+      '24 %, of which ~4 points are late hits.</figcaption></figure>')
+    A('<div class="callout"><b>Conclusion.</b> Nothing is mixed up: the gain settings are real and were applied. '
+      'Raising the VMM gain does not help, because the noise in charge grows faster than the signal (effect 1); the '
+      'short trim range at gain 9 (effect 2) exists but does not cost muons. Within the noise we can accept, P2_MID '
+      'reaches ~87-88 % "any hit". Only a part (3-5 points) of the 13 % silent muons behaves like signal just below '
+      'threshold, which more detector gain would recover; the larger part (8-10 points) leaves no signal above '
+      'threshold at all, and is the next thing to understand (where, which chips, does DREAM lose the same '
+      'muons?).</div>')
+    A('<h2>9. Open points</h2><ol>'
       '<li><b>Efficiency definition</b>: on hold until the points below are understood.</li>'
       '<li><b>Detector gain</b>: a mesh-HV scan of P2_MID with REF electronics would measure directly how fast the '
       'silent share drops with signal (your call on the HV).</li>'
@@ -937,7 +979,52 @@ def body():
       '<li><b>Crosstalk</b>: measured here per muon pad vs ADC; next is a filter that drops single, in-time '
       'neighbour-channel pads before the cluster cuts, and to count how many tags it recovers.</li>'
       '<li><b>Crosstalk pattern</b>: why channel ± 2 fires more often than ± 1 next to a saturated pad, and why '
-      'the smallest "muon pads" (ADC &lt; 100) also show neighbours: to look at.</li></ol>')
+      'the smallest "muon pads" (ADC &lt; 100) also show neighbours: to look at.</li>'
+      '<li><b>The no-signal muons</b> (8-10 points of P2_MID): where on the chamber, which chips, at which times; and '
+      'does DREAM lose the same muons on the same pads?</li>'
+      '<li><b>Gain-9 late hits</b>: what delays them (large or saturated pulses?).</li>'
+      '<li><b>Calibration gap</b>: channels without a measured noise-rate crossing (given the chip median).</li></ol>')
+    A('<h2>10. References</h2>')
+    A('<h3>Data</h3><ul>'
+      '<li>Raw captures (EOS backup of the DAQ box): <code>/eos/experiment/ntof/data/x17/p2_sps_july/vmm_cosmic_run_oct26/runs/run_NNN</code></li>'
+      '<li>Logbook (configuration of every run): <code>/eos/experiment/ntof/data/x17/p2_sps_july/vmm_cosmic_run_oct26/logbook/LOGBOOK.md</code> '
+      '(DAQ box: <code>/local/p2/p2data/cosmics_3det_202610/logbook/</code>)</li>'
+      '<li>Weekend analysis area <code>$W = /eos/experiment/ntof/data/x17/p2_sps_july/vmm_cosmic_run_oct26/analysis_lxplus/weekend_20261119</code>: '
+      'per-tag dumps <code>$W/tags/</code>, pseudo-run map <code>$W/pseudo/chunks.json</code>, efficiency pipeline '
+      '<code>$W/results/current/</code></li>'
+      '<li>Muon funnel: <code>$W/analysis/muon_funnel/</code> (run*.json, summary.json, paddles_fit_20261104.json)</li>'
+      '<li>Gain scan: <code>$W/analysis/gain_scan/out/</code> (gain_scan_eff.*, muon_adc_gain.csv, threshold_spectrum.json, '
+      'silent_vs_clipped.txt, silent_late_hits.txt, silent_vs_pad_position.txt), threshold reports '
+      '<code>$W/analysis/gain_scan/reports/</code> (copies of <code>~/trim_work/out/gain_20261118/hvon_g*_R*_report.json</code> and '
+      '<code>~/trim_work/out/bscan_20261116/hvon*_v1_report.json</code> on the DAQ box), deck figures <code>$W/analysis/gain_scan/deck_figs/</code></li>'
+      '<li>Read-out / dead time / sparks: <code>$W/analysis/deadtime_sparks/results/</code>, <code>$W/analysis/pulser_tick225/</code>, '
+      'figures <code>$W/analysis/wrapup_20261119/out/</code></li>'
+      '<li>Paddle positions: 4 Nov trigger-acceptance fit, <code>data/LAB_Measurements/VMM-cosmics/vmm_threshold_scan/analysis_wk2/trigger_acceptance_mc/fit.json</code></li>'
+      '<li>DREAM references: cosmic_bench_analysis stage 06 <code>ray_hit_miss_list*.csv</code> (M3 bench), '
+      '<code>sps_beam_analysis/dream_vmm_comparison/</code> (SPS beam)</li></ul>')
+    A('<h3>Code</h3><p>Repository P2_basket_analysis, branch <code>decoder-tick-225</code>, directory <code>cosmic_vmm_analysis/</code>; '
+      'all run on lxplus with <code>$W/pipeline/env.sh</code> and <code>PYTHONPATH=$W/pipeline/cva</code>.</p>'
+      '<div style="overflow-x:auto"><table><tr><th>script</th><th>what</th></tr>'
+      '<tr><td><code>muon_funnel.py</code> (+ <code>_summary.py</code>, <code>_job.sh</code>, <code>.sub</code>)</td><td>every scintillator coincidence through the tag-and-probe; paddle check; crosstalk rate</td></tr>'
+      '<tr><td><code>efficiency_tp.py</code>, <code>channel_efficiency.py</code></td><td>the tag-and-probe and the per-tag dumps</td></tr>'
+      '<tr><td><code>gain_scan_eff.py</code></td><td>funnel classes per gain-scan setting vs threshold in charge</td></tr>'
+      '<tr><td><code>muon_adc_gain.py</code></td><td>real gain from the muon pulse height</td></tr>'
+      '<tr><td><code>trim_reports.py</code></td><td>what the per-gain threshold calibration achieved</td></tr>'
+      '<tr><td><code>threshold_spectrum.py</code></td><td>muon spectrum at the threshold edge, charge sharing</td></tr>'
+      '<tr><td><code>silent_vs_clipped.py</code>, <code>silent_late_hits.py</code>, <code>silent_vs_pad_position.py</code></td><td>the silent-muon tests</td></tr>'
+      '<tr><td><code>tag_rejects.py</code>, <code>wrapup_losses.py</code></td><td>rejected tags; read-out / dead time / sparks figures</td></tr>'
+      '<tr><td><code>note/muon_funnel_page.py</code>, <code>note/gain_deck_figs.py</code>, <code>note/deck_update_20261120.py</code></td><td>this page, the deck figures, the deck update</td></tr>'
+      '</table></div>')
+    A('<h3>Documents</h3><ul>'
+      '<li>Weekly-meeting deck: <code>LaCie …/1.General_Info/presentations/WeeklyMeetings/P2_Detector_Performance_Gain_2026-11-20.pptx</code> '
+      '(and .pdf; build inputs in <code>.build_P2_Detector_Performance/update_20261120/</code>)</li>'
+      '<li>Handoffs: <code>cosmic_vmm_analysis/HANDOFF_analysis_20261119d.md</code>, <code>HANDOFF_analysis_20261120.md</code>; '
+      'wrap-up <code>WRAPUP_20261119.md</code></li>'
+      '<li>Weekend run plan: <code>DAQ_Control_VMM_Beam/docs/HANDOFF_WEEKEND_RUNS_20261119.md</code>; threshold calibration: '
+      '<code>vmm_monitor_tool/fastscan/bscan_target.py</code></li>'
+      '<li>Related notes on this site: "Cosmic stand: 3D trigger geometry" (4 Nov), "VMM thresholds explained" (16 Nov), '
+      '"Does a lower VMM threshold make the P2 chambers more efficient?" (17 Nov), "VMM efficiency autopsy" (SPS, 16 Aug)</li>'
+      '</ul>')
     return '\n'.join(out)
 
 
@@ -992,6 +1079,7 @@ STYLE = """
   .chip-pad { fill: var(--c-mid); opacity: .28; }
   .sw { display: inline-block; width: .8em; height: .8em; border-radius: 2px; margin-right: .45em; vertical-align: -.05em; }
   .evfig figcaption { font-size: .82rem; }
+  .note-body figure img { width: 100%; height: auto; display: block; }
 """
 
 page = body()
