@@ -59,8 +59,11 @@ def main():
                 q = g['probes'].setdefault(p, {'on': Counter(), 'off': Counter(), 'chip': defaultdict(Counter),
                                                'd_far': Counter(), 'd_found': Counter(),
                                                'paddle': defaultdict(Counter)})
-                for k in ('on', 'off', 'd_far', 'd_found'):
-                    q[k].update(v[k])
+                for k in ('on', 'off', 'd_far', 'd_found', 'margin_cut', 'margin_cut_off'):
+                    q.setdefault(k, Counter()).update(v.get(k, {}))
+                for k in ('probe_r', 'margin_mm'):          # muon_funnel.py --pointing: per-probe radius, margin
+                    if k in v:
+                        q.setdefault(k + '_set', set()).add(v[k])
                 for c, cc in v['chip'].items():
                     q['chip'][c].update(cc)
                 for c, cc in v.get('paddle', {}).items():
@@ -96,6 +99,9 @@ def main():
         for p in g['probes'].values():
             p['chip'] = {c: dict(v) for c, v in p['chip'].items()}
             p['paddle'] = {c: dict(v) for c, v in p['paddle'].items()}
+            for k in ('probe_r', 'margin_mm'):
+                if k + '_set' in p:
+                    p[k] = sorted(p.pop(k + '_set'))
     out = {'groups': G, 'pads': pads,
            'examples': {p: {c: lst[:a.examples] for c, lst in byc.items()} for p, byc in examples.items()}}
     json.dump(out, open(a.out, 'w'))
@@ -103,7 +109,8 @@ def main():
         g = G[name]
         print(name, g['n_scint'], sorted(set(g['runs'])))
         for p, v in g['probes'].items():
-            print('  ', p, dict(v['on']), 'off', dict(v['off']))
+            print('  ', p, dict(v['on']), 'off', dict(v['off']), 'probe_r', v.get('probe_r'), 'margin',
+                  v.get('margin_mm'), 'margin_cut', dict(v.get('margin_cut', {})))
         for d, v in g['rejects'].items():
             print('  ', d, dict(v['states']), dict(v['reasons']), dict(v['pieces']), 'same chip',
                   v['extra']['same_chip'], '/', v['extra']['n'])
