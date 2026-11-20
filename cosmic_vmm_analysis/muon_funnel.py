@@ -147,6 +147,79 @@ def piece_info(ch, gidx, r):
     return k, out
 
 
+PAD_L, PAD_W = 600.0, 200.0
+PMISS_EDGES = [-1e9, -60, -30, -15, 0, 15, 30, 60, 120, 1e9]
+PMISS_LAB = ['inside >60', 'inside 30-60', 'inside 15-30', 'inside 0-15', 'misses 0-15', 'misses 15-30',
+             'misses 30-60', 'misses 60-120', 'misses >120']
+
+
+def rect_dist(x, y, cx, cy, ang):
+    """signed distance of (x, y) to a 600 x 200 mm paddle rectangle: > 0 outside (mm), < 0 inside (depth)."""
+    t = np.radians(ang)
+    u = (x - cx) * np.cos(t) + (y - cy) * np.sin(t)
+    v = -(x - cx) * np.sin(t) + (y - cy) * np.cos(t)
+    du, dv = abs(u) - PAD_L / 2, abs(v) - PAD_W / 2
+    if du > 0 or dv > 0:
+        return float(np.hypot(max(du, 0), max(dv, 0)))
+    return float(max(du, dv))
+
+
+def paddle_miss(P, za, xa, ya, zb, xb, yb):
+    """how far the straight line through the two tag points misses the paddles: max over (top, bottom) of the
+    smaller signed distance of its two faces (a paddle counts as crossed when the line is inside on either face)."""
+    def at(z):
+        f = (z - za) / (zb - za)
+        return xa + f * (xb - xa), ya + f * (yb - ya)
+    out = []
+    for name, faces in (('top', P['z_top']), ('bottom', P['z_bottom'])):
+        g = P[name]
+        out.append(min(rect_dist(*at(z), g[0], g[1], g[2]) for z in faces))
+    return max(out)
+
+
+def pmiss_bin(d):
+    return PMISS_LAB[int(np.searchsorted(PMISS_EDGES, d, side='right')) - 1]
+
+
+def chan_times(ch):
+    key = ch.v * 64 + ch.c
+    o = np.argsort(key, kind='stable')
+    ks, st = np.unique(key[o], return_index=True)
+    en = list(st[1:]) + [len(o)]
+    to = ch.t[o]
+    return {int(k): to[s0:e0] for k, s0, e0 in zip(ks, st, en)}
+
+
+def fired(tt, lo, hi):
+    return tt is not None and np.searchsorted(tt, hi, side='right') > np.searchsorted(tt, lo)
+
+
+def crosstalk(ch, CT, gidx, r, offset, X_):
+    """per live hit of the main (largest-ADC) piece of group gidx: does channel c+-k (k = 1, 2, 3, same chip, not in
+    the main piece) fire within +-100 ns of it (on), and in the same window +offset (off)? -> (adc bin, k, on, off)."""
+    s0, s1 = ch.starts[gidx], ch.ends[gidx]
+    ok = ch.ok[s0:s1]
+    x, y, a, v, c, t = (q[s0:s1][ok] for q in (ch.x, ch.y, ch.a, ch.v, ch.c, ch.t))
+    if not len(x):
+        return []
+    lab = pieces(x, y, r)
+    main = int(np.argmax([a[lab == i].sum() for i in range(lab.max() + 1)]))
+    m = lab == main
+    own = set((v[m] * 64 + c[m]).tolist())
+    out = []
+    for vv, cc, aa, tt in zip(v[m], c[m], a[m], t[m]):
+        b = int(min(aa // 100, 10))
+        for k in (1, 2, 3):
+            on = off = False
+            for nc in (cc - k, cc + k):
+                if 0 <= nc < 64 and (vv * 64 + nc) not in own:
+                    T_ = CT.get(int(vv * 64 + nc))
+                    on |= fired(T_, tt - 100, tt + 100)
+                    off |= fired(T_, tt - 100 + offset, tt + 100 + offset)
+            out.append((b, k, on, off))
+    return out
+
+
 def one_run(path, a, acc):
     J = json.load(open(path))
     p = J['params']
@@ -183,6 +256,16 @@ def one_run(path, a, acc):
         r_.setdefault('states_off', Counter())
         for ts in ts_all:
             r_['states_off'][CH[d].state(ts + a.offset, lo, hi)[0]] += 1
+        CT = chan_times(CH[d])
+        xt = acc['xtalk'].setdefault(NAME[d], {'n': [0] * 11, 'on': [[0] * 11 for _ in range(3)],
+                                               'off': [[0] * 11 for _ in range(3)]})
+        for s_, g_ in S[d]:
+            if s_ != 'none':
+                for b, k, on, off in crosstalk(CH[d], CT, g_, p['cluster_r'], a.offset, X):
+                    if k == 1:
+                        xt['n'][b] += 1
+                    xt['on'][k - 1][b] += int(on)
+                    xt['off'][k - 1][b] += int(off)
         for s_, g_ in S[d]:
             r_['states'][s_] += 1
             if s_ == 'rejected':
@@ -193,14 +276,15 @@ def one_run(path, a, acc):
     for pr, (ta, tb) in TAGS.items():
         key = NAME[pr]
         res = acc['probes'].setdefault(key, {'on': Counter(), 'off': Counter(), 'chip': defaultdict(Counter),
-                                             'd_far': Counter(), 'd_found': Counter()})
+                                             'd_far': Counter(), 'd_found': Counter(),
+                                             'paddle': defaultdict(Counter)})
         lat = J[f'probe_det{pr}']['latency_ns']
         off_xy = J[f'probe_det{pr}']['offset_mm']
         cx, cy, cv, cc, cl = pads[pr]
         for i_ts, ts in enumerate(ts_all):
             sa, ga = S[ta][i_ts]
             sb, gb = S[tb][i_ts]
-            px = py = None
+            px = py = pm = None
             extra = {}
             if sa == 'none' and sb == 'none':
                 cls = 'no_tag_both'
@@ -222,6 +306,7 @@ def one_run(path, a, acc):
                 q = int(np.argmin(d2))
                 t_tag = CH[ta].t0[ga]
                 chip = int(cv[q])
+                pm = paddle_miss(a._paddles, Z[ta], xa, ya, Z[tb], xb, yb) if a._paddles else None
                 if d2[q] >= p['fid_r']:
                     cls = 'outside_area'
                 elif not cl[q]:
@@ -248,9 +333,12 @@ def one_run(path, a, acc):
                         else:
                             res['off'][c_] += 1
             res['on'][cls] += 1
+            if px is not None and pm is not None:
+                res['paddle'][pmiss_bin(pm)][cls] += 1
             ex = acc['examples'].setdefault(key, {}).setdefault(cls, [])
             if len(ex) < a.examples and (cls != 'found' or len(ex) < 2):
                 ex.append({'run': J['params']['title'], 'class': cls, 'extra': extra,
+                           'pmiss': None if px is None or pm is None else round(pm, 1),
                            'pred': None if px is None else [round(float(px), 1), round(float(py), 1)],
                            'hits': {NAME[d]: CH[d].hits(ts - 200, ts + 600, ts) for d in (3, 2, 1)}})
     acc['n_scint'] += len(ts_all)
@@ -264,13 +352,24 @@ def main():
     ap.add_argument('--hi', type=float, default=310)
     ap.add_argument('--offset', type=float, default=4000)
     ap.add_argument('--examples', type=int, default=4)
+    ap.add_argument('--paddles', default='', help='trigger_acceptance_mc.py fit.json (model "geometry"): paddle '
+                    'centres and angles in the pad frame; tagged muons are then binned by how far their line misses')
     a = ap.parse_args()
-    acc = {'n_scint': 0, 'probes': {}, 'rejects': {}, 'examples': {}}
+    a._paddles = None
+    if a.paddles:
+        F = json.load(open(a.paddles))
+        g = F['geometry']['fit']
+        zf = F['zfaces_mm']
+        a._paddles = {'top': (g['top_x'], g['top_y'], g['top_angle']),
+                      'bottom': (g['bottom_x'], g['bottom_y'], g['bottom_angle']),
+                      'z_top': (zf[0], zf[1]), 'z_bottom': (zf[2], zf[3])}
+    acc = {'n_scint': 0, 'probes': {}, 'rejects': {}, 'examples': {}, 'xtalk': {}}
     for j in a.jsons:
         one_run(j, a, acc)
         print(j, acc['n_scint'], flush=True)
     for k, r in acc['probes'].items():
         r['chip'] = {c: dict(v) for c, v in r['chip'].items()}
+        r['paddle'] = {c: dict(v) for c, v in r['paddle'].items()}
     json.dump(acc, open(a.out, 'w'), default=lambda o: dict(o) if isinstance(o, Counter) else str(o))
 
 
