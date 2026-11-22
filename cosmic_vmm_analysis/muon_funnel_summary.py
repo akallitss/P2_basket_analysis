@@ -59,7 +59,7 @@ def main():
                 q = g['probes'].setdefault(p, {'on': Counter(), 'off': Counter(), 'chip': defaultdict(Counter),
                                                'd_far': Counter(), 'd_found': Counter(),
                                                'paddle': defaultdict(Counter)})
-                for k in ('on', 'off', 'd_far', 'd_found', 'margin_cut', 'margin_cut_off'):
+                for k in ('on', 'off', 'd_far', 'd_found', 'margin_cut', 'margin_cut_off', 'unphys_cut', 'unphys_cut_off'):
                     q.setdefault(k, Counter()).update(v.get(k, {}))
                 for k in ('probe_r', 'margin_mm'):          # muon_funnel.py --pointing: per-probe radius, margin
                     if k in v:
