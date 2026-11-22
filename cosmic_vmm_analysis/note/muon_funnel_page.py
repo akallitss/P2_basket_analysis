@@ -38,6 +38,7 @@ CLS = [  # key, short label, css var, step
     ('no_tag_A', 'tag A silent', '--k-geo2', 1),
     ('no_tag_B', 'tag B silent', '--k-geo3', 1),
     ('tag_rejected', 'tag group rejected', '--k-rej', 2),
+    ('unphysical', 'tag line misses a scintillator paddle (unphysical)', '--k-unph', 3),
     ('outside_area', 'prediction outside the read-out area', '--k-fid', 3),
     ('dead_pad', 'prediction on a dead / masked pad', '--k-fid2', 3),
     ('probe_silent', 'probe SILENT', '--k-sil', 4),
@@ -204,7 +205,7 @@ def svg_funnel(g, p, w=900):
     n0 = g['n_scint']
     n1 = n0 - c['no_tag_both'] - c['no_tag_A'] - c['no_tag_B']
     n2 = n1 - c['tag_rejected']
-    n3 = n2 - c['outside_area'] - c['dead_pad']
+    n3 = n2 - c['outside_area'] - c['dead_pad'] - c.get('unphysical', 0)
     n4 = c['found']
     A, B = TAGS[p]
     steps = [
@@ -213,7 +214,7 @@ def svg_funnel(g, p, w=900):
             ('no_tag_B', f'{B[3:]} did not fire')]),
         (n1, f'both tag chambers ({A[3:]} and {B[3:]}) fired', [('tag_rejected', 'a tag hit group is not a clean cluster')]),
         (n2, 'two clean tags = a tagged muon with a predicted point', [
-            ('outside_area', f'prediction outside {p[3:]}\'s read-out area' +
+            ('unphysical', 'line misses a paddle'), ('outside_area', f'prediction outside {p[3:]}\'s read-out area' +
                              (f' or < {MARG[p]:.0f} mm from its edge' if MARG[p] else '')), ('dead_pad', 'prediction on a dead pad')]),
         (n3, f'muon expected on a live pad of {p[3:]} = the efficiency denominator', [
             ('probe_silent', f'{p[3:]} SILENT'), ('probe_far', f'{p[3:]} fired far away'),
@@ -1046,6 +1047,10 @@ def svg_tag_cartoon(w=440, H=250):
 def silent_tests_section():
     """5d: angle, pad map, tag pulse height of the silent muons (silent_tests.py on the per-tag dumps)."""
     R = ST['REF']
+    med = {}
+    for p in ('P2_IN', 'P2_MID', 'P2_OUT'):
+        fr = sorted(r[5] for r in R[p]['pads'])
+        med[p] = fr[len(fr) // 2] if fr else float('nan')
     o = ['<h3>5d. Why silent? Angle, place, tag pulse height</h3>']
     o.append('<p>From the per-tag dumps of the same runs (scintillator-confirmed tags, random tag pairs subtracted, the '
              'same edge margin; silent = no live probe hit within ±100 ns of the tag + latency). First: <b>a silent '
@@ -1088,16 +1093,13 @@ def silent_tests_section():
              'a 0.8 mm pillar from tan θ ≈ 0.2. The silent share drops by only ~2 points from the vertical bin to '
              'tan θ = 0.3 (about what the longer path, 1/cos θ, gives to a signal near threshold), so the silent muons '
              'are <b>not</b> a geometric hole.</p>')
-    med = {}
-    for p in ('P2_IN', 'P2_MID', 'P2_OUT'):
-        fr = sorted(r[5] for r in R[p]['pads'])
-        med[p] = fr[len(fr) // 2] if fr else float('nan')
     o.append('<h4>Test 2: where on the chamber are the silent muons?</h4>')
     o.append('<div class="row3">' + ''.join(svg_padmap(p, R) for p in ('P2_IN', 'P2_MID', 'P2_OUT')) + '</div>' +
              svg_pad_scale())
     o.append(f'<figure style="max-width:560px">{svg_pad_hist(R)}<figcaption>The same pads as a distribution. IN and '
              'OUT: most pads at 0-10 %, near the pillar line, plus a tail of bad pads. MID: the whole distribution is '
-             'shifted, its typical pad is at 12 %. Each pad has 15-40 muons, so ±5-8 % is pure statistics.'
+             f'shifted, its typical pad is at {100 * med["P2_MID"]:.0f} %. Each pad has 15-60 muons, so ±4-8 % is pure '
+             'statistics.'
              '</figcaption></figure>')
     o.append('<figure style="max-width:560px">' + svg_bins(
         [(p[3:], CHC[p], R[p]['vs_dead_dist']) for p in ('P2_IN', 'P2_MID', 'P2_OUT')],
@@ -1109,10 +1111,11 @@ def silent_tests_section():
              'median pad is silent for ' + ', '.join(f'{p[3:]} {100 * med[p]:.1f} %' for p in ('P2_IN', 'P2_MID',
                                                                                               'P2_OUT')) +
              ': IN and OUT sit near the pillar floor on a typical pad and reach their mean through a few bad pads; '
-             'P2_MID\'s typical pad is already at 12 %. The pad-to-pad spread is only modestly above statistical (χ²/ndf ' +
+             f'P2_MID\'s typical pad is already at {100 * med["P2_MID"]:.0f} %. '
+             'Some pads are genuinely worse than others (pad-to-pad χ²/ndf ' +
              ', '.join(f'{p[3:]} {R[p]["pad_chi2_ndf"][0]:.0f}/{R[p]["pad_chi2_ndf"][1]}' for p in ('P2_IN', 'P2_MID',
                                                                                                     'P2_OUT')) +
-             '). Two local effects exist but are small: predictions within 12 mm of a dead / masked pad are silent '
+             '), but the shift of P2_MID is not carried by a few pads: its whole distribution moves. Two local effects are small: predictions within 12 mm of a dead / masked pad are silent '
              f'{100 * R["P2_MID"]["vs_dead_dist"][0]["f"]:.0f} % (MID), ~0.3 points of the total; and the big ⌀ 6.15 mm '
              f'pillars are visible in P2_MID (within 8 mm: {100 * R["P2_MID"]["vs_big_pillar"][0]["f"]:.0f} % silent, '
              f'n = {R["P2_MID"]["vs_big_pillar"][0]["n"]:.0f}; all configurations: '
@@ -1139,6 +1142,67 @@ def silent_tests_section():
     return ''.join(o)
 
 
+def svg_unphys(w=900, H=300):
+    """side view of the stand with the paddles: a physical and an unphysical tag line."""
+    o = [f'<svg viewBox="0 0 {w} {H}" class="dia" role="img" aria-label="physical and unphysical tracks">']
+    zy = lambda z: 22 + (z + 110) * (H - 50) / 1400
+    xx = lambda x: 300 + x * 0.55
+    for z0, z1, lab in ((-100, -50, 'top paddles'), (-50, 0, ''), (1225, 1275, 'bottom paddle')):
+        o.append(f'<rect x="{xx(-300)}" y="{zy(z0):.1f}" width="{600 * 0.55}" height="{zy(z1) - zy(z0) - 1:.1f}" '
+                 f'class="pad-scint"/>' + (f'<text x="{xx(310)}" y="{(zy(z0) + zy(z1)) / 2 + 8:.1f}" class="lbl">{lab}</text>'
+                                            if lab else ''))
+    for nm, z in Z.items():
+        o.append(f'<rect x="{xx(-250)}" y="{zy(z) - 5:.1f}" width="{500 * 0.55}" height="10" rx="3" class="ch-full"/>'
+                 f'<text x="{xx(-260)}" y="{zy(z) + 4:.1f}" class="lbl small" text-anchor="end">{nm[3:]}</text>')
+    # physical: through both paddles
+    o.append(f'<line x1="{xx(-60)}" y1="{zy(-110):.1f}" x2="{xx(150)}" y2="{zy(1290):.1f}" class="tr-ok"/>'
+             f'<circle cx="{xx(-60 + 210 * 430 / 1400):.1f}" cy="{zy(320):.1f}" r="5" class="hit-in"/>'
+             f'<circle cx="{xx(-60 + 210 * 1050 / 1400):.1f}" cy="{zy(940):.1f}" r="5" class="hit-out"/>'
+             f'<text x="{xx(160)}" y="{zy(1180):.1f}" class="lbl small tr-ok-t">physical: the line crosses both paddles</text>')
+    # unphysical: tags give a line that misses the bottom paddle by far
+    o.append(f'<line x1="{xx(-200)}" y1="{zy(-110):.1f}" x2="{xx(-560)}" y2="{zy(1290):.1f}" class="tr-miss"/>'
+             f'<circle cx="{xx(-200 - 360 * 430 / 1400):.1f}" cy="{zy(320):.1f}" r="5" class="hit-in"/>'
+             f'<circle cx="{xx(-200 - 360 * 1050 / 1400):.1f}" cy="{zy(940):.1f}" r="5" class="hit-out"/>'
+             f'<text x="{xx(-540)}" y="{zy(1180):.1f}" class="lbl small tr-miss-t">unphysical: misses the bottom paddle'
+             '</text><text x="{0}" y="{1}" class="lbl small tr-miss-t">(a tag is not this muon: noise or a second '
+             'particle)</text>'.replace('{0}', f'{xx(-540)}').replace('{1}', f'{zy(1180) + 15:.1f}'))
+    o.append('</svg>')
+    return ''.join(o)
+
+
+def unphys_section(exp):
+    """3e: reject tag lines that cannot have crossed both paddles."""
+    o = ['<h3>3e. Unphysical tracks: the tag line must cross both paddles (22 Nov)</h3>']
+    o.append(f'<figure style="max-width:760px">{svg_unphys()}<figcaption>Side view, not to scale. The scintillator '
+             'coincidence says the muon crossed a top AND the bottom paddle. If the straight line through the two tag '
+             'clusters cannot do that, one of the clusters is not this muon, and its prediction in the probe is '
+             'meaningless.</figcaption></figure>')
+    o.append('<p>The line is extrapolated from the tags to each paddle face. Its error there grows with the lever arm: '
+             'σ = s·√((1−f)² + f²), with s ≈ 3.9 mm per chamber (section 3b) - about 6 mm for the IN+OUT line (MID '
+             'probe), 9-15 mm for the IN+MID and MID+OUT lines - and 10 mm is added in quadrature for the paddle '
+             'positions, which come from the 4 Nov fit to the tag maps. A track is <b>unphysical</b> when its line '
+             'misses a paddle (on that paddle\'s nearer face) by more than 3 σ. Like "outside the area", these muons '
+             'are not tested at all.</p>')
+    o.append('<table><tr><th>probe (REF)</th><th>tracks removed</th><th>they would have been: found / silent / far / '
+             'outside or dead</th><th>found before → after</th><th>silent before → after</th></tr>')
+    for p in ('P2_IN', 'P2_MID', 'P2_OUT'):
+        e = exp[p]
+        u = REF['probes'][p].get('unphys_cut', {})
+        bf = {k: e[k] + u.get(k, 0) for k in PKEYS}
+        nb = sum(bf.values())
+        o.append(f'<tr><td>{p}</td><td>{e.get("unphysical", 0):,}</td>'
+                 f'<td>{u.get("found", 0):,} / {u.get("probe_silent", 0):,} / {u.get("probe_far", 0):,} / '
+                 f'{u.get("outside_area", 0) + u.get("dead_pad", 0):,}</td>'
+                 f'<td>{pct(bf["found"], nb)} → <b>{pct(e["found"], e["n3"])}</b></td>'
+                 f'<td>{pct(bf["probe_silent"], nb)} → {pct(e["probe_silent"], e["n3"])}</td></tr>')
+    o.append('</table>')
+    o.append('<p>The rejected tracks are mostly ones the probe <i>found</i>: an unphysical line is usually a good '
+             'line with paddle positions slightly off, or a tag cluster shifted by a crosstalk pad, rather than a '
+             'fake. So the cut cleans the sample but moves the efficiency by well under a point, and it does not '
+             'touch the silent share: the silent muons are not unphysical tracks.</p>')
+    return ''.join(o)
+
+
 def cuts_section():
     """3d: every cut of the current estimate, in order."""
     rows = [
@@ -1150,6 +1214,10 @@ def cuts_section():
          'position = mean pad centre, time = earliest hit; otherwise "tag rejected" (not counted)'),
         ('prediction', 'straight line through the two tag positions (z 320 / 630 / 940 mm) + the run\'s median '
          'probe offset', ''),
+        ('physical track', '<b>new (22 Nov):</b> the line through the two tags passes through BOTH scintillator '
+         'paddles (the coincidence requires it), within 3 times its extrapolation error at the paddle '
+         '(s · √((1−f)² + f²), s = one-chamber resolution) combined with 10 mm for the paddle positions',
+         'otherwise "unphysical" (not counted); section 3e'),
         ('fiducial', 'nearest probe pad within 9 mm of the prediction and live (≥ 1 hit in the run, not on a dead '
          'chip, not vetoed); <b>new:</b> prediction at least 2 σ<sub>point</sub> inside the outline: ' +
          ', '.join(f'{p[3:]} {MARG[p]:.0f} mm' for p in ('P2_IN', 'P2_MID', 'P2_OUT')),
@@ -1206,7 +1274,8 @@ def body():
           f'of 15 mm, and a {MARG["P2_IN"]:.0f} mm edge margin. P2_IN and P2_OUT go to {pct(ni_["found"], ni_["n3"])} '
           f'and {pct(no_["found"], no_["n3"])} found (from 72-74 %); P2_MID does not move. (2) The ceiling is not '
           f'100 %: the bulk pillars (mask V1) cover {100 * PILLAR:.2f} % of the pad area (section 3c). The cuts in use are listed in '
-          'section 3d. All numbers on this page use the new radius, except the PNG figures of section 8 (made with the '
+          'section 3d. <b>22 Nov:</b> tracks whose tag line cannot have crossed both scintillator paddles '
+          '("unphysical") are now rejected too (section 3e). All numbers on this page use the new cuts, except the PNG figures of section 8 (made with the '
           'fixed 15 mm; P2_MID, which they show, changes by &lt; 0.3 points).</div>')
     A('<p class="faint">Data: lab cosmic stand, weekend scan from 19 Nov 2026, runs '
       f'{min(ALL["runs"])}-{max(ALL["runs"])} without the pulser runs (configurations ending in _tpA / _tpB). '
@@ -1270,6 +1339,8 @@ def body():
     if PT:
         A(pointing_section(exp))
     A(pillar_section(exp))
+    if any(REF['probes'][p].get('unphys_cut') for p in PROBES):
+        A(unphys_section(exp))
     A(cuts_section())
 
     A('<h2>4. Each class, with a real event</h2>')
@@ -1586,12 +1657,12 @@ def body():
 
 
 STYLE = """
-  :root { --k-geo:#b9b7b0; --k-geo2:#cfcdc6; --k-geo3:#a3a19a; --k-rej:#6250d6; --k-fid:#e87ba4; --k-fid2:#c25b87;
+  :root { --k-geo:#b9b7b0; --k-geo2:#cfcdc6; --k-geo3:#a3a19a; --k-rej:#6250d6; --k-fid:#e87ba4; --k-fid2:#c25b87; --k-unph:#8a6d3b;
           --k-sil:#e34948; --k-far:#eda100; --k-late:#2a78d6; --k-ok:#1baf7a;
           --c-in:#2a78d6; --c-mid:#eb6834; --c-out:#1baf7a; --pad:#ecebe6; --pad-line:#d6d4cc; --ink:#1d1f24;
           --ink2:#5f6570; --dead:#55534e; --xk1:#e34948; --xk2:#eda100; --xk3:#6250d6; --g3:#2a78d6; --g45:#eb6834; --g6:#1baf7a; --g9:#6250d6; }
   @media (prefers-color-scheme: dark) {
-    :root { --k-geo:#6f6e68; --k-geo2:#5b5a55; --k-geo3:#84837c; --k-rej:#9085e9; --k-fid:#d55181; --k-fid2:#e87ba4;
+    :root { --k-geo:#6f6e68; --k-geo2:#5b5a55; --k-geo3:#84837c; --k-rej:#9085e9; --k-fid:#d55181; --k-fid2:#e87ba4; --k-unph:#b8955a;
             --k-sil:#e66767; --k-far:#c98500; --k-late:#3987e5; --k-ok:#199e70;
             --c-in:#3987e5; --c-mid:#d95926; --c-out:#199e70; --pad:#2a2d33; --pad-line:#3a3e45; --ink:#e8e8e4;
             --ink2:#a5a9b1; --dead:#8c8a84; --xk1:#e66767; --xk2:#c98500; --xk3:#9085e9; --g3:#3987e5; --g45:#d95926; --g6:#199e70; --g9:#9085e9; }
