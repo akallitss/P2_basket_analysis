@@ -24,6 +24,14 @@ which is ~2x larger for the extrapolated IN / OUT than for the interpolated MID)
 (the true crossing point may be outside the chamber); 'margin_cut' counts, per would-be class, the tracks this removes.
 --margin-live: the margin is measured from the live pads (dead / masked pads are holes) instead of the outline.
 
+--paddle-cut K (needs --paddles; 22 Nov): UNPHYSICAL tracks are removed before the probe test. The scintillator
+coincidence says the muon crossed the top AND the bottom paddle, so the straight line through the two tags must pass
+through both. The line is extrapolated to each paddle face; its error there is s * hypot(1 - f, f) (f = extrapolation
+factor, s = one-chamber resolution from the pointing json, MID sigma_res / sqrt(1.5)), plus --paddle-sys mm for the
+paddle positions (fitted to the October tag maps). A track whose line misses a paddle (on its nearer face) by more than
+K times that error is class 'unphysical' (not tested, like outside_area); 'unphys_cut' counts, per would-be class,
+what this removes.
+
 Random hits: the probe classes are re-evaluated with the probe window shifted by --offset ns (same tags), and every
 class count gets the shifted-window version subtracted in the summary.
 
@@ -50,7 +58,7 @@ _ang = np.linspace(0, 2 * np.pi, 16, endpoint=False)
 RING = np.r_[np.c_[np.cos(_ang), np.sin(_ang)], 0.5 * np.c_[np.cos(_ang), np.sin(_ang)]]
 NAME = {3: 'P2_IN', 2: 'P2_MID', 1: 'P2_OUT'}
 TAGS = {2: (3, 1), 1: (3, 2), 3: (2, 1)}
-CLASSES = ['no_tag_both', 'no_tag_A', 'no_tag_B', 'tag_rejected', 'outside_area', 'dead_pad', 'probe_silent',
+CLASSES = ['no_tag_both', 'no_tag_A', 'no_tag_B', 'tag_rejected', 'unphysical', 'outside_area', 'dead_pad', 'probe_silent',
            'probe_far', 'probe_near_late', 'found']
 
 
@@ -173,6 +181,21 @@ def rect_dist(x, y, cx, cy, ang):
     return float(max(du, dv))
 
 
+def paddle_miss_norm(P, za, xa, ya, zb, xb, yb, s, sys_mm):
+    """as paddle_miss, but every face distance divided by the line's extrapolation error at that face:
+    max over (top, bottom) of min over its faces of d / hypot(s * hypot(1 - f, f), sys_mm)."""
+    out = []
+    for name, faces in (('top', P['z_top']), ('bottom', P['z_bottom'])):
+        g = P[name]
+        best = np.inf
+        for z in faces:
+            f = (z - za) / (zb - za)
+            x, y = xa + f * (xb - xa), ya + f * (yb - ya)
+            best = min(best, rect_dist(x, y, g[0], g[1], g[2]) / np.hypot(s * np.hypot(1 - f, f), sys_mm))
+        out.append(best)
+    return max(out)
+
+
 def paddle_miss(P, za, xa, ya, zb, xb, yb):
     """how far the straight line through the two tag points misses the paddles: max over (top, bottom) of the
     smaller signed distance of its two faces (a paddle counts as crossed when the line is inside on either face)."""
@@ -292,6 +315,9 @@ def one_run(path, a, acc):
         res['probe_r'], res['margin_mm'] = probe_r, margin
         res.setdefault('margin_cut', Counter())
         res.setdefault('margin_cut_off', Counter())
+        res.setdefault('unphys_cut', Counter())
+        res.setdefault('unphys_cut_off', Counter())
+        res['paddle_cut'] = a.paddle_cut
         lat = J[f'probe_det{pr}']['latency_ns']
         off_xy = J[f'probe_det{pr}']['offset_mm']
         cx, cy, cv, cc, cl = pads[pr]
@@ -321,6 +347,9 @@ def one_run(path, a, acc):
                 t_tag = CH[ta].t0[ga]
                 chip = int(cv[q])
                 pm = paddle_miss(a._paddles, Z[ta], xa, ya, Z[tb], xb, yb) if a._paddles else None
+                unphys = bool(a.paddle_cut and a._paddles and
+                              paddle_miss_norm(a._paddles, Z[ta], xa, ya, Z[tb], xb, yb, a._s_ch, a.paddle_sys)
+                              > a.paddle_cut)
                 in_margin = True
                 if margin > 0:
                     mx_, my_ = (cx[cl], cy[cl]) if a.margin_live else (cx, cy)
@@ -344,10 +373,14 @@ def one_run(path, a, acc):
                                 c_ = 'found'
                             else:
                                 c_ = 'probe_near_late'
-                            if w == 'on' and in_margin:
+                            if w == 'on' and in_margin and not unphys:
                                 b = 'inf' if not np.isfinite(dn) else str(int(min(dn, 300) // 5 * 5))
                                 res['d_far' if c_ == 'probe_far' else 'd_found'][b] += 1
-                        if not in_margin:          # inside the chamber, but closer than the margin to its edge
+                        if unphys:                 # the tag line does not go through both paddles
+                            res['unphys_cut' if w == 'on' else 'unphys_cut_off'][c_] += 1
+                            if w == 'on':
+                                cls = 'unphysical'
+                        elif not in_margin:        # inside the chamber, but closer than the margin to its edge
                             res['margin_cut' if w == 'on' else 'margin_cut_off'][c_] += 1
                             if w == 'on':
                                 cls = 'outside_area'
@@ -356,9 +389,12 @@ def one_run(path, a, acc):
                             res['chip'][str(chip)][c_] += 1
                         else:
                             res['off'][c_] += 1
-                if not in_margin and cls == 'dead_pad':
+                if not in_margin and cls == 'dead_pad' and not unphys:
                     res['margin_cut']['dead_pad'] += 1
                     cls = 'outside_area'
+                if unphys and cls in ('outside_area', 'dead_pad'):
+                    res['unphys_cut'][cls] += 1
+                    cls = 'unphysical'
             res['on'][cls] += 1
             if px is not None and pm is not None:
                 res['paddle'][pmiss_bin(pm)][cls] += 1
@@ -383,8 +419,16 @@ def main():
                     'centres and angles in the pad frame; tagged muons are then binned by how far their line misses')
     ap.add_argument('--pointing', default='', help='pointing_resolution.py json: per-probe probe_r and edge margin')
     ap.add_argument('--margin-live', action='store_true', help='edge margin from live pads (dead pads are holes)')
+    ap.add_argument('--paddle-cut', type=float, default=0.0, help='reject tracks whose tag line misses a paddle by '
+                    'more than this many extrapolation errors (0 = off; needs --paddles)')
+    ap.add_argument('--paddle-sys', type=float, default=10.0, help='paddle position uncertainty added in quadrature, mm')
+    ap.add_argument('--sigma-ch', type=float, default=0.0, help='one-chamber resolution (mm); default: from --pointing '
+                    '(REF MID sigma_res / sqrt(1.5)), else 4')
     a = ap.parse_args()
-    a._pr = json.load(open(a.pointing))['probes'] if a.pointing else None
+    PJ = json.load(open(a.pointing)) if a.pointing else None
+    a._pr = PJ['probes'] if PJ else None
+    a._s_ch = a.sigma_ch or (PJ['measured']['REF']['P2_MID']['sigma_res'] / np.sqrt(1.5)
+                             if PJ and 'REF' in PJ.get('measured', {}) else 4.0)
     a._paddles = None
     if a.paddles:
         F = json.load(open(a.paddles))
