@@ -1643,6 +1643,10 @@ STYLE = """
 """
 
 page = body()
+if os.environ.get('SAME_PADS_HTML'):   # section 9 "the same pads with DREAM" (dream_same_pads_section.py --out)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from dream_same_pads_section import insert_html
+    page = insert_html(page, open(os.environ['SAME_PADS_HTML']).read())
 doc = open(sys.argv[2]).read()
 doc = re.sub(r'<style>.*?</style>', '<style>' + STYLE.replace('\\', '\\\\') + '</style>', doc, count=1, flags=re.S)
 i = doc.index('<div class="note-body">')
