@@ -15,5 +15,16 @@
   "runs": "1-111",
   "fact": "The DATA place hybrids H1-H3 / H4-H6 / H7-H9 on connectors c5-c7 (Gerber numbering of the pad map), not c4-c6 as the cabling_note says: 511 +- 10 straight tracks/h above the chip-preserving chance level at --conn-shift 1, about 10/h at every other shift (runs 76-91 pooled). From run_112 the data say c3-c5 (--conn-shift -1), i.e. a move of two connectors in that numbering.",
   "source": "straight_track_rate.py connector-shift scan, 2026-10-29"
+ },
+ "runs_389_on_mid_chamber": {
+  "runs": "389-",
+  "wrong_text": "run_config.json detectors: P2_MID chamber 'det2'",
+  "fact": "On 2026-11-23 P2_MID was replaced by det5 (CERN bulk, CERN insulation mask 0.5 mm pillars on a 2 mm grid, 4.87 % dead area; det1-4 have mask V1, 3.78 %). Same read-out connectors c3-c5, same hybrids H4-H6 / VMMs 8-13, same HV cabling; det5 at mesh 430 / drift 730 V like det2. Runs 389 (REF, 5 min) and 390 (bscan_hvon50, 3 min) were taken with P2_IN and P2_OUT HV OFF (Kapton check only). Night 23-24 Nov from ~18:30: all three at the operating point.",
+  "source": "Alexandra, 2026-11-23"
+ },
+ "runs_389_on_mid_kapton": {
+  "runs": "389-",
+  "fact": "P2_MID c4 (hybrid H5, VMM 10 = bot strips 1-64, VMM 11 = top strips 65-128): on side B of the cable going to the bottom connector of the adaptation card, about 3 contacts after pin 38 are masked with Kapton (from the photo the tape may cover more, ~pins 37-46). Card pins 37-46 = VMM 10/11 channels 30,31,28,29,26,27,24,25,22,23. Which channels are really disconnected: HV-off sigma scan of chips 10-11 of 23 Nov 17:17 (trim_work/out/det5_kapton_20261123/sigscan) vs the 16 Nov full2 scan. Not masked in the chip configs (user).",
+  "source": "Alexandra, 2026-11-23; pad map P2_BASKET_mapping.csv (mec8_pin)"
  }
 }
