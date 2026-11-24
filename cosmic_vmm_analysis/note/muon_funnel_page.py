@@ -104,6 +104,142 @@ def svg_stand():
     return ''.join(o)
 
 
+# ---------------------------------------------------------------- section 8, S/N illustrations (24 Nov)
+SNR = {  # P2_MID, R = 10 Hz (note/snr_figs.py): muon median above baseline and noise threshold, mV
+    3: dict(S=100.0, T=10.40), 6: dict(S=194.86, T=24.48), 9: dict(S=287.38, T=46.11)}
+
+
+def svg_snr_pulses():
+    """the same muon pulse and threshold at gain 3 and gain 9, on one mV scale."""
+    import random
+    W, H, PW = 780, 330, 320
+    ym = lambda v: 270 - v * 0.78                          # mV -> px (0..300 mV)
+    o = [f'<svg viewBox="0 0 {W} {H}" class="dia" role="img" aria-label="muon pulse and threshold at gain 3 and 9">']
+    o.append('<defs><marker id="snrA" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" '
+             'orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--ink2)"/></marker></defs>')
+    for v in (0, 100, 200, 300):
+        o.append(f'<line x1="52" y1="{ym(v)}" x2="{W - 10}" y2="{ym(v)}" class="axis" style="opacity:.25"/>'
+                 f'<text x="46" y="{ym(v) + 4}" class="lbl small" text-anchor="end">{v}</text>')
+    o.append(f'<text x="14" y="{ym(150)}" class="lbl small" transform="rotate(-90 14 {ym(150)})" '
+             'text-anchor="middle">mV above the baseline</text>')
+    shape = lambda t: (t / 4) ** 2 * math.exp(2 - t / 2) if t > 0 else 0.0    # peaks at t = 4 (1.0)
+    for k, (g, col) in enumerate(((3, '--g3'), (9, '--g9'))):
+        x0 = 70 + k * (PW + 50)
+        S, T = SNR[g]['S'], SNR[g]['T']
+        sig = T / 4.29                                       # 10 Hz with a 100 kHz Gaussian-noise prefactor
+        rnd = random.Random(7 + g)
+        tx = lambda t: x0 + t * PW / 36
+        o.append(f'<text x="{x0 + PW / 2}" y="18" class="lbl" text-anchor="middle" style="font-weight:600">gain {g} '
+                 'mV/fC</text>')
+        # noise: wiggle around the baseline, ~sigma
+        pts = ' '.join(f'{tx(t / 4):.1f},{ym(rnd.gauss(0, sig)):.1f}' for t in range(0, 145))
+        o.append(f'<polyline points="{pts}" style="fill:none;stroke:var(--ink2);stroke-width:1;opacity:.7"/>')
+        # the typical muon (median) and a small one (14 % of the median)
+        for frac, dash, lab in ((1.0, '', 'typical muon'), (0.14, '5 3', 'small muon (14 % of typical)')):
+            t0 = 2 if frac == 1 else 14
+            pts = ' '.join(f'{tx(t0 + t / 10):.1f},{ym(frac * S * shape(t / 10)):.1f}' for t in range(0, 121))
+            o.append(f'<polyline points="{pts}" style="fill:none;stroke:var({col});stroke-width:2.4;'
+                     f'stroke-dasharray:{dash or "none"}"/>')
+            if frac == 1:
+                o.append(f'<text x="{tx(t0 + 4) + 8}" y="{ym(S) + 4}" class="lbl small">{lab}: {S:.0f} mV</text>')
+            else:
+                ok = frac * S > T
+                o.append(f'<text x="{tx(t0 + 4)}" y="{ym(0) + 30}" class="lbl small" '
+                         f'text-anchor="middle">small muon {frac * S:.0f} mV: {"seen" if ok else "missed"}</text>')
+        # threshold
+        o.append(f'<line x1="{tx(0)}" y1="{ym(T)}" x2="{tx(36)}" y2="{ym(T)}" '
+                 'style="stroke:var(--k-sil);stroke-width:2;stroke-dasharray:7 4"/>'
+                 f'<text x="{tx(36)}" y="{ym(T) - 5}" class="lbl small" text-anchor="end" style="fill:var(--k-sil)">'
+                 f'threshold {T:.0f} mV</text>')
+        if g == 9:   # where the threshold would be if the noise grew only like the gain
+            Tn = SNR[3]['T'] * 3
+            o.append(f'<line x1="{tx(27)}" y1="{ym(Tn)}" x2="{tx(36)}" y2="{ym(Tn)}" '
+                     'style="stroke:var(--ink2);stroke-width:1.5;stroke-dasharray:2 3"/>'
+                     f'<text x="{tx(36)}" y="{ym(Tn) + 13}" class="lbl small" text-anchor="end">noise ×3 only: '
+                     f'{Tn:.0f} mV</text>')
+        o.append(f'<text x="{x0 + PW / 2}" y="{H - 8}" class="lbl small" text-anchor="middle">signal / threshold = '
+                 f'{S:.0f} / {T:.0f} = <tspan style="font-weight:600;fill:var(--ink)">{S / T:.1f}</tspan></text>')
+        o.append(f'<line x1="{x0}" y1="{ym(0)}" x2="{x0 + PW}" y2="{ym(0)}" class="axis"/>'
+                 f'<text x="{x0 + PW}" y="{ym(0) + 30}" class="lbl small" text-anchor="end">time →</text>')
+    o.append('</svg>')
+    return ''.join(o)
+
+
+def svg_snr_rate():
+    """noise rate vs threshold for one channel at gain 3 / 6 / 9; the threshold is set where it crosses 10 Hz."""
+    W, H = 760, 300
+    X0, X1, Y0, Y1 = 70, 720, 250, 30
+    tx = lambda v: X0 + v * (X1 - X0) / 70                  # 0..70 mV
+    ty = lambda r: Y0 - math.log10(r) * (Y0 - Y1) / 5       # 1 Hz .. 100 kHz
+    o = [f'<svg viewBox="0 0 {W} {H}" class="dia" role="img" aria-label="noise rate vs threshold">']
+    for e in range(0, 6):
+        o.append(f'<line x1="{X0}" y1="{ty(10 ** e)}" x2="{X1}" y2="{ty(10 ** e)}" class="axis" style="opacity:.2"/>'
+                 f'<text x="{X0 - 6}" y="{ty(10 ** e) + 4}" class="lbl small" text-anchor="end">'
+                 f'{["1", "10", "100", "1k", "10k", "100k"][e]}</text>')
+    for v in range(0, 71, 10):
+        o.append(f'<text x="{tx(v)}" y="{Y0 + 18}" class="lbl small" text-anchor="middle">{v}</text>')
+    o.append(f'<line x1="{X0}" y1="{Y0}" x2="{X1}" y2="{Y0}" class="axis"/>'
+             f'<text x="{(X0 + X1) / 2}" y="{H - 6}" class="lbl small" text-anchor="middle">threshold, mV above the '
+             'baseline</text>'
+             f'<text x="16" y="{(Y0 + Y1) / 2}" class="lbl small" text-anchor="middle" '
+             f'transform="rotate(-90 16 {(Y0 + Y1) / 2})">noise hits per second (Hz)</text>')
+    o.append(f'<line x1="{X0}" y1="{ty(10)}" x2="{X1}" y2="{ty(10)}" style="stroke:var(--k-sil);stroke-width:1.5;'
+             f'stroke-dasharray:6 4"/><text x="{X1}" y="{ty(10) - 6}" class="lbl small" text-anchor="end" '
+             'style="fill:var(--k-sil)">chosen noise rate R = 10 Hz</text>')
+    for g, col in ((3, '--g3'), (6, '--g6'), (9, '--g9')):
+        T = SNR[g]['T']; sig = T / 4.29
+        pts = []
+        for i in range(0, 141):
+            v = i / 2
+            r = 1e5 * math.exp(-v * v / (2 * sig * sig))
+            if r < 1:
+                break
+            pts.append(f'{tx(v):.1f},{ty(min(r, 1e5)):.1f}')
+        o.append(f'<polyline points="{" ".join(pts)}" style="fill:none;stroke:var({col});stroke-width:2.4"/>')
+        o.append(f'<line x1="{tx(T)}" y1="{ty(10)}" x2="{tx(T)}" y2="{Y0}" style="stroke:var({col});stroke-width:1.2;'
+                 f'stroke-dasharray:3 3"/><circle cx="{tx(T)}" cy="{ty(10)}" r="5" style="fill:var({col})"/>'
+                 f'<text x="{tx(T) + 6}" y="{ty(10) + 18}" class="lbl small" style="fill:var({col});font-weight:600">'
+                 f'gain {g}: {T:.0f} mV</text>')
+    o.append('</svg>')
+    return ''.join(o)
+
+
+def svg_snr_ratio():
+    """signal and threshold relative to gain 3, next to the nominal gain ratio."""
+    W, H = 760, 290
+    X0, X1, Y0, Y1 = 80, 560, 240, 25
+    tx = lambda g: X0 + (g - 3) * (X1 - X0) / 6
+    ty = lambda r: Y0 - r * (Y0 - Y1) / 5
+    o = [f'<svg viewBox="0 0 {W} {H}" class="dia" role="img" aria-label="signal and threshold relative to gain 3">']
+    for r in range(0, 6):
+        o.append(f'<line x1="{X0}" y1="{ty(r)}" x2="{X1}" y2="{ty(r)}" class="axis" style="opacity:.2"/>'
+                 f'<text x="{X0 - 8}" y="{ty(r) + 4}" class="lbl small" text-anchor="end">×{r}</text>')
+    for g in (3, 6, 9):
+        o.append(f'<text x="{tx(g)}" y="{Y0 + 18}" class="lbl small" text-anchor="middle">gain {g}</text>')
+    o.append(f'<line x1="{X0}" y1="{Y0}" x2="{X1}" y2="{Y0}" class="axis"/>'
+             f'<text x="18" y="{(Y0 + Y1) / 2}" class="lbl small" text-anchor="middle" '
+             f'transform="rotate(-90 18 {(Y0 + Y1) / 2})">value / value at gain 3</text>')
+    o.append(f'<polyline points="{tx(3)},{ty(1)} {tx(9)},{ty(3)}" style="fill:none;stroke:var(--ink2);'
+             'stroke-width:1.5;stroke-dasharray:6 4"/>'
+             f'<text x="{tx(9) + 10}" y="{ty(3) + 4}" class="lbl small">nominal gain ×3</text>')
+    for key, col, lab in (('S', '--k-ok', 'muon signal'), ('T', '--k-sil', 'noise threshold')):
+        r = {g: SNR[g][key] / SNR[3][key] for g in (3, 6, 9)}
+        o.append(f'<polyline points="{" ".join(f"{tx(g)},{ty(r[g])}" for g in (3, 6, 9))}" '
+                 f'style="fill:none;stroke:var({col});stroke-width:2.4"/>')
+        for g in (3, 6, 9):
+            o.append(f'<circle cx="{tx(g)}" cy="{ty(r[g])}" r="5.5" style="fill:var({col})"/>')
+            if g > 3:
+                o.append(f'<text x="{tx(g) - 10}" y="{ty(r[g]) + (-10 if key == "T" else 18)}" class="lbl small" '
+                         f'text-anchor="end">×{r[g]:.2f}</text>')
+        o.append(f'<text x="{tx(9) + 10}" y="{ty(r[9]) + 4 + (-2 if key == "T" else 12)}" class="lbl" '
+                 f'style="fill:var({col});font-weight:600">{lab}</text>')
+    o.append(f'<text x="{X0 + 20}" y="{ty(4.7)}" class="lbl small">S/T at gain 3, 6, 9:</text>'
+             f'<text x="{X0 + 20}" y="{ty(4.7) + 18}" class="lbl" style="font-weight:600">'
+             + ' → '.join('%.1f' % (SNR[g]['S'] / SNR[g]['T']) for g in (3, 6, 9)) + '</text>')
+    o.append('</svg>')
+    return ''.join(o)
+
+
 def svg_timeline():
     """time around one scintillator coincidence."""
     W, H = 760, 200
@@ -1556,46 +1692,73 @@ def body():
       '<code>cosmic_vmm_analysis/</code>, products in <code>$W/analysis/gain_scan/out/</code>, see References). The '
       'figures are the ones of the weekly-meeting deck of 20 Nov.</p>')
     F = FIGDIR
+    A('<!-- snr:begin -->')
     A('<h3>The two effects as a signal-to-noise ratio (added 24 Nov)</h3>'
-      '<p>Effects 1 and 2 below are both about one number: how far the muon signal sits above the threshold. '
-      '<b>S</b> = the median muon pulse height (largest pad of the found muons, minus the 40 ADC baseline, with '
-      '1.07 ADC/mV). <b>T</b> = the threshold above baseline, median over the chamber, for a noise rate of 10 Hz per '
-      'channel. Because the noise rate falls like exp(&minus;T²/2σ²), a fixed noise rate means a fixed number of '
-      'noise σ. So S/T is the S/N divided by a constant, and the way S/T changes with the gain is the way the S/N '
-      'changes. Two values of T are shown: the one the noise asks for, channel by channel (effect 1), and the one '
-      'actually set after the trim. The trim adds the clipped channels (effect 2).</p>')
+      '<p>Effects 1 and 2 below are both about one question: how far does the muon signal sit above the threshold? '
+      'Three pictures, step by step, all for P2_MID with the noise rate set to 10 Hz per channel.</p>')
+    A('<p><b>Step 1: what the threshold is.</b> Every VMM channel sees a small random noise around its baseline. A '
+      'muon gives a pulse on top. The VMM records a hit only when the pulse goes above a threshold, which we set in mV '
+      'above the baseline. Raising the electronics gain (mV per fC of charge) makes <i>everything</i> taller: the '
+      'muon pulse and the noise. Below, the same mV scale is used for both gains.</p>')
+    A(f'<figure>{svg_snr_pulses()}<figcaption>Measured values for P2_MID; the pulse and noise shapes are drawn by '
+      'hand. Typical muon = the median pulse height of the found muons. At gain 9 the muon is 2.9× taller than at gain '
+      '3, but the threshold had to go up 4.4×, more than the gain. The small muon (14 % of a typical one) is above '
+      'threshold at gain 3 and below it at gain 9. The dotted line is where the gain-9 threshold would be if the '
+      'noise grew only like the gain.</figcaption></figure>')
+    A('<p><b>Step 2: how we choose the threshold.</b> We do not choose a fixed number of mV. For every channel, the '
+      'threshold calibration (<code>bscan_target.py</code>) scans the threshold with no muons and counts noise hits '
+      'per second. The threshold is put where this rate falls to the chosen value R (here 10 Hz), plus 0.5 mV. Noisier '
+      'channel or higher gain: the curve is wider, so it crosses 10 Hz further out.</p>')
+    A(f'<figure>{svg_snr_rate()}<figcaption>Noise rate vs threshold for one channel; the shape is schematic (Gaussian '
+      'noise), the 10 Hz crossings are the measured P2_MID medians: 10, 24 and 46 mV. With Gaussian noise the rate '
+      'falls like exp(&minus;T²/2σ²), so "10 Hz" always means the same number of noise σ. That is why '
+      'signal/threshold (S/T) can be read as the S/N up to a constant factor.</figcaption></figure>')
+    A('<p><b>Step 3: "relative to gain 3".</b> Take each quantity at gain 6 or 9 and divide it by the same quantity '
+      'at gain 3. If the gain were the only thing that changes, the muon signal and the noise threshold would both '
+      'follow the nominal gain ratio (×2 at gain 6, ×3 at gain 9), and S/T would stay the same.</p>')
+    A(f'<figure>{svg_snr_ratio()}<figcaption>The muon signal follows the nominal gain (×1.95, ×2.87: test 1, the gain '
+      'is real). The threshold the noise asks for grows faster (×2.35, ×4.43). So S/T drops from 9.6 to 6.2: '
+      'more electronics gain lowers the S/N instead of raising it (effect 1).</figcaption></figure>')
+    A('<p><b>Step 4: the threshold actually set.</b> The trim can only move each channel by ~34 mV inside its chip. '
+      'At gain 9 the needed thresholds inside a chip spread more than that, so some channels stay higher than '
+      'needed (clipped, effect 2). The figure below shows S/T for all three chambers, with the threshold the noise '
+      'asks for and the one actually set.</p>')
     A(f'<div class="row2"><figure><img src="{F}c_snr.png" alt="signal over threshold vs gain"><figcaption><b>S/T '
       'vs electronics gain.</b> Filled, solid: the threshold the noise asks for. Open, dashed: the threshold actually '
-      'set. The shaded gap is what the trim loses. At gains 3 and 6 it is about 1 mV, the margin and '
-      'headroom built into the trim. At gain 9 it is the clipped channels.</figcaption></figure>'
+      'set. The shaded gap is what the trim loses. At gains 3 and 6 it is about 1 mV, the margin and headroom built '
+      'into the trim. At gain 9 it is the clipped channels.</figcaption></figure>'
       '<div><div style="overflow-x:auto"><table><tr><th>P2_MID, R = 10 Hz</th><th>gain 3</th><th>gain 6</th>'
       '<th>gain 9</th></tr>'
-      '<tr><td>muon signal S (fC)</td><td>33</td><td>32</td><td>32</td></tr>'
-      '<tr><td>threshold the noise asks for (fC)</td><td>3.5</td><td>4.1</td><td>5.1</td></tr>'
+      '<tr><td>muon signal S (mV above baseline)</td><td>100</td><td>195</td><td>287</td></tr>'
+      '<tr><td>&nbsp;&nbsp;relative to gain 3</td><td>1</td><td>1.95</td><td>2.87</td></tr>'
+      '<tr><td>threshold the noise asks for T (mV)</td><td>10.4</td><td>24.5</td><td>46.1</td></tr>'
+      '<tr><td>&nbsp;&nbsp;relative to gain 3</td><td>1</td><td>2.35</td><td>4.43</td></tr>'
       '<tr><td><b>S/T, noise only</b> (effect 1)</td><td><b>9.6</b></td><td><b>8.0</b></td><td><b>6.2</b></td></tr>'
       '<tr><td><b>S/T, as set</b> (+ effect 2)</td><td><b>9.0</b></td><td><b>7.9</b></td><td><b>4.8</b></td></tr>'
       '<tr><td>clipped channels</td><td>0 / 257</td><td>19 / 353</td><td>168 / 289</td></tr>'
       '<tr><td>silent muons</td><td>14 %</td><td>14 %</td><td>24 %</td></tr></table></div>'
       '<p class="faint">S/T as set, all chambers (gain 3 / 6 / 9): P2_IN 10.7 / 9.7 / 5.9, P2_MID 9.0 / 7.9 / 4.8, '
-      'P2_OUT 6.3 / 6.4 / 4.4.</p></div></div>')
-    A('<ul><li><b>Effect 1 = the S/N falls with gain.</b> The muon signal in charge does not change (32-33 fC on '
-      'P2_MID at every gain: the gain is real, test 1). The noise in charge grows, so S/N on P2_MID goes 1 : 0.83 : '
-      '0.65 from gain 3 to 6 to 9 (P2_IN 1 : 0.86 : 0.68). More electronics gain lowers the S/N; it does not raise '
-      'it.</li>'
+      'P2_OUT 6.3 / 6.4 / 4.4. In charge (mV divided by the gain) the muon signal is 32-33 fC at every gain and the '
+      'noise threshold 3.5 / 4.1 / 5.1 fC.</p></div></div>')
+    A('<ul><li><b>Effect 1 = the S/N falls with gain.</b> The muon signal grows like the gain; the noise grows faster. '
+      'S/N on P2_MID goes 1 : 0.83 : 0.65 from gain 3 to 6 to 9 (P2_IN 1 : 0.86 : 0.68). Normally the preamplifier '
+      'noise sits before the gain stage and scales with it, so S/N should stay flat; <b>why the noise grows faster '
+      'than the gain is not understood yet</b> (non-Gaussian noise tails, a baseline shift with gain, or a change of '
+      'noise bandwidth are possible; the width of the pedestal at each gain would tell).</li>'
       '<li><b>Effect 2 = an extra S/T loss at gain 9 only.</b> The trim cannot bring the clipped channels down to their '
-      'noise threshold, so S/T as set is 24-25 % below the noise-only value on P2_MID and P2_IN (7 % on P2_OUT). At gains '
-      '3 and 6 the loss is 1-8 %. It does not cost muons (3b): the clipped channels are mostly the quiet ones of '
+      'noise threshold, so S/T as set is 24-25 % below the noise-only value on P2_MID and P2_IN (7 % on P2_OUT). At '
+      'gains 3 and 6 the loss is 1-8 %. It does not cost muons (3b): the clipped channels are mostly the quiet ones of '
       'their chip (median noise threshold 0.8× the chip median), so they are raised to roughly the level of their '
       'neighbours, not above it.</li>'
       '<li><b>S/N alone does not explain the 13-14 % silent.</b> At gains 3-6, P2_OUT runs at S/T ≈ 6.3 and P2_MID at '
       '8-9, yet both lose 12-14 % of the muons, and the silent share barely moves between gain 3 and 6 '
-      '(P2_MID 13.6 → 14.2 %). The silent '
-      'share rises only at gain 9, where S/T drops below 5 (partly late hits, 4b). The 8-10 points of "no signal" '
-      '(4a) are not a threshold effect.</li></ul>'
+      '(P2_MID 13.6 → 14.2 %). The silent share rises only at gain 9, where S/T drops below 5 (partly late hits, 4b). '
+      'The 8-10 points of "no signal" (4a) are not a threshold effect.</li></ul>'
       '<p class="faint">Numbers: <code>note/snr_figs.py</code> on <code>$W/analysis/gain_scan/out/</code> and the '
-      'bscan_target reports (<code>snr_numbers.csv</code> also has R = 2 and 50 Hz). The ADC scale (1.07 ADC/mV, '
-      'vmmsc calibration of Nov 2025) fixes the absolute S/T only to about 10-20 %. The ratios between gains and between '
-      'the two thresholds do not depend on it.</p>')
+      'bscan_target reports (<code>snr_numbers.csv</code> also has R = 2 and 50 Hz). S from the muon ADC with '
+      '1.07 ADC/mV (vmmsc calibration of Nov 2025), which fixes the absolute S/T only to about 10-20 %. The ratios '
+      'between gains and between the two thresholds do not depend on it.</p>')
+    A('<!-- snr:end -->')
     A(f'<div class="row2"><figure><img src="{F}c_gain_real.png" alt="gain real"><figcaption><b>1. The gain is real.</b> '
       'The muon pulse height (largest pad ADC minus ~40 ADC baseline, median) grows like the nominal gain: 1.8-2.2x at '
       'gain 6, 2.8-3.2x at gain 9, in all three chambers. The settings were applied and the conversion to fC is '
