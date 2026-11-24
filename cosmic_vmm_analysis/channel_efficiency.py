@@ -41,7 +41,7 @@ import numpy as np
 import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DETV = {3: range(2, 8), 2: range(8, 14), 1: range(14, 20)}
+from stand_map import CHIPS as DETV   # chip -> chamber of the stand layout in force (VMM_STAND, stand_map.py)
 NAME = {3: 'P2_IN', 2: 'P2_MID', 1: 'P2_OUT'}
 PNUM = {v: k for k, v in NAME.items()}
 DEFAULT_ORDERS = ['P2_IN:3=bot:rev|top:lin', 'P2_IN:5=bot:rev|top:lin']
