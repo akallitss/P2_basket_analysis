@@ -652,6 +652,48 @@ RUNS = {
         strategy_overrides={(8, 'top'): 'linear'},
         min_amp=0.0),
 
+    # det2 (P2_2) back on the bench 11-23-26, now on the P1 (LOWER) plane in
+    # det5's slot: connectors 2-9 on det5's Dream slots (FEU 6 ch 1-8, then
+    # FEU 7 ch 1-8), connectors 1 and 10 unplugged; HV on the P1 cables
+    # mesh 1:0 / drift 1:1. Run series p2_det2_..._430_11-24-26 (started
+    # 11-24 10:43): 1 h alignment at the operating point mesh 430 / drift 730
+    # (gap 300 V; 440 V is det2's hard mesh cap -- it drew 5-6 uA there), mesh
+    # scan 420 -> 340 V in 10 V steps at fixed 300 V gap, drift scan at mesh 430
+    # from 430 -> 1000 V in 25 V steps. The DAQ hung with 0 events from the
+    # 980 V point onwards (11-25 03:32), so drift_scan_det2_430_980/_1000 and
+    # the long run carry no data and are not fetched. Session pedestal
+    # (11-23 18:05, 200 V) -> min_amp 0. Mapping comes from run_config.json.
+    'det2_initial2': _Config(
+        'det2_initial2',
+        run='p2_det2_alignment_mesh_drift_scan_long_run_430_11-24-26',
+        sub_run='alignment_det2_430_730',
+        det_name='P2_2',
+        det_tag='det2',
+        spark_channel='1:0',
+        dead_connectors=(1, 10),
+        plane_z=240.0,   # 03 z-scan on alignment_det2_430_730 (nominal 232; FOM 1.864)
+        min_amp=0.0),
+    'det2_meshscan2': _Config(
+        'det2_meshscan2',
+        run='p2_det2_alignment_mesh_drift_scan_long_run_430_11-24-26',
+        sub_run='mesh_scan',
+        det_name='P2_2',
+        det_tag='det2',
+        spark_channel='1:0',
+        dead_connectors=(1, 10),
+        plane_z=240.0,   # 03 z-scan on alignment_det2_430_730 (nominal 232; FOM 1.864)
+        min_amp=0.0),
+    'det2_driftscan2': _Config(
+        'det2_driftscan2',
+        run='p2_det2_alignment_mesh_drift_scan_long_run_430_11-24-26',
+        sub_run='drift_scan',
+        det_name='P2_2',
+        det_tag='det2',
+        spark_channel='1:0',
+        dead_connectors=(1, 10),
+        plane_z=240.0,   # 03 z-scan on alignment_det2_430_730 (nominal 232; FOM 1.864)
+        min_amp=0.0),
+
     # det1 DRIFT scan (7-19-26 afternoon), taken right after the mesh scan
     # settled on 415 V as the working point: mesh FIXED at 415 V, drift stepped
     # 415->965 V in 50 V steps (drift gap 0->550 V), 30 min per point. Probes
