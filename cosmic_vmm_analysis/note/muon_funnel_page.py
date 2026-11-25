@@ -1647,6 +1647,10 @@ if os.environ.get('SAME_PADS_HTML'):   # section 9 "the same pads with DREAM" (d
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from dream_same_pads_section import insert_html
     page = insert_html(page, open(os.environ['SAME_PADS_HTML']).read())
+if os.environ.get('SWAP_HTML'):   # section 10 "det5 at P2_MID and the read-out swap" (det5_swap_section.py --out)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from det5_swap_section import insert_html as insert_swap
+    page = insert_swap(page, open(os.environ['SWAP_HTML']).read())
 doc = open(sys.argv[2]).read()
 doc = re.sub(r'<style>.*?</style>', '<style>' + STYLE.replace('\\', '\\\\') + '</style>', doc, count=1, flags=re.S)
 i = doc.index('<div class="note-body">')
