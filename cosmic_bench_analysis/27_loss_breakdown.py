@@ -189,7 +189,7 @@ def main():
     parts_nohit.append((f'signal below threshold (< {args.thr:g} ADC)', f_bt, int(round(missing))))
     nohit_tot = nohit.mean()
     explained = sum(p[1] for p in parts_nohit)
-    parts_nohit.append(('unexplained (M3 track, gain, ...)', max(nohit_tot - explained, 0.0), 0))
+    parts_nohit.append(('unexplained (flat vs M3 chi2 -> not reference quality; see 28)', max(nohit_tot - explained, 0.0), 0))
 
     # ---------------- FIRED BUT MIS-RECO split ------------------------------ #
     fm = ra[ra['has_any'] & ~ra['within']]

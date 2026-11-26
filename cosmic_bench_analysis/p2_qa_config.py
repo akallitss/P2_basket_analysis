@@ -164,7 +164,12 @@ class _Config:
         # on one pad, so its pads are dropped like dead ones (their cells leave
         # the denominator, their copies leave the centroids). Kept as its own
         # list for bookkeeping; folded into DEAD_CHANNELS for the pipeline.
-        self.SHORTED_CHANNELS = tuple((int(f), int(c)) for f, c in shorted_channels)
+        # Accepts either flat [(feu, ch), ...] or GROUPS [((feu, ch), ...), ...];
+        # the measured groups are kept in SHORTED_GROUPS for the illustrations.
+        _sg = [tuple(g) if isinstance(g[0], (tuple, list)) else (tuple(g),)
+               for g in shorted_channels]
+        self.SHORTED_GROUPS = tuple(tuple((int(f), int(c)) for f, c in g) for g in _sg)
+        self.SHORTED_CHANNELS = tuple(x for g in self.SHORTED_GROUPS for x in g)
         self.DEAD_CHANNELS = (tuple((int(f), int(c)) for f, c in dead_channels)
                               + self.SHORTED_CHANNELS)
         # P2 position estimator. Fired pads closer than this [mm] are linked
@@ -711,10 +716,10 @@ RUNS = {
         # 8 shorted groups (waveform-identical, 11-26 crosstalk study; same on
         # 11-24): FEU6 48-51, 209/211, 236/238, 241/243; FEU7 271-273,
         # 338-340, 351/352, 353-355.
-        shorted_channels=(((6, 48), (6, 49), (6, 50), (6, 51), (6, 209), (6, 211),
-                           (6, 236), (6, 238), (6, 241), (6, 243),
-                           (7, 271), (7, 272), (7, 273), (7, 338), (7, 339), (7, 340),
-                           (7, 351), (7, 352), (7, 353), (7, 354), (7, 355))),
+        shorted_channels=(((6, 48), (6, 49), (6, 50), (6, 51)), ((6, 209), (6, 211)),
+                          ((6, 236), (6, 238)), ((6, 241), (6, 243)),
+                          ((7, 271), (7, 272), (7, 273)), ((7, 338), (7, 339), (7, 340)),
+                          ((7, 351), (7, 352)), ((7, 353), (7, 354), (7, 355))),
         min_amp=0.0),
     'det2_meshscan2': _Config(
         'det2_meshscan2',
@@ -736,10 +741,10 @@ RUNS = {
         # 8 shorted groups (waveform-identical, 11-26 crosstalk study; same on
         # 11-24): FEU6 48-51, 209/211, 236/238, 241/243; FEU7 271-273,
         # 338-340, 351/352, 353-355.
-        shorted_channels=(((6, 48), (6, 49), (6, 50), (6, 51), (6, 209), (6, 211),
-                           (6, 236), (6, 238), (6, 241), (6, 243),
-                           (7, 271), (7, 272), (7, 273), (7, 338), (7, 339), (7, 340),
-                           (7, 351), (7, 352), (7, 353), (7, 354), (7, 355))),
+        shorted_channels=(((6, 48), (6, 49), (6, 50), (6, 51)), ((6, 209), (6, 211)),
+                          ((6, 236), (6, 238)), ((6, 241), (6, 243)),
+                          ((7, 271), (7, 272), (7, 273)), ((7, 338), (7, 339), (7, 340)),
+                          ((7, 351), (7, 352)), ((7, 353), (7, 354), (7, 355))),
         min_amp=0.0),
     'det2_driftscan2': _Config(
         'det2_driftscan2',
@@ -761,10 +766,10 @@ RUNS = {
         # 8 shorted groups (waveform-identical, 11-26 crosstalk study; same on
         # 11-24): FEU6 48-51, 209/211, 236/238, 241/243; FEU7 271-273,
         # 338-340, 351/352, 353-355.
-        shorted_channels=(((6, 48), (6, 49), (6, 50), (6, 51), (6, 209), (6, 211),
-                           (6, 236), (6, 238), (6, 241), (6, 243),
-                           (7, 271), (7, 272), (7, 273), (7, 338), (7, 339), (7, 340),
-                           (7, 351), (7, 352), (7, 353), (7, 354), (7, 355))),
+        shorted_channels=(((6, 48), (6, 49), (6, 50), (6, 51)), ((6, 209), (6, 211)),
+                          ((6, 236), (6, 238)), ((6, 241), (6, 243)),
+                          ((7, 271), (7, 272), (7, 273)), ((7, 338), (7, 339), (7, 340)),
+                          ((7, 351), (7, 352)), ((7, 353), (7, 354), (7, 355))),
         min_amp=0.0),
     # det2 long run at 430/730 after REPOSITIONING (det2 had shifted out of the
     # M3 acceptance; the 11-25 13:56 run was stopped for that and is not used).
@@ -802,10 +807,10 @@ RUNS = {
         # 8 shorted groups (waveform-identical, 11-26 crosstalk study; same on
         # 11-24): FEU6 48-51, 209/211, 236/238, 241/243; FEU7 271-273,
         # 338-340, 351/352, 353-355.
-        shorted_channels=(((6, 48), (6, 49), (6, 50), (6, 51), (6, 209), (6, 211),
-                           (6, 236), (6, 238), (6, 241), (6, 243),
-                           (7, 271), (7, 272), (7, 273), (7, 338), (7, 339), (7, 340),
-                           (7, 351), (7, 352), (7, 353), (7, 354), (7, 355))),
+        shorted_channels=(((6, 48), (6, 49), (6, 50), (6, 51)), ((6, 209), (6, 211)),
+                          ((6, 236), (6, 238)), ((6, 241), (6, 243)),
+                          ((7, 271), (7, 272), (7, 273)), ((7, 338), (7, 339), (7, 340)),
+                          ((7, 351), (7, 352)), ((7, 353), (7, 354), (7, 355))),
         min_amp=0.0),
 
     # det1 DRIFT scan (7-19-26 afternoon), taken right after the mesh scan

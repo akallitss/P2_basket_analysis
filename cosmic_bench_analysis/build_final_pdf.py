@@ -286,6 +286,19 @@ def build(cfg, out):
                         'remainder is shown as unexplained. Mis-reco is split per track from its hits.',
                   ncols=1)
 
+        grid_page(pdf, 'Efficiency vs M3 track quality',
+                  'Stage 28 — efficiency in M3 chi2 bins and for a chi2 cut (reference-track quality).',
+                  [T('28_eff_vs_m3_chi2/eff_vs_chi2', 'Efficiency vs M3 chi2_max')],
+                  notes='A reference-limited efficiency rises as the chi2 cut tightens; the any-pad curve '
+                        'is the detector-response check (flat = the no-hit losses are not M3 fakes).',
+                  ncols=1)
+
+        grid_page(pdf, 'Crosstalk, shorts and dead channels',
+                  'Stages 26 + 29 — readout crosstalk from waveform shapes; shorted / dead pins on the '
+                  'detector vs on the connector footprint (needs decoded_root).',
+                  [T('29_crosstalk_illustration/crosstalk_illustration', 'Crosstalk / shorts / dead-pin illustration')],
+                  ncols=1)
+
         grid_page(pdf, 'Sliding-window efficiency map',
                   'Stage 06 (sliding) — smooth footprint-masked efficiency; the diagonal dead band.',
                   [T('06_efficiency/efficiency_map_sliding', 'Sliding-window efficiency (within / has_any / kernel)'),

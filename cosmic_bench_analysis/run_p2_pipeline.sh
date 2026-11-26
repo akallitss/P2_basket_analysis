@@ -134,6 +134,11 @@ run 12_validation.py "${RUN_KEY}"
 # -- 27 loss breakdown: what makes up the mis-reco and no-hit blocks (vetoed) - #
 run 27_loss_breakdown.py "${RUN_KEY}"
 
+# -- 28 efficiency vs M3 track chi2 (is the reference limiting?) ------------- #
+run 28_eff_vs_m3_chi2.py "${RUN_KEY}"
+# (26_crosstalk_waveforms.py + 29_crosstalk_illustration.py need decoded_root;
+#  run them by hand: 26 first, then 29.)
+
 # Surface timing map: per-pad peak time + resolution, and (--continuous) a
 # sliding map in the M3 reference frame. Must follow 06, whose ray_hit_miss
 # list the continuous mode joins against.
