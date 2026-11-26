@@ -158,7 +158,7 @@ def _within_to_strip(within, half, strategy='linear'):
 # --------------------------------------------------------------------------- #
 def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
                         strategy='reverse', drop_connectors=(),
-                        strategy_overrides=None):
+                        strategy_overrides=None, drop_channels=()):
     """Return a DataFrame with one row per instrumented (feu, channel).
 
     Columns: feu, channel, dream_conn, within, connector_N, half, sector,
@@ -172,10 +172,15 @@ def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
     strategy_overrides : {(connector_N, half): strategy} for individual
         connector halves whose ribbon is cabled differently from the rest of
         the detector (e.g. a flipped ribbon -> 'linear' on a 'reverse' det).
+    drop_channels : iterable of (feu, channel) electronics channels that are
+        dead (e.g. a dead pin row on a Dream connector). Omitted exactly like a
+        dropped connector: their pads leave the map, so a ray pointing at one
+        falls outside the active area instead of counting as a miss.
     """
     wiring, feus, name = parse_dream_wiring(run_config_path, det_type, det_name)
     pad = load_pad_map(map_csv)
     drop = set(int(c) for c in drop_connectors)
+    drop_ch = set((int(f), int(c)) for f, c in drop_channels)
     over = {(int(n), str(h)): s
             for (n, h), s in (strategy_overrides or {}).items()}
 
@@ -187,6 +192,8 @@ def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
         half_strategy = over.get((n, half), strategy)
         for within in range(CH_PER_CONNECTOR):
             channel = (dream_conn - 1) * CH_PER_CONNECTOR + within
+            if (int(feu), channel) in drop_ch:
+                continue
             strip = int(_within_to_strip(within, half, half_strategy))
             channel_id = sector * STRIPS_PER_CONN + (strip - 1)
             rows.append((feu, channel, dream_conn, within, n, half,
@@ -207,6 +214,7 @@ def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
     tab.attrs['strategy'] = strategy
     tab.attrs['strategy_overrides'] = dict(over)
     tab.attrs['drop_connectors'] = sorted(drop)
+    tab.attrs['drop_channels'] = sorted(drop_ch)
     return tab
 
 

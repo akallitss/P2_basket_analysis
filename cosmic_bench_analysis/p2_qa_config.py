@@ -120,7 +120,7 @@ class _Config:
     def __init__(self, key, run, sub_run, det_name='P2_1',
                  det_type='P2', ref_det_type='m3', data_root=DATA_ROOT,
                  map_csv=MAP_CSV_PATH, mask_gbr=MASK_GBR_PATH,
-                 dead_connectors=(),
+                 dead_connectors=(), dead_channels=(),
                  spark_channel='1:0', spark_imon_thr=2.0,
                  spark_guard_before=2.0, spark_guard_after=10.0,
                  burst_npads=20, det_tag=None, match_r=20.0, plane_z=None,
@@ -148,6 +148,11 @@ class _Config:
         # spurious dead regions or bias the efficiency (a track pointing at a
         # dead connector is not a real 'miss').
         self.DEAD_CONNECTORS = tuple(dead_connectors)
+        # Individual dead electronics channels [(feu, channel), ...] -- e.g. a
+        # dead pin row on one Dream connector. Dropped from the pad map like a
+        # dead connector (geometry, not a cut), so tracks at a dead pad are
+        # neither hits nor misses.
+        self.DEAD_CHANNELS = tuple((int(f), int(c)) for f, c in dead_channels)
         # Per-connector-half within-half channel order, for a ribbon cabled
         # differently from the rest of the detector: {(connector_N, half):
         # strategy}, e.g. {(8, 'top'): 'linear'} on an otherwise 'reverse' det.
@@ -672,6 +677,10 @@ RUNS = {
         spark_channel='1:0',
         dead_connectors=(1, 10),
         plane_z=240.0,   # 03 z-scan on alignment_det2_430_730 (nominal 232; FOM 1.864)
+        # Found 11-26 on det2_long_repos and confirmed here: connector 9 top is
+        # flipped, and FEU 6 even ch 384-446 are a dead pin row (see that key).
+        strategy_overrides={(9, 'top'): 'linear'},
+        dead_channels=tuple((6, c) for c in range(384, 447, 2)),
         min_amp=0.0),
     'det2_meshscan2': _Config(
         'det2_meshscan2',
@@ -682,6 +691,10 @@ RUNS = {
         spark_channel='1:0',
         dead_connectors=(1, 10),
         plane_z=240.0,   # 03 z-scan on alignment_det2_430_730 (nominal 232; FOM 1.864)
+        # Found 11-26 on det2_long_repos and confirmed here: connector 9 top is
+        # flipped, and FEU 6 even ch 384-446 are a dead pin row (see that key).
+        strategy_overrides={(9, 'top'): 'linear'},
+        dead_channels=tuple((6, c) for c in range(384, 447, 2)),
         min_amp=0.0),
     'det2_driftscan2': _Config(
         'det2_driftscan2',
@@ -692,6 +705,10 @@ RUNS = {
         spark_channel='1:0',
         dead_connectors=(1, 10),
         plane_z=240.0,   # 03 z-scan on alignment_det2_430_730 (nominal 232; FOM 1.864)
+        # Found 11-26 on det2_long_repos and confirmed here: connector 9 top is
+        # flipped, and FEU 6 even ch 384-446 are a dead pin row (see that key).
+        strategy_overrides={(9, 'top'): 'linear'},
+        dead_channels=tuple((6, c) for c in range(384, 447, 2)),
         min_amp=0.0),
     # det2 long run at 430/730 after REPOSITIONING (det2 had shifted out of the
     # M3 acceptance; the 11-25 13:56 run was stopped for that and is not used).
@@ -709,8 +726,23 @@ RUNS = {
         det_tag='det2',
         spark_channel='1:0',
         dead_connectors=(1, 10),
-        plane_z=240.0,   # carried over from 11-24; re-check with the 03 z-scan (det2 was moved)
+        plane_z=240.0,   # 03 z-fit 244 (FOM 1.872) vs 240 -> same eff (12 z-plateau PASS)
         t_max_h=7.58,    # mesh trip at 7.615 h (11-26 01:07:36)
+        # Connector 9 top (FEU 7 ch 448-511) is cabled in the opposite order:
+        # a ray over expected ch c fires ch ~959-c (mirror within the half),
+        # so its whole edge row had 0% eff within 20 mm while firing normally.
+        strategy_overrides={(9, 'top'): 'linear'},
+        # Dead pin row: every EVEN channel 384-446 on FEU 6 (connector 5 bot),
+        # 26 pads firing at ~10% of the median rate -> dropped as geometry.
+        # Plus 13 dead-but-NOISY pads (core has_any 5-30%; they fire 300-1000x
+        # at 40-70 ADC but ~never with a ray on their own pad, so they are noise
+        # that also drags centroids): FEU 6 odd 217-227 + even 246-254 (conn 3
+        # top), FEU 7 254 and 281. NOT dropped: weak pads FEU 6 452/456 and
+        # FEU 7 261 (respond to rays on the pad at ~27% -> real gain defect).
+        dead_channels=(tuple((6, c) for c in range(384, 447, 2))
+                       + tuple((6, c) for c in range(217, 228, 2))
+                       + tuple((6, c) for c in range(246, 255, 2))
+                       + ((7, 254), (7, 281))),
         min_amp=0.0),
 
     # det1 DRIFT scan (7-19-26 afternoon), taken right after the mesh scan

@@ -129,9 +129,12 @@ def main():
                     help='rays per adaptive kernel (sets the binomial error, default 60).')
     ap.add_argument('--max-kernel', type=float, default=30.0,
                     help='cap on the adaptive kernel radius [mm] (default 30).')
-    ap.add_argument('--mask-r', type=float, default=15.0,
+    ap.add_argument('--mask-r', type=float, default=None,
                     help='grid points farther than this [mm] from any transformed '
-                         'pad are masked (outside the detector) (default 15).')
+                         'pad are masked (outside the detector). Default: the '
+                         "run's ACTIVE_R (8.4 mm), the same active-area cut stage 06 "
+                         'uses, so the integrated numbers agree with 06 and pads '
+                         'dropped as dead (DEAD_CHANNELS) show as holes. Was 15.')
     ap.add_argument('--margin', type=float, default=15.0,
                     help='grid margin beyond the pad footprint [mm] so the detector '
                          'borders are not clipped (default 15).')
@@ -145,6 +148,8 @@ def main():
     args = ap.parse_args()
 
     cfg = qa.get_config(args.run_key)
+    if args.mask_r is None:
+        args.mask_r = cfg.ACTIVE_R
     print(cfg)
     if args.r is None:
         args.r = cfg.MATCH_R
