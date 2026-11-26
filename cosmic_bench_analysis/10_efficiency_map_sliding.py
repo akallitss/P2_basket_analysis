@@ -91,13 +91,22 @@ def adaptive_map(x, y, within, has_any, x_grid, y_grid, target, max_r):
     return eff.reshape(shp), anyh.reshape(shp), radius.reshape(shp)
 
 
+DEAD_TREE = None   # cKDTree of dropped-pad centres (M3 frame), set in main()
+
+
 def _outside_mask(x_grid, y_grid, ftree, mask_r):
     """Boolean grid: True where the nearest transformed pad is farther than
-    mask_r mm -> the grid point is outside the detector footprint."""
-    from scipy.spatial import cKDTree  # noqa: F401 (ftree already a cKDTree)
+    mask_r mm -> the grid point is outside the detector footprint -- or where a
+    DROPPED (dead) pad is nearer than any live one (dead-pad cell, same rule as
+    stage 06's active area)."""
     gx, gy = np.meshgrid(x_grid, y_grid, indexing='ij')
-    nn, _ = ftree.query(np.column_stack([gx.ravel(), gy.ravel()]))
-    return (nn > mask_r).reshape(len(x_grid), len(y_grid))
+    pts = np.column_stack([gx.ravel(), gy.ravel()])
+    nn, _ = ftree.query(pts)
+    out = nn > mask_r
+    if DEAD_TREE is not None:
+        dd, _ = DEAD_TREE.query(pts)
+        out |= dd < nn
+    return out.reshape(len(x_grid), len(y_grid))
 
 
 def _draw_footprint(ax, fpx, fpy):
@@ -165,6 +174,9 @@ def main():
     d = d[np.isfinite(d['x']) & np.isfinite(d['y'])].copy()
     for c in ('within', 'has_any'):
         d[c] = d[c].astype(str).str.lower().isin(('true', '1'))
+    if 'in_active' in d:   # 06 already applies ACTIVE_R + dead-pad cells
+        ina = d['in_active'].astype(str).str.lower().isin(('true', '1'))
+        d = d[ina].copy()
     x = d['x'].to_numpy(float)
     y = d['y'].to_numpy(float)
     within = d['within'].to_numpy(float)
@@ -180,6 +192,13 @@ def main():
     fp = pd.read_csv(fp_csv)
     fpx, fpy = fp['x'].to_numpy(float), fp['y'].to_numpy(float)
     ftree = cKDTree(np.column_stack([fpx, fpy]))
+    global DEAD_TREE
+    dead_csv = os.path.join(eff_dir, f'dead_pad_footprint{suffix}.csv')
+    if os.path.isfile(dead_csv):
+        dfp = pd.read_csv(dead_csv)
+        if len(dfp):
+            DEAD_TREE = cKDTree(dfp[['x', 'y']].to_numpy(float))
+            print(f'  masking {len(dfp)} dead-pad cells')
 
     # insulation-mask pillars (M3 frame, written by stage 06): pillar shadows
     # vs real dead zones on the smooth map.
@@ -190,6 +209,9 @@ def main():
 
     # integrated numbers over rays that actually cross the detector footprint
     nn_ray, _ = ftree.query(np.column_stack([x, y]))
+    if DEAD_TREE is not None:
+        dd_ray, _ = DEAD_TREE.query(np.column_stack([x, y]))
+        nn_ray = np.where(dd_ray < nn_ray, np.inf, nn_ray)
     inact = nn_ray <= args.mask_r
     integ_within = float(within[inact].mean()) if inact.any() else float('nan')
     integ_hasany = float(has_any[inact].mean()) if inact.any() else float('nan')

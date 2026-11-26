@@ -131,6 +131,9 @@ run 10_efficiency_map_sliding.py "${RUN_KEY}" --kernel 5 --grid 240 --min 10
 # -- 12 structural-bias validation (vetoed) ---------------------------------- #
 run 12_validation.py "${RUN_KEY}"
 
+# -- 27 loss breakdown: what makes up the mis-reco and no-hit blocks (vetoed) - #
+run 27_loss_breakdown.py "${RUN_KEY}"
+
 # Surface timing map: per-pad peak time + resolution, and (--continuous) a
 # sliding map in the M3 reference frame. Must follow 06, whose ray_hit_miss
 # list the continuous mode joins against.

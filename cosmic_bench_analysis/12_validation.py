@@ -112,11 +112,13 @@ def reco_and_tree(T, p2, ct):
     return recodf, tree, np.column_stack([pcx, pcy]), padc
 
 
-def ray_table(m3, recodf, tree, hit_events):
+def ray_table(m3, recodf, tree, hit_events, ct=None, T=None):
     """Per-ray table: nn_dist to nearest pad, |r| residual (+dx,dy), has_any.
     R / active_r cuts are applied downstream so scans are pure thresholding."""
     d = m3.rename(columns={'x_m3': 'x', 'y_m3': 'y'}).merge(recodf, on='eventId', how='left')
     nn_dist, nn_idx = tree.query(np.column_stack([d['x'], d['y']]))
+    if ct is not None and T is not None:   # dead-pad cells -> out of the active area
+        nn_dist = pa.mask_dead_cells(nn_dist, np.column_stack([d['x'], d['y']]), ct, T)
     d['nn_dist'] = nn_dist
     d['nn_idx'] = nn_idx
     d['dx'] = d['x'] - d['rx']
@@ -167,7 +169,7 @@ def main():
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
                                   strategy=args.strategy,
-                                  drop_connectors=cfg.DEAD_CONNECTORS, drop_channels=cfg.DEAD_CHANNELS,
+                                  drop_connectors=cfg.DEAD_CONNECTORS, drop_channels=cfg.DEAD_CHANNELS, cluster_link=cfg.CLUSTER_LINK_MM,
                                   strategy_overrides=cfg.STRATEGY_OVERRIDES)
     hits_dir, m3_dir = cfg.combined_hits_dir, cfg.m3_tracking_dir
 
@@ -196,7 +198,7 @@ def main():
           f'RMSE {T0.rmse:.1f} mm')
 
     recodf, tree, pad_xy, padc = reco_and_tree(T0, p2, ct)
-    d = ray_table(m3, recodf, tree, hit_events)
+    d = ray_table(m3, recodf, tree, hit_events, ct, T0)
     eff0, any0, n0 = eff_of(d, R0, AR0)
     core_sx = robust_sigma(d.loc[d['nn_dist'] <= AR0, 'dx'])
     core_sy = robust_sigma(d.loc[d['nn_dist'] <= AR0, 'dy'])
@@ -308,7 +310,7 @@ def main():
         fm = mm[(mm['x_m3'].abs() < args.fit_fiducial) & (mm['y_m3'].abs() < args.fit_fiducial)]
         Tz = pa.fit_transform(fm['x_m3'], fm['y_m3'], fm['x_pad'], fm['y_pad'])
         rc, tr, _, _ = reco_and_tree(Tz, p2, ct)
-        dz = ray_table(mz, rc, tr, hit_events)
+        dz = ray_table(mz, rc, tr, hit_events, ct, Tz)
         e, _, _ = eff_of(dz, R0, AR0)
         eZ.append(e)
         sZ.append(robust_sigma(dz.loc[dz['nn_dist'] <= AR0, 'dx']))
@@ -338,7 +340,7 @@ def main():
     align_rows = []
     for name, T in variants.items():
         rc, tr, _, _ = reco_and_tree(T, p2, ct)
-        dd = ray_table(m3, rc, tr, hit_events)
+        dd = ray_table(m3, rc, tr, hit_events, ct, T)
         e, a, n = eff_of(dd, R0, AR0)
         sx = robust_sigma(dd.loc[dd['nn_dist'] <= AR0, 'dx'])
         sy = robust_sigma(dd.loc[dd['nn_dist'] <= AR0, 'dy'])

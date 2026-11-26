@@ -175,7 +175,7 @@ def main():
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
                                   strategy=args.strategy,
-                                  drop_connectors=cfg.DEAD_CONNECTORS, drop_channels=cfg.DEAD_CHANNELS,
+                                  drop_connectors=cfg.DEAD_CONNECTORS, drop_channels=cfg.DEAD_CHANNELS, cluster_link=cfg.CLUSTER_LINK_MM,
                                   strategy_overrides=cfg.STRATEGY_OVERRIDES)
 
     subruns = find_subruns(cfg)
@@ -230,6 +230,7 @@ def main():
         if len(d) == 0:
             continue
         nn, _ = tree.query(np.column_stack([d['x'], d['y']]))
+        nn = pa.mask_dead_cells(nn, np.column_stack([d['x'], d['y']]), ct, T)
         d['in_active'] = nn <= args.active_r
         d['has_any'] = d['eventId'].isin(a['hit_events'])
         within = np.zeros(len(d), dtype=bool)

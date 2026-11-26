@@ -108,6 +108,34 @@ def load_p2_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
     return cen, set(int(e) for e in hit_ev)
 
 
+def dead_pads_m3(channel_table, T):
+    """Centres of the DROPPED pads (dead connectors + dead channels) in the M3
+    frame, (n, 2); empty if none. See p2_mapping attrs['dead_pad_xy']."""
+    dp = channel_table.attrs.get('dead_pad_xy')
+    if dp is None or len(dp) == 0:
+        return np.empty((0, 2))
+    x, y = T.apply(dp[:, 0], dp[:, 1])
+    return np.column_stack([x, y])
+
+
+def mask_dead_cells(nn, xy, channel_table, T):
+    """Active-area distance with dead-pad cells removed.
+
+    nn : distance of each point to the nearest LIVE pad centre (M3 frame).
+    Returns nn with +inf wherever a DROPPED pad is nearer than any live pad,
+    i.e. the point lies in a dead pad's (Voronoi) cell. Every active-area cut
+    (nn <= ACTIVE_R) then drops those rays, so a ray over a dead pad / unplugged
+    connector is neither a hit nor a miss -- including the cell edges a live
+    neighbour's 8.4 mm radius used to reach into (det2 11-26: 2.3% of rays)."""
+    dxy = dead_pads_m3(channel_table, T)
+    nn = np.asarray(nn, dtype=float)
+    if len(dxy) == 0 or len(nn) == 0:
+        return nn
+    from scipy.spatial import cKDTree
+    dd, _ = cKDTree(dxy).query(np.asarray(xy, dtype=float))
+    return np.where(dd < nn, np.inf, nn)
+
+
 def filter_events_by_time(df, m3_dir, t_max_h, id_col='eventId', t_min_h=None):
     """Drop rows whose event fell outside the [t_min_h, t_max_h] window (hours
     after run start; event times from the m3 tracking files, same clock as the

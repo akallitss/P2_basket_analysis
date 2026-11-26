@@ -158,7 +158,8 @@ def _within_to_strip(within, half, strategy='linear'):
 # --------------------------------------------------------------------------- #
 def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
                         strategy='reverse', drop_connectors=(),
-                        strategy_overrides=None, drop_channels=()):
+                        strategy_overrides=None, drop_channels=(),
+                        cluster_link=0.0):
     """Return a DataFrame with one row per instrumented (feu, channel).
 
     Columns: feu, channel, dream_conn, within, connector_N, half, sector,
@@ -176,6 +177,15 @@ def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
         dead (e.g. a dead pin row on a Dream connector). Omitted exactly like a
         dropped connector: their pads leave the map, so a ray pointing at one
         falls outside the active area instead of counting as a miss.
+    cluster_link : [mm] stored in attrs for p2_io.event_centroids: fired pads
+        closer than this are linked into clusters and only the max-charge
+        cluster is centroided (rejects isolated crosstalk hits). 0 = global
+        charge-weighted centroid (the pre-2026-11-26 behaviour).
+
+    attrs['dead_pad_xy'] holds the pad-frame centres of every DROPPED pad
+    (dead connectors + dead channels) so the efficiency stages can exclude the
+    rays whose nearest pad is a dead one (its Voronoi cell), not just rays far
+    from any live pad.
     """
     wiring, feus, name = parse_dream_wiring(run_config_path, det_type, det_name)
     pad = load_pad_map(map_csv)
@@ -184,20 +194,23 @@ def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
     over = {(int(n), str(h)): s
             for (n, h), s in (strategy_overrides or {}).items()}
 
-    rows = []
+    rows, dead_ids = [], []
     for (feu, dream_conn), (n, half) in wiring.items():
-        if n in drop:
-            continue
         sector = n - 1
         half_strategy = over.get((n, half), strategy)
         for within in range(CH_PER_CONNECTOR):
             channel = (dream_conn - 1) * CH_PER_CONNECTOR + within
-            if (int(feu), channel) in drop_ch:
-                continue
             strip = int(_within_to_strip(within, half, half_strategy))
             channel_id = sector * STRIPS_PER_CONN + (strip - 1)
+            if n in drop or (int(feu), channel) in drop_ch:
+                dead_ids.append(channel_id)
+                continue
             rows.append((feu, channel, dream_conn, within, n, half,
                          sector, strip, channel_id))
+    # unplugged connectors are not in `wiring` at all: their pads are the
+    # sectors of the dropped connector numbers
+    for n in drop:
+        dead_ids.extend((n - 1) * STRIPS_PER_CONN + k for k in range(STRIPS_PER_CONN))
 
     tab = pd.DataFrame(rows, columns=[
         'feu', 'channel', 'dream_conn', 'within', 'connector_N', 'half',
@@ -215,6 +228,14 @@ def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
     tab.attrs['strategy_overrides'] = dict(over)
     tab.attrs['drop_connectors'] = sorted(drop)
     tab.attrs['drop_channels'] = sorted(drop_ch)
+    tab.attrs['cluster_link'] = float(cluster_link or 0.0)
+    live = set(tab.loc[tab['mapped'], 'channel_id'])
+    dead_ids = sorted(set(dead_ids) - live)
+    if 'pad_cx' in pad.columns and dead_ids:
+        dp = pad.reindex(dead_ids)[['pad_cx', 'pad_cy']].dropna()
+        tab.attrs['dead_pad_xy'] = dp.to_numpy(dtype=float)
+    else:
+        tab.attrs['dead_pad_xy'] = np.empty((0, 2))
     return tab
 
 

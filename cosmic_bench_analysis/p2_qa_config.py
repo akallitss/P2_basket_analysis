@@ -59,8 +59,13 @@ MAP_CSV_PATH = os.path.join(
 # same pattern, but V1 carries ~800 more pillars towards the fan edges, so the
 # dead area inside the pads is 3.78 % (V2 would give 3.55 %). Products made
 # before this date overlaid V2; no efficiency changes (pillars are overlay only).
+# Detector_Drawings sits next to the MAIN checkout. Inside a git worktree
+# (.../P2_basket_analysis/.claude/worktrees/<name>) dirname(REPO_ROOT) is the
+# worktrees dir, the Gerber was silently not found and the pillar overlay was
+# skipped -- so resolve the main checkout first.
+_MAIN_ROOT = REPO_ROOT.split(os.sep + '.claude' + os.sep + 'worktrees' + os.sep)[0]
 MASK_GBR_PATH = os.path.join(
-    os.path.dirname(REPO_ROOT), 'Detector_Drawings', 'Version_Apr26',
+    os.path.dirname(_MAIN_ROOT), 'Detector_Drawings', 'Version_Apr26',
     'Insulation_masks', 'V1', 'P2_BASKET-Mask_M2_V1.gbr')
 
 # CERN-bulked chambers (det5) use a DIFFERENT pillar pattern, and the Gerber is
@@ -120,7 +125,8 @@ class _Config:
     def __init__(self, key, run, sub_run, det_name='P2_1',
                  det_type='P2', ref_det_type='m3', data_root=DATA_ROOT,
                  map_csv=MAP_CSV_PATH, mask_gbr=MASK_GBR_PATH,
-                 dead_connectors=(), dead_channels=(),
+                 dead_connectors=(), dead_channels=(), shorted_channels=(),
+                 cluster_link_mm=20.0,
                  spark_channel='1:0', spark_imon_thr=2.0,
                  spark_guard_before=2.0, spark_guard_after=10.0,
                  burst_npads=20, det_tag=None, match_r=20.0, plane_z=None,
@@ -152,7 +158,24 @@ class _Config:
         # dead pin row on one Dream connector. Dropped from the pad map like a
         # dead connector (geometry, not a cut), so tracks at a dead pad are
         # neither hits nor misses.
-        self.DEAD_CHANNELS = tuple((int(f), int(c)) for f, c in dead_channels)
+        # SHORTED electronics channels [(feu, channel), ...]: groups of adjacent
+        # pins carrying the SAME waveform (amp ratio 1.00 +- 0.04, co-fire
+        # >90%), e.g. a solder bridge. A hit on such a group cannot be placed
+        # on one pad, so its pads are dropped like dead ones (their cells leave
+        # the denominator, their copies leave the centroids). Kept as its own
+        # list for bookkeeping; folded into DEAD_CHANNELS for the pipeline.
+        self.SHORTED_CHANNELS = tuple((int(f), int(c)) for f, c in shorted_channels)
+        self.DEAD_CHANNELS = (tuple((int(f), int(c)) for f, c in dead_channels)
+                              + self.SHORTED_CHANNELS)
+        # P2 position estimator. Fired pads closer than this [mm] are linked
+        # into clusters and only the max-summed-amplitude cluster is
+        # centroided. Introduced 2026-11-26: on det2 neighbouring ELECTRONICS
+        # channels co-fire ~35% of the time at amplitude ratio ~1 although
+        # their pads sit 70-300 mm apart (readout crosstalk); a global
+        # charge-weighted centroid averages the real hit with that far pad.
+        # 20 mm links diagonal neighbours (pitch 11.8 -> diagonal 16.7).
+        # det2_long_repos: 89.3% (global) -> ~91% (clustered). 0 = old global.
+        self.CLUSTER_LINK_MM = float(cluster_link_mm)
         # Per-connector-half within-half channel order, for a ribbon cabled
         # differently from the rest of the detector: {(connector_N, half):
         # strategy}, e.g. {(8, 'top'): 'linear'} on an otherwise 'reverse' det.
@@ -678,9 +701,20 @@ RUNS = {
         dead_connectors=(1, 10),
         plane_z=240.0,   # 03 z-scan on alignment_det2_430_730 (nominal 232; FOM 1.864)
         # Found 11-26 on det2_long_repos and confirmed here: connector 9 top is
-        # flipped, and FEU 6 even ch 384-446 are a dead pin row (see that key).
+        # flipped, FEU 6 even ch 384-446 are a dead pin row, and the same 13
+        # dead-but-noisy pads fire 1.4-4.7x the median here too (see that key).
         strategy_overrides={(9, 'top'): 'linear'},
-        dead_channels=tuple((6, c) for c in range(384, 447, 2)),
+        dead_channels=(tuple((6, c) for c in range(384, 447, 2))
+                       + tuple((6, c) for c in range(217, 228, 2))
+                       + tuple((6, c) for c in range(246, 255, 2))
+                       + ((7, 254), (7, 281))),
+        # 8 shorted groups (waveform-identical, 11-26 crosstalk study; same on
+        # 11-24): FEU6 48-51, 209/211, 236/238, 241/243; FEU7 271-273,
+        # 338-340, 351/352, 353-355.
+        shorted_channels=(((6, 48), (6, 49), (6, 50), (6, 51), (6, 209), (6, 211),
+                           (6, 236), (6, 238), (6, 241), (6, 243),
+                           (7, 271), (7, 272), (7, 273), (7, 338), (7, 339), (7, 340),
+                           (7, 351), (7, 352), (7, 353), (7, 354), (7, 355))),
         min_amp=0.0),
     'det2_meshscan2': _Config(
         'det2_meshscan2',
@@ -692,9 +726,20 @@ RUNS = {
         dead_connectors=(1, 10),
         plane_z=240.0,   # 03 z-scan on alignment_det2_430_730 (nominal 232; FOM 1.864)
         # Found 11-26 on det2_long_repos and confirmed here: connector 9 top is
-        # flipped, and FEU 6 even ch 384-446 are a dead pin row (see that key).
+        # flipped, FEU 6 even ch 384-446 are a dead pin row, and the same 13
+        # dead-but-noisy pads fire 1.4-4.7x the median here too (see that key).
         strategy_overrides={(9, 'top'): 'linear'},
-        dead_channels=tuple((6, c) for c in range(384, 447, 2)),
+        dead_channels=(tuple((6, c) for c in range(384, 447, 2))
+                       + tuple((6, c) for c in range(217, 228, 2))
+                       + tuple((6, c) for c in range(246, 255, 2))
+                       + ((7, 254), (7, 281))),
+        # 8 shorted groups (waveform-identical, 11-26 crosstalk study; same on
+        # 11-24): FEU6 48-51, 209/211, 236/238, 241/243; FEU7 271-273,
+        # 338-340, 351/352, 353-355.
+        shorted_channels=(((6, 48), (6, 49), (6, 50), (6, 51), (6, 209), (6, 211),
+                           (6, 236), (6, 238), (6, 241), (6, 243),
+                           (7, 271), (7, 272), (7, 273), (7, 338), (7, 339), (7, 340),
+                           (7, 351), (7, 352), (7, 353), (7, 354), (7, 355))),
         min_amp=0.0),
     'det2_driftscan2': _Config(
         'det2_driftscan2',
@@ -706,9 +751,20 @@ RUNS = {
         dead_connectors=(1, 10),
         plane_z=240.0,   # 03 z-scan on alignment_det2_430_730 (nominal 232; FOM 1.864)
         # Found 11-26 on det2_long_repos and confirmed here: connector 9 top is
-        # flipped, and FEU 6 even ch 384-446 are a dead pin row (see that key).
+        # flipped, FEU 6 even ch 384-446 are a dead pin row, and the same 13
+        # dead-but-noisy pads fire 1.4-4.7x the median here too (see that key).
         strategy_overrides={(9, 'top'): 'linear'},
-        dead_channels=tuple((6, c) for c in range(384, 447, 2)),
+        dead_channels=(tuple((6, c) for c in range(384, 447, 2))
+                       + tuple((6, c) for c in range(217, 228, 2))
+                       + tuple((6, c) for c in range(246, 255, 2))
+                       + ((7, 254), (7, 281))),
+        # 8 shorted groups (waveform-identical, 11-26 crosstalk study; same on
+        # 11-24): FEU6 48-51, 209/211, 236/238, 241/243; FEU7 271-273,
+        # 338-340, 351/352, 353-355.
+        shorted_channels=(((6, 48), (6, 49), (6, 50), (6, 51), (6, 209), (6, 211),
+                           (6, 236), (6, 238), (6, 241), (6, 243),
+                           (7, 271), (7, 272), (7, 273), (7, 338), (7, 339), (7, 340),
+                           (7, 351), (7, 352), (7, 353), (7, 354), (7, 355))),
         min_amp=0.0),
     # det2 long run at 430/730 after REPOSITIONING (det2 had shifted out of the
     # M3 acceptance; the 11-25 13:56 run was stopped for that and is not used).
@@ -743,6 +799,13 @@ RUNS = {
                        + tuple((6, c) for c in range(217, 228, 2))
                        + tuple((6, c) for c in range(246, 255, 2))
                        + ((7, 254), (7, 281))),
+        # 8 shorted groups (waveform-identical, 11-26 crosstalk study; same on
+        # 11-24): FEU6 48-51, 209/211, 236/238, 241/243; FEU7 271-273,
+        # 338-340, 351/352, 353-355.
+        shorted_channels=(((6, 48), (6, 49), (6, 50), (6, 51), (6, 209), (6, 211),
+                           (6, 236), (6, 238), (6, 241), (6, 243),
+                           (7, 271), (7, 272), (7, 273), (7, 338), (7, 339), (7, 340),
+                           (7, 351), (7, 352), (7, 353), (7, 354), (7, 355))),
         min_amp=0.0),
 
     # det1 DRIFT scan (7-19-26 afternoon), taken right after the mesh scan

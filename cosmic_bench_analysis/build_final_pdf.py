@@ -277,6 +277,15 @@ def build(cfg, out):
                         'The vs-time panel exposes gain dropouts: when the response is intermittent, '
                         'the integrated numbers are duty-cycle averages, not working-point efficiencies.')
 
+        grid_page(pdf, 'Loss breakdown',
+                  'Stage 27 — what makes up the fired-but-mis-reco and no-hit blocks.',
+                  [T('27_loss_breakdown/loss_breakdown', 'Loss blocks broken out by cause')],
+                  notes='No-hit causes are attributed as the EXCESS over the clean-area no-hit rate '
+                        '(pillars from the insulation-mask Gerber, pad edges/gaps from the pad-tile Gerber, '
+                        'low-response pads, below-threshold from the leading-pad amplitude spectrum); the '
+                        'remainder is shown as unexplained. Mis-reco is split per track from its hits.',
+                  ncols=1)
+
         grid_page(pdf, 'Sliding-window efficiency map',
                   'Stage 06 (sliding) — smooth footprint-masked efficiency; the diagonal dead band.',
                   [T('06_efficiency/efficiency_map_sliding', 'Sliding-window efficiency (within / has_any / kernel)'),

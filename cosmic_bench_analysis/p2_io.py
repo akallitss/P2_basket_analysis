@@ -358,6 +358,41 @@ def _empty_cen():
                          'n_pad': pd.Series(dtype=np.int64)})
 
 
+def _cluster_centroids(hits, link):
+    """Per-event centroid of the max-charge spatial cluster.
+
+    hits: DataFrame [eventId, x, y, w] (pad frame, one row per fired pad;
+    duplicate rows of a pad are merged with max w). Pads closer than `link` mm
+    are linked (connected components); the cluster with the largest summed w
+    wins and is charge-weighted. Single-pad events and events whose pads all
+    lie within one cluster reduce to the plain charge-weighted centroid."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    from scipy.spatial import cKDTree
+    hits = hits.groupby(['eventId', 'x', 'y'], as_index=False)['w'].max()
+    out_e, out_x, out_y, out_n = [], [], [], []
+    for e, g in hits.groupby('eventId', sort=False):
+        x, y, w = g['x'].to_numpy(), g['y'].to_numpy(), g['w'].to_numpy()
+        n = len(x)
+        if n > 1:
+            pr = cKDTree(np.column_stack([x, y])).query_pairs(link, output_type='ndarray')
+            G = coo_matrix((np.ones(len(pr)), (pr[:, 0], pr[:, 1])), shape=(n, n)) \
+                if len(pr) else coo_matrix((n, n))
+            nc, lab = connected_components(G, directed=False)
+            if nc > 1:
+                best = np.argmax(np.bincount(lab, weights=w, minlength=nc))
+                s = lab == best
+                x, y, w = x[s], y[s], w[s]
+        ws = w.sum()
+        if ws > 0:
+            out_e.append(e); out_x.append((w * x).sum() / ws)
+            out_y.append((w * y).sum() / ws); out_n.append(len(x))
+    return pd.DataFrame({'eventId': np.asarray(out_e, dtype=np.int64),
+                         'x_pad': np.asarray(out_x, dtype=float),
+                         'y_pad': np.asarray(out_y, dtype=float),
+                         'n_pad': np.asarray(out_n, dtype=np.int64)})
+
+
 def event_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
                     spark_veto=None, t_max_h=None, drop_pads=(), t_min_h=None):
     """Per-event P2 pad centroid (charge-weighted or leading-pad), streamed.
@@ -373,6 +408,7 @@ def event_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
     min_amp / t_max_h are applied at read time (see iter_hits), i.e. before
     the spark veto's burst counting.
     """
+    link = float(channel_table.attrs.get('cluster_link', 0.0) or 0.0)
     branches = ['eventId', 'channel', 'amplitude', 'feu']
     if spark_veto is not None:
         branches.append('trigger_timestamp_ns')
@@ -396,6 +432,13 @@ def event_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
             idx = h.groupby('eventId')['amplitude'].idxmax()
             parts.append(h.loc[idx, ['eventId', 'amplitude',
                                      'pad_cx', 'pad_cy']].copy())
+        elif link > 0:
+            # keep per-pad rows; clustering needs the whole event (done below)
+            parts.append(pd.DataFrame({
+                'eventId': h['eventId'].to_numpy(),
+                'x': h['pad_cx'].to_numpy(dtype=np.float64),
+                'y': h['pad_cy'].to_numpy(dtype=np.float64),
+                'w': h['amplitude'].clip(lower=0).to_numpy(dtype=np.float64)}))
         else:
             w = h['amplitude'].clip(lower=0).astype(np.float64)
             part = pd.DataFrame({'eventId': h['eventId'],
@@ -408,6 +451,11 @@ def event_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
 
     hit_events = (np.unique(np.concatenate(ev_parts)) if ev_parts
                   else np.array([], dtype=np.int64))
+    if link > 0 and not leading_pad:
+        cen = (_cluster_centroids(pd.concat(parts, ignore_index=True), link)
+               if parts else _empty_cen())
+        cen = cen[np.isfinite(cen['x_pad']) & np.isfinite(cen['y_pad'])]
+        return cen, hit_events, {'n_rm': n_rm, 'n_burst': n_burst}
     if leading_pad:
         if parts:
             allp = pd.concat(parts, ignore_index=True)

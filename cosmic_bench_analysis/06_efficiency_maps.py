@@ -113,7 +113,7 @@ def main():
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
                                   strategy=args.strategy,
-                                  drop_connectors=cfg.DEAD_CONNECTORS, drop_channels=cfg.DEAD_CHANNELS,
+                                  drop_connectors=cfg.DEAD_CONNECTORS, drop_channels=cfg.DEAD_CHANNELS, cluster_link=cfg.CLUSTER_LINK_MM,
                                   strategy_overrides=cfg.STRATEGY_OVERRIDES)
     if cfg.DEAD_CONNECTORS:
         print(f'  dropped dead connectors: {list(cfg.DEAD_CONNECTORS)}')
@@ -175,6 +175,10 @@ def main():
     # define its zone from the real detector shape rather than a ray bounding box.
     pd.DataFrame({'x': pcx, 'y': pcy}).to_csv(
         f'{out_dir}/pad_footprint{sfx}.csv', index=False)
+    # dropped (dead) pads in the M3 frame: stage 10 masks their cells
+    _dxy = pa.dead_pads_m3(ct, T)
+    pd.DataFrame({'x': _dxy[:, 0], 'y': _dxy[:, 1]}).to_csv(
+        f'{out_dir}/dead_pad_footprint{sfx}.csv', index=False)
 
     # insulation-mask pillars carried into the M3 frame: overlaid here and
     # persisted for the sliding map (stage 10), so pillar shadows can be told
@@ -191,6 +195,7 @@ def main():
     # --- ray list (every clean M3 single track) with hit/miss flags ---
     d = m3.rename(columns={'x_m3': 'x', 'y_m3': 'y'}).copy()
     nn_dist, nn_idx = tree.query(np.column_stack([d['x'], d['y']]))
+    nn_dist = pa.mask_dead_cells(nn_dist, np.column_stack([d['x'], d['y']]), ct, T)
     d['in_active'] = nn_dist <= args.active_r
     d['pad_idx'] = nn_idx   # nearest pad (row index into padc/pad_xy)
     d['has_any'] = d['eventId'].isin(hit_events)
