@@ -112,7 +112,7 @@ def reco_and_tree(T, p2, ct):
     return recodf, tree, np.column_stack([pcx, pcy]), padc
 
 
-def ray_table(m3, recodf, tree, hit_events, ct=None, T=None):
+def ray_table(m3, recodf, tree, hit_events, ct=None, T=None, clusters=None):
     """Per-ray table: nn_dist to nearest pad, |r| residual (+dx,dy), has_any.
     R / active_r cuts are applied downstream so scans are pure thresholding."""
     d = m3.rename(columns={'x_m3': 'x', 'y_m3': 'y'}).merge(recodf, on='eventId', how='left')
@@ -121,6 +121,10 @@ def ray_table(m3, recodf, tree, hit_events, ct=None, T=None):
         nn_dist = pa.mask_dead_cells(nn_dist, np.column_stack([d['x'], d['y']]), ct, T)
     d['nn_dist'] = nn_dist
     d['nn_idx'] = nn_idx
+    if clusters is not None and T is not None:
+        # efficiency definition: the cluster CLOSEST to the track (any cluster within R)
+        d['rx'], d['ry'] = pa.nearest_cluster(d['eventId'].to_numpy(), d['x'].to_numpy(),
+                                              d['y'].to_numpy(), clusters, T)
     d['dx'] = d['x'] - d['rx']
     d['dy'] = d['y'] - d['ry']
     d['resid'] = np.hypot(d['dx'], d['dy'])
@@ -177,10 +181,10 @@ def main():
     m3 = pa.load_m3_positions(m3_dir, z0, args.chi2_cut)
     m3 = pa.filter_events_by_time(m3, m3_dir, cfg.T_MAX_H, t_min_h=cfg.T_MIN_H)
     drop_pads = p2io.drop_pads_for(cfg, ct)
-    p2, hit_events = pa.load_p2_centroids(hits_dir, ct,
-                                          min_amp=cfg.MIN_AMP,
-                                          t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H,
-                                          drop_pads=drop_pads)
+    p2, hit_events, clusters = pa.load_p2_centroids(hits_dir, ct,
+                                                    min_amp=cfg.MIN_AMP,
+                                                    t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H,
+                                                    drop_pads=drop_pads, with_clusters=True)
     if args.veto_sparks:
         sv = ps.SparkVeto.from_cfg(cfg)
         bad = sv.vetoed_ids_from_hits(hits_dir, ct.attrs['feus'],
@@ -198,7 +202,7 @@ def main():
           f'RMSE {T0.rmse:.1f} mm')
 
     recodf, tree, pad_xy, padc = reco_and_tree(T0, p2, ct)
-    d = ray_table(m3, recodf, tree, hit_events, ct, T0)
+    d = ray_table(m3, recodf, tree, hit_events, ct, T0, clusters)
     eff0, any0, n0 = eff_of(d, R0, AR0)
     core_sx = robust_sigma(d.loc[d['nn_dist'] <= AR0, 'dx'])
     core_sy = robust_sigma(d.loc[d['nn_dist'] <= AR0, 'dy'])
@@ -310,7 +314,7 @@ def main():
         fm = mm[(mm['x_m3'].abs() < args.fit_fiducial) & (mm['y_m3'].abs() < args.fit_fiducial)]
         Tz = pa.fit_transform(fm['x_m3'], fm['y_m3'], fm['x_pad'], fm['y_pad'])
         rc, tr, _, _ = reco_and_tree(Tz, p2, ct)
-        dz = ray_table(mz, rc, tr, hit_events, ct, Tz)
+        dz = ray_table(mz, rc, tr, hit_events, ct, Tz, clusters)
         e, _, _ = eff_of(dz, R0, AR0)
         eZ.append(e)
         sZ.append(robust_sigma(dz.loc[dz['nn_dist'] <= AR0, 'dx']))
@@ -340,7 +344,7 @@ def main():
     align_rows = []
     for name, T in variants.items():
         rc, tr, _, _ = reco_and_tree(T, p2, ct)
-        dd = ray_table(m3, rc, tr, hit_events, ct, T)
+        dd = ray_table(m3, rc, tr, hit_events, ct, T, clusters)
         e, a, n = eff_of(dd, R0, AR0)
         sx = robust_sigma(dd.loc[dd['nn_dist'] <= AR0, 'dx'])
         sy = robust_sigma(dd.loc[dd['nn_dist'] <= AR0, 'dy'])

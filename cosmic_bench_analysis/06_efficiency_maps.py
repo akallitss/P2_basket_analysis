@@ -121,10 +121,11 @@ def main():
     # --- inputs ---
     m3 = pa.load_m3_positions(cfg.m3_tracking_dir, det_z, args.chi2_cut)
     m3 = pa.filter_events_by_time(m3, cfg.m3_tracking_dir, cfg.T_MAX_H, t_min_h=cfg.T_MIN_H)
-    p2, hit_events = pa.load_p2_centroids(cfg.combined_hits_dir, ct,
-                                          min_amp=cfg.MIN_AMP,
-                                          t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H,
-                                          drop_pads=p2io.drop_pads_for(cfg, ct))
+    p2, hit_events, clusters = pa.load_p2_centroids(cfg.combined_hits_dir, ct,
+                                                    min_amp=cfg.MIN_AMP,
+                                                    t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H,
+                                                    drop_pads=p2io.drop_pads_for(cfg, ct),
+                                                    with_clusters=True)
 
     # --- HV spark veto: drop rays/events taken during a mesh discharge -------
     if args.veto_sparks:
@@ -204,16 +205,13 @@ def main():
     d['in_active'] = nn_dist <= args.active_r
     d['pad_idx'] = nn_idx   # nearest pad (row index into padc/pad_xy)
     d['has_any'] = d['eventId'].isin(hit_events)
-    within = np.zeros(len(d), dtype=bool)
-    resid = np.full(len(d), np.nan)
-    evids = d['eventId'].to_numpy()
-    xs, ys = d['x'].to_numpy(), d['y'].to_numpy()
-    for i in range(len(d)):
-        rc = reco.get(int(evids[i]))
-        if rc is not None:
-            resid[i] = np.hypot(xs[i] - rc[0], ys[i] - rc[1])
-            within[i] = resid[i] <= R
-    d['within'] = within
+    # efficiency = a P2 CLUSTER within R of the track (the cluster closest to
+    # it; extra in-time particles elsewhere must not turn a hit into a miss).
+    # resid = distance to that matched cluster.
+    mrx, mry = pa.nearest_cluster(d['eventId'].to_numpy(), d['x'].to_numpy(), d['y'].to_numpy(),
+                                  clusters, T)
+    resid = np.hypot(d['x'].to_numpy() - mrx, d['y'].to_numpy() - mry)
+    d['within'] = np.nan_to_num(resid, nan=np.inf) <= R
     d['resid'] = resid
 
     # optional last-N-hours window: restrict the WHOLE efficiency analysis

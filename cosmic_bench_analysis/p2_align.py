@@ -92,7 +92,7 @@ def project_to_z(ep, z):
 
 
 def load_p2_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
-                      t_max_h=None, drop_pads=(), t_min_h=None):
+                      t_max_h=None, drop_pads=(), t_min_h=None, with_clusters=False):
     """Per-event P2 pad centroid (charge-weighted or leading-pad), keyed by eventId.
     Also returns the set of eventIds with any mapped P2 hit.
 
@@ -100,12 +100,39 @@ def load_p2_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
     how many chunks the run has. min_amp / t_min_h / t_max_h / drop_pads are the
     per-run data-quality cuts (cfg.MIN_AMP / cfg.T_MIN_H / cfg.T_MAX_H /
     cfg.NOISY_PADS)."""
-    cen, hit_ev, _ = p2io.event_centroids(hits_dir, channel_table,
-                                          min_amp=min_amp,
-                                          leading_pad=leading_pad,
-                                          t_max_h=t_max_h, t_min_h=t_min_h,
-                                          drop_pads=drop_pads)
+    res = p2io.event_centroids(hits_dir, channel_table, min_amp=min_amp,
+                               leading_pad=leading_pad, t_max_h=t_max_h, t_min_h=t_min_h,
+                               drop_pads=drop_pads, with_clusters=with_clusters)
+    if with_clusters:
+        cen, hit_ev, _, clu = res
+        return cen, set(int(e) for e in hit_ev), clu
+    cen, hit_ev, _ = res
     return cen, set(int(e) for e in hit_ev)
+
+
+def nearest_cluster(event_ids, x, y, clusters, T):
+    """Per track: M3-frame position of the P2 cluster CLOSEST to it.
+
+    The efficiency definition since 2026-11-26 is 'a cluster within MATCH_R of
+    the track' (not 'the max-charge cluster within MATCH_R'): an extra in-time
+    particle elsewhere in P2 (det2: 2.7% of triggers) must not turn a detected
+    muon into a miss. Returns (rx, ry) aligned with the inputs, NaN where the
+    event has no cluster. clusters: DataFrame [eventId, x_pad, y_pad, ...]."""
+    ev = np.asarray(event_ids, dtype=np.int64)
+    rx = np.full(len(ev), np.nan); ry = np.full(len(ev), np.nan)
+    if clusters is None or len(clusters) == 0 or len(ev) == 0:
+        return rx, ry
+    cx, cy = T.apply(clusters['x_pad'].to_numpy(), clusters['y_pad'].to_numpy())
+    c = pd.DataFrame({'eventId': clusters['eventId'].to_numpy(dtype=np.int64), 'cx': cx, 'cy': cy})
+    t = pd.DataFrame({'eventId': ev, 'i': np.arange(len(ev)), 'tx': np.asarray(x, float),
+                      'ty': np.asarray(y, float)})
+    m = t.merge(c, on='eventId', how='inner')
+    if len(m) == 0:
+        return rx, ry
+    m['d'] = np.hypot(m['cx'] - m['tx'], m['cy'] - m['ty'])
+    b = m.loc[m.groupby('i')['d'].idxmin()]
+    rx[b['i'].to_numpy()] = b['cx'].to_numpy(); ry[b['i'].to_numpy()] = b['cy'].to_numpy()
+    return rx, ry
 
 
 def dead_pads_m3(channel_table, T):

@@ -358,7 +358,7 @@ def _empty_cen():
                          'n_pad': pd.Series(dtype=np.int64)})
 
 
-def _cluster_centroids(hits, link):
+def _cluster_centroids(hits, link, all_clusters=False):
     """Per-event centroid of the max-charge spatial cluster.
 
     hits: DataFrame [eventId, x, y, w] (pad frame, one row per fired pad;
@@ -371,6 +371,7 @@ def _cluster_centroids(hits, link):
     from scipy.spatial import cKDTree
     hits = hits.groupby(['eventId', 'x', 'y'], as_index=False)['w'].max()
     out_e, out_x, out_y, out_n = [], [], [], []
+    ce, cxl, cyl, cql, cnl = [], [], [], [], []
     for e, g in hits.groupby('eventId', sort=False):
         x, y, w = g['x'].to_numpy(), g['y'].to_numpy(), g['w'].to_numpy()
         n = len(x)
@@ -379,22 +380,38 @@ def _cluster_centroids(hits, link):
             G = coo_matrix((np.ones(len(pr)), (pr[:, 0], pr[:, 1])), shape=(n, n)) \
                 if len(pr) else coo_matrix((n, n))
             nc, lab = connected_components(G, directed=False)
-            if nc > 1:
-                best = np.argmax(np.bincount(lab, weights=w, minlength=nc))
-                s = lab == best
-                x, y, w = x[s], y[s], w[s]
+        else:
+            nc, lab = 1, np.zeros(1, dtype=int)
+        if all_clusters:
+            q = np.bincount(lab, weights=w, minlength=nc)
+            ok = q > 0
+            ce.extend([e] * int(ok.sum()))
+            cxl.extend((np.bincount(lab, weights=w * x, minlength=nc)[ok] / q[ok]).tolist())
+            cyl.extend((np.bincount(lab, weights=w * y, minlength=nc)[ok] / q[ok]).tolist())
+            cql.extend(q[ok].tolist()); cnl.extend(np.bincount(lab, minlength=nc)[ok].tolist())
+        if nc > 1:
+            best = np.argmax(np.bincount(lab, weights=w, minlength=nc))
+            s = lab == best
+            x, y, w = x[s], y[s], w[s]
         ws = w.sum()
         if ws > 0:
             out_e.append(e); out_x.append((w * x).sum() / ws)
             out_y.append((w * y).sum() / ws); out_n.append(len(x))
-    return pd.DataFrame({'eventId': np.asarray(out_e, dtype=np.int64),
-                         'x_pad': np.asarray(out_x, dtype=float),
-                         'y_pad': np.asarray(out_y, dtype=float),
-                         'n_pad': np.asarray(out_n, dtype=np.int64)})
+    cen = pd.DataFrame({'eventId': np.asarray(out_e, dtype=np.int64),
+                        'x_pad': np.asarray(out_x, dtype=float),
+                        'y_pad': np.asarray(out_y, dtype=float),
+                        'n_pad': np.asarray(out_n, dtype=np.int64)})
+    if not all_clusters:
+        return cen
+    clu = pd.DataFrame({'eventId': np.asarray(ce, dtype=np.int64), 'x_pad': np.asarray(cxl, float),
+                        'y_pad': np.asarray(cyl, float), 'q': np.asarray(cql, float),
+                        'n_pad': np.asarray(cnl, dtype=np.int64)})
+    return cen, clu
 
 
 def event_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
-                    spark_veto=None, t_max_h=None, drop_pads=(), t_min_h=None):
+                    spark_veto=None, t_max_h=None, drop_pads=(), t_min_h=None,
+                    with_clusters=False):
     """Per-event P2 pad centroid (charge-weighted or leading-pad), streamed.
 
     Returns (cen, hit_events, veto_stats):
@@ -452,9 +469,15 @@ def event_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
     hit_events = (np.unique(np.concatenate(ev_parts)) if ev_parts
                   else np.array([], dtype=np.int64))
     if link > 0 and not leading_pad:
-        cen = (_cluster_centroids(pd.concat(parts, ignore_index=True), link)
-               if parts else _empty_cen())
+        if parts:
+            res = _cluster_centroids(pd.concat(parts, ignore_index=True), link,
+                                     all_clusters=with_clusters)
+            cen, clu = res if with_clusters else (res, None)
+        else:
+            cen, clu = _empty_cen(), _empty_cen().assign(q=[])
         cen = cen[np.isfinite(cen['x_pad']) & np.isfinite(cen['y_pad'])]
+        if with_clusters:
+            return cen, hit_events, {'n_rm': n_rm, 'n_burst': n_burst}, clu
         return cen, hit_events, {'n_rm': n_rm, 'n_burst': n_burst}
     if leading_pad:
         if parts:
@@ -476,4 +499,6 @@ def event_centroids(hits_dir, channel_table, min_amp=0.0, leading_pad=False,
         else:
             cen = _empty_cen()
     cen = cen[np.isfinite(cen['x_pad']) & np.isfinite(cen['y_pad'])]
+    if with_clusters:   # no clustering configured: one 'cluster' per event
+        return cen, hit_events, {'n_rm': n_rm, 'n_burst': n_burst}, cen.assign(q=1.0)
     return cen, hit_events, {'n_rm': n_rm, 'n_burst': n_burst}

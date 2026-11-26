@@ -107,8 +107,8 @@ def load_subrun(cfg, ct, subrun, z, chi2_cut, veto_sparks, sig_amp=300.0):
     m3_dir = os.path.join(sub, 'm3_tracking_root')
     drop = p2io.drop_pads_for(cfg, ct, hits_dir=hits_dir)
     m3 = pa.load_m3_positions(m3_dir, z, chi2_cut)
-    p2, hit_events = pa.load_p2_centroids(hits_dir, ct, min_amp=cfg.MIN_AMP,
-                                          drop_pads=drop)
+    p2, hit_events, clusters = pa.load_p2_centroids(hits_dir, ct, min_amp=cfg.MIN_AMP,
+                                                    drop_pads=drop, with_clusters=True)
     n_veto = 0
     bad = None
     if veto_sparks:
@@ -129,7 +129,7 @@ def load_subrun(cfg, ct, subrun, z, chi2_cut, veto_sparks, sig_amp=300.0):
     tres = p2io.event_time_resolution(hits_dir, ct, sig_amp=sig_amp,
                                       min_amp=cfg.MIN_AMP, drop_pads=drop,
                                       exclude_events=bad)
-    return m3, p2, hit_events, n_veto, amp, tspread, tres
+    return m3, p2, hit_events, n_veto, amp, tspread, tres, clusters
 
 
 def m3_trigger_count(cfg, subrun):
@@ -408,7 +408,7 @@ def main():
     data = []
     pooled = []
     for subrun, mv, dv in subruns:
-        m3, p2, hit_events, n_veto, amp, tspread, tres = load_subrun(
+        m3, p2, hit_events, n_veto, amp, tspread, tres, clusters = load_subrun(
             cfg, ct, subrun, args.z, args.chi2_cut, args.veto_sparks,
             sig_amp=args.sig_amp)
         matched = m3.merge(p2, on='eventId', how='inner')
@@ -419,7 +419,7 @@ def main():
               + f' | t_max spread {tspread["spread"]:.0f} ns'
               + f' | sigma_t {tres["sigma_ns"]:.1f} ns')
         n_trig = m3_trigger_count(cfg, subrun)
-        data.append(dict(subrun=subrun, mesh=mv, drift=dv, x=xv, m3=m3, p2=p2,
+        data.append(dict(clusters=clusters, subrun=subrun, mesh=mv, drift=dv, x=xv, m3=m3, p2=p2,
                          hit_events=hit_events, matched=matched, amp=amp,
                          tspread=tspread, tres=tres,
                          m3_accept=(len(m3) / n_trig) if n_trig else np.nan))
@@ -497,18 +497,11 @@ def main():
         nn = pa.mask_dead_cells(nn, np.column_stack([d['x'], d['y']]), ct, T)
         d['in_active'] = nn <= args.active_r
         d['has_any'] = d['eventId'].isin(a['hit_events'])
-        within = np.zeros(len(d), dtype=bool)
-        dxres = np.full(len(d), np.nan)
-        dyres = np.full(len(d), np.nan)
-        ev = d['eventId'].to_numpy()
-        xs = d['x'].to_numpy()
-        ys = d['y'].to_numpy()
-        for i in range(len(d)):
-            rc = reco.get(int(ev[i]))
-            if rc is not None:
-                dxres[i] = xs[i] - rc[0]
-                dyres[i] = ys[i] - rc[1]
-                within[i] = (dxres[i] ** 2 + dyres[i] ** 2) ** 0.5 <= args.r
+        # efficiency = a P2 cluster within R of the track (closest cluster)
+        xs = d['x'].to_numpy(); ys = d['y'].to_numpy()
+        mrx, mry = pa.nearest_cluster(d['eventId'].to_numpy(), xs, ys, a['clusters'], T)
+        dxres = xs - mrx; dyres = ys - mry
+        within = np.nan_to_num(np.hypot(dxres, dyres), nan=np.inf) <= args.r
         d['within'] = within
 
         da = d[d['in_active']]

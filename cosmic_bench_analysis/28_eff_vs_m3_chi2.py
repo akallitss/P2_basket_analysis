@@ -85,9 +85,10 @@ def main():
     d = d[np.isfinite(d.x) & np.isfinite(d.y)].drop_duplicates('eventId')
     d = pa.filter_events_by_time(d, cfg.m3_tracking_dir, cfg.T_MAX_H, t_min_h=cfg.T_MIN_H)
 
-    p2, hit_events = pa.load_p2_centroids(cfg.combined_hits_dir, ct, min_amp=cfg.MIN_AMP,
-                                          t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H,
-                                          drop_pads=p2io.drop_pads_for(cfg, ct))
+    p2, hit_events, clusters = pa.load_p2_centroids(cfg.combined_hits_dir, ct, min_amp=cfg.MIN_AMP,
+                                                    t_max_h=cfg.T_MAX_H, t_min_h=cfg.T_MIN_H,
+                                                    drop_pads=p2io.drop_pads_for(cfg, ct),
+                                                    with_clusters=True)
     if args.veto_sparks:
         sv = ps.SparkVeto.from_cfg(cfg)
         bad = sv.vetoed_ids_from_hits(cfg.combined_hits_dir, ct.attrs['feus'], min_amp=cfg.MIN_AMP)
@@ -104,9 +105,8 @@ def main():
             return to_m3(np.asarray(x), np.asarray(y))
     nn = pa.mask_dead_cells(nn, d[['x', 'y']].to_numpy(), ct, _T)   # Voronoi cell + DEAD_GUARD_MM
     d = d[nn <= AR].copy()
-    rx, ry = to_m3(p2['x_pad'].to_numpy(), p2['y_pad'].to_numpy())
-    reco = pd.DataFrame({'eventId': p2['eventId'].to_numpy(), 'rx': rx, 'ry': ry})
-    d = d.merge(reco, on='eventId', how='left')
+    d['rx'], d['ry'] = pa.nearest_cluster(d['eventId'].to_numpy(), d['x'].to_numpy(),
+                                          d['y'].to_numpy(), clusters, _T)   # any cluster within R
     d['within'] = np.hypot(d.x - d.rx, d.y - d.ry) <= R
     d['has_any'] = d['eventId'].isin(hit_events)
     N = len(d)
