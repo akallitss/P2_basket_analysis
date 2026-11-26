@@ -141,6 +141,7 @@ run 28_eff_vs_m3_chi2.py "${RUN_KEY}"
 run 30_miss_anatomy.py "${RUN_KEY}"
 run 31_pillar_shadow_vs_angle.py "${RUN_KEY}"
 run 32_misreco_anatomy.py "${RUN_KEY}"
+run 33_reference_vs_p2_blame.py "${RUN_KEY}"
 # re-run 27 last so its breakdown uses the same geometry as 30/31
 run 27_loss_breakdown.py "${RUN_KEY}"
 # (26_crosstalk_waveforms.py + 29_crosstalk_illustration.py need decoded_root;

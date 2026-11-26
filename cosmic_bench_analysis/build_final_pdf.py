@@ -308,6 +308,12 @@ def build(cfg, out):
                         'with M3 chi2 -> mis-pointed reference tracks.',
                   ncols=1)
 
+        grid_page(pdf, 'Reference (M3) vs P2: who caused the remaining mis-reco?',
+                  'Stage 33 — only-distant hits split into mis-pointed reference tracks vs a P2 miss + '
+                  'an unrelated in-time particle; three independent estimates.',
+                  [T('33_reference_blame/blame', 'Only-distant hits: M3 vs P2 share')],
+                  ncols=1)
+
         grid_page(pdf, 'Crosstalk, shorts and dead channels',
                   'Stages 26 + 29 — readout crosstalk from waveform shapes; shorted / dead pins on the '
                   'detector vs on the connector footprint (needs decoded_root).',
