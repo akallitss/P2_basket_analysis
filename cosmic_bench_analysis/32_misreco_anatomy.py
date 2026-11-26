@@ -108,9 +108,11 @@ def main():
           f'P(any P2 hit) = {100*p_noise:.2f}%')
 
     # ---- per-event clustering for the mis-reco tracks + a sample of good ones ----
-    mis = act[act['has_any'] & ~act['within']]
-    good = act[act['within']].sample(min(6000, int(act['within'].sum())), random_state=2)
-    sel_ev = set(mis.index) | set(good.index)
+    # This stage studies the MAX-CHARGE-cluster choice (the pre-2026-11-26
+    # efficiency definition), so it classifies every fired track itself from
+    # the winning cluster's distance, independent of 06's 'any cluster' list.
+    fired_ev = set(act.index[act['has_any']])
+    sel_ev = fired_ev
     hs = h[h['eventId'].isin(sel_ev)]
     rows = []
     for e, g in hs.groupby('eventId', sort=False):
@@ -132,7 +134,7 @@ def main():
         iB = int(np.argmax(csum))
         near = dpad <= R
         iA = int(lab[near][np.argmin(dpad[near])]) if near.any() else -1
-        r = dict(eventId=e, kind='good' if e in good.index else 'mis', n_clu=nc, n_pads=n,
+        r = dict(eventId=e, kind='good' if cd[iB] <= R else 'mis', n_clu=nc, n_pads=n,
                  dB=cd[iB], sumB=csum[iB], npB=int((lab == iB).sum()), hasA=iA >= 0)
         if iA >= 0 and iA != iB:
             A_ch = set(zip(feu[lab == iA], ch[lab == iA]))
@@ -153,14 +155,15 @@ def main():
                      satA=bool(sat[lab == iA].any()), maxA=float(a[lab == iA].max()))
         rows.append(r)
     t = pd.DataFrame(rows).set_index('eventId')
-    t = t.join(act[['resid', 'x', 'y']]).join(ang)
+    t = t.join(act[['x', 'y']]).join(ang)
+    t['resid'] = t['dB']                      # distance of the WINNING (max-charge) cluster
     t.to_csv(f'{out_dir}/misreco_events{sfx}.csv')
     m = t[t.kind == 'mis']
     tail = m[m.resid <= 2 * R]
     wrong = m[(m.resid > 2 * R) & m.hasA]
     far = m[(m.resid > 2 * R) & ~m.hasA]
-    gd = t[t.kind == 'good']
-    print(f'\nmis-reco {len(m)} ({100*len(m)/N:.2f}%): tail {100*len(tail)/N:.2f}%, wrong cluster '
+    gd = t[t.kind == 'good'].sample(min(6000, int((t.kind == 'good').sum())), random_state=2)
+    print(f'\n[max-charge-cluster view] mis-reco {len(m)} ({100*len(m)/N:.2f}%): tail {100*len(tail)/N:.2f}%, wrong cluster '
           f'{100*len(wrong)/N:.2f}%, only distant {100*len(far)/N:.2f}%')
 
     # ---- wrong cluster won: what is B? ----
