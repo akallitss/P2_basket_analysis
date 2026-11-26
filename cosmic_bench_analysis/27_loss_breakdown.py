@@ -44,6 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import p2_qa_config as qa      # noqa: E402
 import p2_mapping as pmap      # noqa: E402
 import p2_io as p2io           # noqa: E402
+import p2_align  # noqa: E402,F401  (puts M3RefTracking on sys.path)
 
 # palette (dataviz reference instance, light): one hue per block
 C_RECO, C_MIS, C_NOHIT = '#257de0', '#f47230', '#ec4647'
@@ -89,6 +90,10 @@ def main():
                     help='pad-edge band width [mm] (default 1)')
     ap.add_argument('--thr', type=float, default=40.0,
                     help='effective hit threshold [ADC] for the below-threshold extrapolation')
+    ap.add_argument('--dead-band', type=float, default=6.0,
+                    help='band [mm] next to dead pads attributed to pointing (stage 30)')
+    ap.add_argument('--theta-flat', type=float, default=18.0,
+                    help='track angle [deg] above which the pillar shadow is gone')
     ap.add_argument('--plateau', type=float, default=150.0,
                     help='upper end [ADC] of the flat density window above --thr')
     args = ap.parse_args()
@@ -123,16 +128,27 @@ def main():
 
     # ---------------- zones for the NO-HIT attribution ---------------------- #
     zones = {}
+    # 1) next to a dead / shorted / unplugged pad: tracks that appear inside a
+    #    live cell but, within the ~3 mm pointing resolution, crossed the dead
+    #    pad (stage 30: the miss rate returns to the interior level by ~6 mm)
+    mp_ = pd.read_csv(cfg.MAP_CSV_PATH)
+    live_ids = set(ct.loc[ct['mapped'], 'channel_id'])
+    dtab = mp_[~mp_['channel_id'].isin(live_ids)][['channel_id', 'pad_cx', 'pad_cy', 'pad_w',
+                                                    'pad_h', 'pad_angle']].assign(mapped=True)
+    if len(dtab) and pmap.has_tile_geometry(dtab):
+        _, dverts = pmap.pad_tiles(dtab)
+        dverts = np.asarray(dverts, float)
+        sdd = signed_edge_distance(q_pad, dverts, cKDTree(dverts.mean(1)))
+        d_dead = np.where(sdd > 0, 0.0, -sdd)
+        zones[f'next to a dead pad (< {args.dead_band:g} mm, pointing)'] = d_dead < args.dead_band
     pil = pmap.load_pillars(cfg.MASK_GBR_PATH)
+    small = pil[~pil['big']] if len(pil) else pil
     if len(pil):
-        big, small = pil[pil['big']], pil[~pil['big']]
+        big = pil[pil['big']]
         if len(big):
             d_big = np.min(np.hypot(q_pad[:, 0, None] - big['x'].to_numpy()[None],
                                     q_pad[:, 1, None] - big['y'].to_numpy()[None]), axis=1)
             zones['big insulation pillars'] = d_big <= big['r'].median()
-        if len(small):
-            d_s, _ = cKDTree(small[['x', 'y']].to_numpy()).query(q_pad)
-            zones['small insulation pillars'] = d_s <= small['r'].median()
     if pmap.has_tile_geometry(ct):
         tpads, verts = pmap.pad_tiles(ct)
         verts = np.asarray(verts, float)
@@ -158,6 +174,39 @@ def main():
         claimed |= z
         exc = zz.sum() * (nohit[zz].mean() - b) / N if zz.any() else 0.0
         parts_nohit.append((name, max(exc, 0.0), int(zz.sum())))
+
+    # 2) small pillars: a position test cannot see 0.8 mm pillars through the
+    #    ~3 mm pointing, but the ANGLE can (stage 31): near-vertical tracks
+    #    project their ionisation onto <0.8 mm and are lost whole on a pillar.
+    #    Shadow = no-hit excess of the clean rays over their own >= THETA_FLAT
+    #    plateau, angle bin by angle bin, applied to all rays.
+    from M3RefTracking import M3RefTracking
+    import awkward as ak
+    m3t = M3RefTracking(os.path.join(cfg.m3_tracking_dir, ''), single_track=True,
+                        chi2_cut=qa.M3_CHI2_CUT, min_nclus=qa.M3_MIN_NCLUS)
+    rd = m3t.ray_data
+
+    def col(n):
+        return np.asarray(ak.to_numpy(ak.ravel(rd[n])), dtype=float)
+    ang = pd.DataFrame({'eventId': np.asarray(ak.to_numpy(ak.ravel(rd['evn'])), dtype=np.int64),
+                        'theta': np.degrees(np.arctan2(np.hypot(col('X_Up') - col('X_Down'),
+                                                                col('Y_Up') - col('Y_Down')),
+                                                       np.abs(col('Z_Up') - col('Z_Down'))))
+                        }).drop_duplicates('eventId').set_index('eventId')['theta']
+    theta = ang.reindex(ra['eventId']).to_numpy()
+    clean = ~claimed & np.isfinite(theta)
+    flat = clean & (theta >= args.theta_flat)
+    plateau = nohit[flat].mean() if flat.any() else b
+    tb = np.digitize(theta, np.arange(0, 32, 2))
+    shadow_n = 0.0
+    for k in np.unique(tb[clean]):
+        sel = clean & (tb == k)
+        shadow_n += max(nohit[sel].mean() - plateau, 0.0) * sel.sum()
+    shadow_rate = shadow_n / max(clean.sum(), 1)          # per clean ray
+    parts_nohit.append(('small pillars: shadow of near-vertical tracks (angle, see 31)',
+                        shadow_rate, int(round(shadow_rate * N))))
+    print(f'  clean-ray no-hit {100*nohit[clean].mean():.2f}%, plateau (theta >= {args.theta_flat:g}) '
+          f'{100*plateau:.2f}%, pillar shadow {100*shadow_rate:.2f}%')
 
     # ---------------- hits (needed for threshold + mis-reco split) ---------- #
     mpos = ct[ct['mapped']].set_index(['feu', 'channel'])[['pad_cx', 'pad_cy']]
@@ -186,10 +235,15 @@ def main():
     missing = max(rho * args.thr - n_below_obs, 0.0)
     # those muons would have been reconstructed -> scale by the reco share
     f_bt = missing / N
-    parts_nohit.append((f'signal below threshold (< {args.thr:g} ADC)', f_bt, int(round(missing))))
     nohit_tot = nohit.mean()
-    explained = sum(p[1] for p in parts_nohit)
-    parts_nohit.append(('unexplained (flat vs M3 chi2 -> not reference quality; see 28)', max(nohit_tot - explained, 0.0), 0))
+    rem = max(nohit_tot - sum(p[1] for p in parts_nohit), 0.0)   # angle-independent rest
+    bt = min(f_bt, rem)
+    parts_nohit.append((f'signal below threshold (< {args.thr:g} ADC; spectrum estimate '
+                        f'{100*f_bt:.2f}%)', bt, int(round(missing))))
+    parts_nohit.append(('unexplained remainder', rem - bt, 0))
+    if f_bt > rem:
+        print(f'  NOTE: below-threshold spectrum estimate {100*f_bt:.2f}% exceeds the remaining '
+              f'{100*rem:.2f}% -> capped (flat extrapolation is approximate)')
 
     # ---------------- FIRED BUT MIS-RECO split ------------------------------ #
     fm = ra[ra['has_any'] & ~ra['within']]
@@ -281,11 +335,12 @@ def main():
     fig.suptitle(f'{cfg.DET_NAME} — where do the crossing muons go, and why are some lost?   '
                  f'{cfg.RUN}/{cfg.SUB_RUN}  (N={N:,})', color=INK, fontsize=12, x=0.01, ha='left')
     fig.text(0.01, 0.005,
-             f'No-hit causes are EXCESS over the clean-area no-hit rate ({100*b:.2f}%); first matching zone wins. '
+             f'No-hit zones are EXCESS over the clean-area rate ({100*b:.2f}%), first zone wins; pillar shadow = '
+             f'angle-dependent excess over the theta>={args.theta_flat:g} deg plateau.\n'
              f'Below-threshold: flat leading-pad amplitude density [{args.thr:g},{args.plateau:g}] ADC '
              f'extrapolated to 0. Pillars/tiles from {os.path.basename(cfg.MASK_GBR_PATH)} + pad-map Gerber.',
              color=INK2, fontsize=8)
-    fig.subplots_adjust(left=0.05, right=0.98, top=0.90, bottom=0.10)
+    fig.subplots_adjust(left=0.05, right=0.98, top=0.90, bottom=0.12)
     fig.savefig(f'{out_dir}/loss_breakdown{sfx}.png', dpi=150)
     plt.close(fig)
     print(f'  saved {out_dir}/loss_breakdown{sfx}.png')

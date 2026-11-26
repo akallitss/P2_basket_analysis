@@ -293,6 +293,13 @@ def build(cfg, out):
                         'is the detector-response check (flat = the no-hit losses are not M3 fakes).',
                   ncols=1)
 
+        grid_page(pdf, 'Anatomy of the remaining misses',
+                  'Stages 30 + 31 — dead-pad proximity (pointing), track angle (small-pillar shadow), time, '
+                  'per-pad clustering, sub-threshold pulses under the track.',
+                  [T('30_miss_anatomy/miss_anatomy', 'Where and why the remaining misses happen'),
+                   T('31_pillar_shadow/nohit_vs_theta', 'No-hit vs track angle: small-pillar shadow fit')],
+                  ncols=1)
+
         grid_page(pdf, 'Crosstalk, shorts and dead channels',
                   'Stages 26 + 29 — readout crosstalk from waveform shapes; shorted / dead pins on the '
                   'detector vs on the connector footprint (needs decoded_root).',
