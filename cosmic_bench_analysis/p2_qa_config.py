@@ -693,6 +693,25 @@ RUNS = {
         dead_connectors=(1, 10),
         plane_z=240.0,   # 03 z-scan on alignment_det2_430_730 (nominal 232; FOM 1.864)
         min_amp=0.0),
+    # det2 long run at 430/730 after REPOSITIONING (det2 had shifted out of the
+    # M3 acceptance; the 11-25 13:56 run was stopped for that and is not used).
+    # Started 11-25 17:30:42 with fresh pedestals (17:24, 200 V) -> min_amp 0.
+    # The det2 mesh (1:0) TRIPPED at 11-26 01:07:36 (10 uA limit, sagged to
+    # 110 V, powered off 01:08:06) and stayed off: trip = 7.615 h after run
+    # start. t_max_h=7.58 drops everything from ~2 min before the trip (covers
+    # the run-start -> first-trigger offset). Segments 007-010 (mesh off) were
+    # deleted on rays; 000-006 fetched, 006 is cut by t_max_h.
+    'det2_long_repos': _Config(
+        'det2_long_repos',
+        run='p2_det2_long_run_430_repositioned_11-25-26',
+        sub_run='long_run_det2_430_730',
+        det_name='P2_2',
+        det_tag='det2',
+        spark_channel='1:0',
+        dead_connectors=(1, 10),
+        plane_z=240.0,   # carried over from 11-24; re-check with the 03 z-scan (det2 was moved)
+        t_max_h=7.58,    # mesh trip at 7.615 h (11-26 01:07:36)
+        min_amp=0.0),
 
     # det1 DRIFT scan (7-19-26 afternoon), taken right after the mesh scan
     # settled on 415 V as the working point: mesh FIXED at 415 V, drift stepped
