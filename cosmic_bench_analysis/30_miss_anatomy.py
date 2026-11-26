@@ -63,7 +63,7 @@ def main():
                                     det_name=cfg.DET_NAME, strategy_overrides=cfg.STRATEGY_OVERRIDES)
     live = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH, det_type=cfg.DET_TYPE,
                                     det_name=cfg.DET_NAME, drop_connectors=cfg.DEAD_CONNECTORS,
-                                    drop_channels=cfg.DEAD_CHANNELS, cluster_link=cfg.CLUSTER_LINK_MM,
+                                    drop_channels=cfg.DEAD_CHANNELS, cluster_link=cfg.CLUSTER_LINK_MM, dead_guard=cfg.DEAD_GUARD_MM,
                                     strategy_overrides=cfg.STRATEGY_OVERRIDES)
     # all 1280 pads of the map are geometry; live ones are those in `live`
     mp = pd.read_csv(cfg.MAP_CSV_PATH)

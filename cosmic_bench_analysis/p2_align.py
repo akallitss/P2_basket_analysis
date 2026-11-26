@@ -132,8 +132,54 @@ def mask_dead_cells(nn, xy, channel_table, T):
     if len(dxy) == 0 or len(nn) == 0:
         return nn
     from scipy.spatial import cKDTree
-    dd, _ = cKDTree(dxy).query(np.asarray(xy, dtype=float))
-    return np.where(dd < nn, np.inf, nn)
+    xy = np.asarray(xy, dtype=float)
+    dd, _ = cKDTree(dxy).query(xy)
+    out = np.where(dd < nn, np.inf, nn)
+    guard = float(channel_table.attrs.get('dead_guard', 0.0) or 0.0)
+    if guard > 0:
+        out = np.where(dist_to_dead_tiles(xy, channel_table, T) < guard, np.inf, out)
+    return out
+
+
+def dead_tiles_m3(channel_table, T):
+    """Dropped-pad tile corners in the M3 frame, (n, 4, 2)."""
+    dv = channel_table.attrs.get('dead_pad_verts')
+    if dv is None or len(dv) == 0:
+        return np.empty((0, 4, 2))
+    x, y = T.apply(dv[:, :, 0].ravel(), dv[:, :, 1].ravel())
+    return np.stack([x.reshape(-1, 4), y.reshape(-1, 4)], axis=2)
+
+
+def dist_to_quads(xy, quads, k=6):
+    """Distance [mm] from points (n,2) to the nearest of convex quads (m,4,2);
+    0 inside a quad. Checks the k quads with the nearest centres."""
+    from scipy.spatial import cKDTree
+    xy = np.asarray(xy, dtype=float)
+    if len(quads) == 0 or len(xy) == 0:
+        return np.full(len(xy), np.inf)
+    k = min(k, len(quads))
+    _, idx = cKDTree(quads.mean(1)).query(xy, k=k)
+    idx = idx.reshape(len(xy), k)
+    best = np.full(len(xy), np.inf)
+    for j in range(k):
+        q = quads[idx[:, j]]                                   # (n,4,2)
+        dmin = np.full(len(xy), np.inf)
+        sgn = []
+        for e in range(4):
+            a, b = q[:, e], q[:, (e + 1) % 4]
+            ab = b - a; ap = xy - a
+            t = np.clip(np.einsum('ij,ij->i', ap, ab) / np.einsum('ij,ij->i', ab, ab), 0, 1)
+            dmin = np.minimum(dmin, np.hypot(*(xy - (a + t[:, None] * ab)).T))
+            sgn.append(ab[:, 0] * ap[:, 1] - ab[:, 1] * ap[:, 0])
+        sgn = np.array(sgn)
+        inside = (sgn >= 0).all(0) | (sgn <= 0).all(0)
+        best = np.minimum(best, np.where(inside, 0.0, dmin))
+    return best
+
+
+def dist_to_dead_tiles(xy, channel_table, T):
+    """Distance [mm] from M3-frame points to the nearest dropped-pad tile."""
+    return dist_to_quads(xy, dead_tiles_m3(channel_table, T))
 
 
 def filter_events_by_time(df, m3_dir, t_max_h, id_col='eventId', t_min_h=None):

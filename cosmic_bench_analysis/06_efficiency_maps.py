@@ -113,7 +113,7 @@ def main():
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH,
                                   det_type=cfg.DET_TYPE, det_name=cfg.DET_NAME,
                                   strategy=args.strategy,
-                                  drop_connectors=cfg.DEAD_CONNECTORS, drop_channels=cfg.DEAD_CHANNELS, cluster_link=cfg.CLUSTER_LINK_MM,
+                                  drop_connectors=cfg.DEAD_CONNECTORS, drop_channels=cfg.DEAD_CHANNELS, cluster_link=cfg.CLUSTER_LINK_MM, dead_guard=cfg.DEAD_GUARD_MM,
                                   strategy_overrides=cfg.STRATEGY_OVERRIDES)
     if cfg.DEAD_CONNECTORS:
         print(f'  dropped dead connectors: {list(cfg.DEAD_CONNECTORS)}')
@@ -179,6 +179,11 @@ def main():
     _dxy = pa.dead_pads_m3(ct, T)
     pd.DataFrame({'x': _dxy[:, 0], 'y': _dxy[:, 1]}).to_csv(
         f'{out_dir}/dead_pad_footprint{sfx}.csv', index=False)
+    _dv = pa.dead_tiles_m3(ct, T)
+    pd.DataFrame(_dv.reshape(len(_dv), 8),
+                 columns=[f'{a}{i}' for i in range(4) for a in 'xy']).assign(
+        guard=ct.attrs.get('dead_guard', 0.0)).to_csv(
+        f'{out_dir}/dead_pad_tiles{sfx}.csv', index=False)
 
     # insulation-mask pillars carried into the M3 frame: overlaid here and
     # persisted for the sliding map (stage 10), so pillar shadows can be told

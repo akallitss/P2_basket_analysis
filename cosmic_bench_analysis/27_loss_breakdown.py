@@ -105,7 +105,7 @@ def main():
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH, det_type=cfg.DET_TYPE,
                                   det_name=cfg.DET_NAME, drop_connectors=cfg.DEAD_CONNECTORS,
                                   drop_channels=cfg.DEAD_CHANNELS,
-                                  cluster_link=cfg.CLUSTER_LINK_MM,
+                                  cluster_link=cfg.CLUSTER_LINK_MM, dead_guard=cfg.DEAD_GUARD_MM,
                                   strategy_overrides=cfg.STRATEGY_OVERRIDES)
     padc = ct[ct['mapped']].drop_duplicates('channel_id').reset_index(drop=True)
     ed = cfg.out_dir('06_efficiency')
@@ -148,7 +148,14 @@ def main():
         if len(big):
             d_big = np.min(np.hypot(q_pad[:, 0, None] - big['x'].to_numpy()[None],
                                     q_pad[:, 1, None] - big['y'].to_numpy()[None]), axis=1)
-            zones['big insulation pillars'] = d_big <= big['r'].median()
+            # the pointing (~3 mm) smears a 6 mm pillar's loss over a larger
+            # disc: use R + 2 sigma from stage 31's blurred-disc fit (pad
+            # frame ~ M3 frame scale), else the Gerber radius + DEAD band
+            fit31 = os.path.join(cfg.out_dir('31_pillar_shadow'), f'big_pillar_fit{sfx}.csv')
+            zone_r = (float(pd.read_csv(fit31)['zone'].iloc[0]) / scale if os.path.isfile(fit31)
+                      else float(big['r'].median()) + args.dead_band)
+            print(f'  big-pillar zone radius {zone_r:.1f} mm (pad frame)')
+            zones[f'big insulation pillars (< {zone_r:.0f} mm, pointing-smeared)'] = d_big <= zone_r
     if pmap.has_tile_geometry(ct):
         tpads, verts = pmap.pad_tiles(ct)
         verts = np.asarray(verts, float)

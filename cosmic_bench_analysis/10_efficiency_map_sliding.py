@@ -92,6 +92,8 @@ def adaptive_map(x, y, within, has_any, x_grid, y_grid, target, max_r):
 
 
 DEAD_TREE = None   # cKDTree of dropped-pad centres (M3 frame), set in main()
+DEAD_QUADS = None  # dropped-pad tiles (M3 frame) for the guard band
+DEAD_GUARD = 0.0
 
 
 def _outside_mask(x_grid, y_grid, ftree, mask_r):
@@ -106,6 +108,9 @@ def _outside_mask(x_grid, y_grid, ftree, mask_r):
     if DEAD_TREE is not None:
         dd, _ = DEAD_TREE.query(pts)
         out |= dd < nn
+    if DEAD_QUADS is not None and DEAD_GUARD > 0:
+        import p2_align as pa
+        out |= pa.dist_to_quads(pts, DEAD_QUADS) < DEAD_GUARD
     return out.reshape(len(x_grid), len(y_grid))
 
 
@@ -192,7 +197,14 @@ def main():
     fp = pd.read_csv(fp_csv)
     fpx, fpy = fp['x'].to_numpy(float), fp['y'].to_numpy(float)
     ftree = cKDTree(np.column_stack([fpx, fpy]))
-    global DEAD_TREE
+    global DEAD_TREE, DEAD_QUADS, DEAD_GUARD
+    tiles_csv = os.path.join(eff_dir, f'dead_pad_tiles{suffix}.csv')
+    if os.path.isfile(tiles_csv):
+        dtl = pd.read_csv(tiles_csv)
+        if len(dtl):
+            DEAD_QUADS = dtl[[f'{a}{i}' for i in range(4) for a in 'xy']].to_numpy(float).reshape(-1, 4, 2)
+            DEAD_GUARD = float(dtl['guard'].iloc[0])
+            print(f'  dead-pad guard band: {DEAD_GUARD:g} mm')
     dead_csv = os.path.join(eff_dir, f'dead_pad_footprint{suffix}.csv')
     if os.path.isfile(dead_csv):
         dfp = pd.read_csv(dead_csv)

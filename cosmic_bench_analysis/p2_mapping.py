@@ -159,7 +159,7 @@ def _within_to_strip(within, half, strategy='linear'):
 def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
                         strategy='reverse', drop_connectors=(),
                         strategy_overrides=None, drop_channels=(),
-                        cluster_link=0.0):
+                        cluster_link=0.0, dead_guard=0.0):
     """Return a DataFrame with one row per instrumented (feu, channel).
 
     Columns: feu, channel, dream_conn, within, connector_N, half, sector,
@@ -234,8 +234,21 @@ def build_channel_table(run_config_path, map_csv, det_type='P2', det_name=None,
     if 'pad_cx' in pad.columns and dead_ids:
         dp = pad.reindex(dead_ids)[['pad_cx', 'pad_cy']].dropna()
         tab.attrs['dead_pad_xy'] = dp.to_numpy(dtype=float)
+        geo = [c for c in ('pad_cx', 'pad_cy', 'pad_w', 'pad_h', 'pad_angle') if c in pad.columns]
+        if len(geo) == 5:
+            dt = pad.reindex(dead_ids)[geo].dropna().reset_index().rename(columns={'index': 'channel_id'})
+            dt['mapped'] = True
+            _, dv = pad_tiles(dt)
+            tab.attrs['dead_pad_verts'] = np.asarray(dv, dtype=float)
+        else:
+            tab.attrs['dead_pad_verts'] = np.empty((0, 4, 2))
     else:
         tab.attrs['dead_pad_xy'] = np.empty((0, 2))
+        tab.attrs['dead_pad_verts'] = np.empty((0, 4, 2))
+    # guard band [mm] around dead pad TILES removed from the active area
+    # (pointing resolution: a ray that appears just inside a live cell may
+    # have crossed the dead pad). Used by p2_align.mask_dead_cells.
+    tab.attrs['dead_guard'] = float(dead_guard or 0.0)
     return tab
 
 

@@ -55,7 +55,7 @@ def main():
     ct = pmap.build_channel_table(cfg.run_config_path, cfg.MAP_CSV_PATH, det_type=cfg.DET_TYPE,
                                   det_name=cfg.DET_NAME, drop_connectors=cfg.DEAD_CONNECTORS,
                                   drop_channels=cfg.DEAD_CHANNELS,
-                                  cluster_link=cfg.CLUSTER_LINK_MM,
+                                  cluster_link=cfg.CLUSTER_LINK_MM, dead_guard=cfg.DEAD_GUARD_MM,
                                   strategy_overrides=cfg.STRATEGY_OVERRIDES)
     padc = ct[ct['mapped']].drop_duplicates('channel_id').reset_index(drop=True)
     fp = pd.read_csv(f'{cfg.out_dir("06_efficiency")}/pad_footprint{sfx}.csv')
@@ -98,11 +98,11 @@ def main():
     # ---- active area (live pad within ACTIVE_R, not in a dead-pad cell) ----
     tree = cKDTree(fp[['x', 'y']].to_numpy())
     nn, _ = tree.query(d[['x', 'y']].to_numpy())
-    dead = ct.attrs.get('dead_pad_xy')
-    if dead is not None and len(dead):
-        dx, dy = to_m3(dead[:, 0], dead[:, 1])
-        dd, _ = cKDTree(np.c_[dx, dy]).query(d[['x', 'y']].to_numpy())
-        nn = np.where(dd < nn, np.inf, nn)
+    class _T:   # minimal transform object for p2_align helpers
+        @staticmethod
+        def apply(x, y):
+            return to_m3(np.asarray(x), np.asarray(y))
+    nn = pa.mask_dead_cells(nn, d[['x', 'y']].to_numpy(), ct, _T)   # Voronoi cell + DEAD_GUARD_MM
     d = d[nn <= AR].copy()
     rx, ry = to_m3(p2['x_pad'].to_numpy(), p2['y_pad'].to_numpy())
     reco = pd.DataFrame({'eventId': p2['eventId'].to_numpy(), 'rx': rx, 'ry': ry})

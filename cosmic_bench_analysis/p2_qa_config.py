@@ -126,7 +126,7 @@ class _Config:
                  det_type='P2', ref_det_type='m3', data_root=DATA_ROOT,
                  map_csv=MAP_CSV_PATH, mask_gbr=MASK_GBR_PATH,
                  dead_connectors=(), dead_channels=(), shorted_channels=(),
-                 cluster_link_mm=20.0,
+                 cluster_link_mm=20.0, dead_guard_mm=0.0,
                  spark_channel='1:0', spark_imon_thr=2.0,
                  spark_guard_before=2.0, spark_guard_after=10.0,
                  burst_npads=20, det_tag=None, match_r=20.0, plane_z=None,
@@ -181,6 +181,13 @@ class _Config:
         # 20 mm links diagonal neighbours (pitch 11.8 -> diagonal 16.7).
         # det2_long_repos: 89.3% (global) -> ~91% (clustered). 0 = old global.
         self.CLUSTER_LINK_MM = float(cluster_link_mm)
+        # Guard band [mm] around every dropped pad TILE (dead / shorted /
+        # unplugged) removed from the active area, on top of its Voronoi cell.
+        # The reference points with ~3 mm/axis at the P2 plane, so a ray that
+        # appears just inside a live cell may have crossed the dead pad. det2
+        # 11-26 (stage 30): miss rate 29% at a dead edge, back to the interior
+        # level by ~6 mm -> det2 keys use 6. 0 = Voronoi cell only.
+        self.DEAD_GUARD_MM = float(dead_guard_mm)
         # Per-connector-half within-half channel order, for a ribbon cabled
         # differently from the rest of the detector: {(connector_N, half):
         # strategy}, e.g. {(8, 'top'): 'linear'} on an otherwise 'reverse' det.
@@ -720,6 +727,7 @@ RUNS = {
                           ((6, 236), (6, 238)), ((6, 241), (6, 243)),
                           ((7, 271), (7, 272), (7, 273)), ((7, 338), (7, 339), (7, 340)),
                           ((7, 351), (7, 352)), ((7, 353), (7, 354), (7, 355))),
+        dead_guard_mm=6.0,   # stage 30: dead-pad miss excess gone by ~6 mm (2 x 3 mm pointing)
         min_amp=0.0),
     'det2_meshscan2': _Config(
         'det2_meshscan2',
@@ -745,6 +753,7 @@ RUNS = {
                           ((6, 236), (6, 238)), ((6, 241), (6, 243)),
                           ((7, 271), (7, 272), (7, 273)), ((7, 338), (7, 339), (7, 340)),
                           ((7, 351), (7, 352)), ((7, 353), (7, 354), (7, 355))),
+        dead_guard_mm=6.0,   # stage 30: dead-pad miss excess gone by ~6 mm (2 x 3 mm pointing)
         min_amp=0.0),
     'det2_driftscan2': _Config(
         'det2_driftscan2',
@@ -770,6 +779,7 @@ RUNS = {
                           ((6, 236), (6, 238)), ((6, 241), (6, 243)),
                           ((7, 271), (7, 272), (7, 273)), ((7, 338), (7, 339), (7, 340)),
                           ((7, 351), (7, 352)), ((7, 353), (7, 354), (7, 355))),
+        dead_guard_mm=6.0,   # stage 30: dead-pad miss excess gone by ~6 mm (2 x 3 mm pointing)
         min_amp=0.0),
     # det2 long run at 430/730 after REPOSITIONING (det2 had shifted out of the
     # M3 acceptance; the 11-25 13:56 run was stopped for that and is not used).
@@ -811,6 +821,7 @@ RUNS = {
                           ((6, 236), (6, 238)), ((6, 241), (6, 243)),
                           ((7, 271), (7, 272), (7, 273)), ((7, 338), (7, 339), (7, 340)),
                           ((7, 351), (7, 352)), ((7, 353), (7, 354), (7, 355))),
+        dead_guard_mm=6.0,   # stage 30: dead-pad miss excess gone by ~6 mm (2 x 3 mm pointing)
         min_amp=0.0),
 
     # det1 DRIFT scan (7-19-26 afternoon), taken right after the mesh scan

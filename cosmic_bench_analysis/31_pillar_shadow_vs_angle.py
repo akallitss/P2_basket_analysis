@@ -73,6 +73,7 @@ def main():
                                                                 col('Y_Up') - col('Y_Down')),
                                                        np.abs(col('Z_Up') - col('Z_Down'))))})
     ra = ra.merge(ang.drop_duplicates('eventId'), on='eventId', how='inner')
+    ra_all = ra.copy()                      # every active ray (for the big-pillar profile)
     if use_interior:
         # stage 30 stores per-ray distances only implicitly; recompute the interior flag the
         # same way: rays whose nearest LIVE pad is far from any dropped pad (pad-centre proxy)
@@ -127,8 +128,81 @@ def main():
     print(f'pillar shadow averaged over this run\'s angles: {100*tot_shadow:.2f}% of rays '
           f'(geometric r: {100*tot_geo:.2f}%); angle-independent rest b = {100*b:.2f}%  (n={n_all})')
 
+    # ---------- BIG pillars: no-hit vs distance, disc blurred by the pointing ----------
+    big = pil[pil['big']]
+    bp = None
+    if len(big) and use_interior:
+        bq = np.c_[big['x'], big['y'], np.ones(len(big))] @ coef
+        dbig = np.min(np.hypot(ra_all.x.to_numpy()[:, None] - bq[None, :, 0],
+                               ra_all.y.to_numpy()[:, None] - bq[None, :, 1]), axis=1)
+        R_geo = float(big['r'].median()) * float(np.sqrt(abs(np.linalg.det(coef[:2]))))
+        bedges = np.arange(0, 16.5, 1.0)
+        bb = pd.DataFrame({'d': dbig, 'nohit': ~ra_all['has_any'].to_numpy()})
+        bb = bb[bb.d < bedges[-1]]
+        bb['bin'] = pd.cut(bb.d, bedges)
+        bt = bb.groupby('bin', observed=False).agg(n=('nohit', 'size'), nohit=('nohit', 'mean'),
+                                                   d=('d', 'mean')).reset_index()
+        bt = bt[bt.n >= 10].copy()
+        bt['err'] = np.sqrt(np.clip(bt.nohit * (1 - bt.nohit), 1e-4, None) / bt.n)
+        from scipy.stats import rice
+
+        def blurred(dv, R, sig):
+            # P(|true position| <= R) for a measured distance d and a 2-D Gaussian
+            # pointing error sigma: the Rice CDF (smooth -> fittable)
+            return rice.cdf(R / sig, b=np.atleast_1d(dv) / sig)
+
+        b0 = float(ra_all.loc[np.hypot(0, 0) + dbig > 15, 'has_any'].pipe(lambda s_: 1 - s_.mean()))
+
+        # Every muon inside the EFFECTIVE dead disc is lost (f = 1); fit its radius R
+        # and the pointing sigma. det2 11-26: R_eff 4.27 +- 0.19 mm vs Gerber 3.0 mm
+        # (a ~1.3 mm dead ring: field distortion at the pillar edge, like the small
+        # pillars' 0.48 vs 0.40 mm), sigma 2.4 mm, chi2/ndf 17.8/13 -- whereas R fixed
+        # to the Gerber value gives chi2/ndf 52/13. Too few rays (short runs) -> no
+        # fit: R = Gerber, sigma = 3 mm.
+        n_near = int((bb.d < R_geo + 6).sum())
+        f_b, ef = 1.0, 0.0
+        if n_near >= 300:
+            def bmodel(dv, R, sig):
+                return b0 + blurred(dv, R, sig)
+            bpopt, bpcov = curve_fit(bmodel, bt.d.to_numpy(), bt.nohit.to_numpy(), p0=(R_geo + 1, 2.5),
+                                     sigma=bt.err.to_numpy(), absolute_sigma=True,
+                                     bounds=([0.5, 0.5], [10.0, 8.0]))
+            R_b, s_b = bpopt
+            eR, es = np.sqrt(np.diag(bpcov))
+        else:
+            R_b, s_b, eR, es = R_geo, 3.0, np.nan, np.nan
+            print(f'  big pillars: only {n_near} rays within R+6 mm -> no fit, R = Gerber, sigma = 3 mm')
+        # big-pillar loss as a share of all (non-interior-restricted) active rays
+        n_lost = f_b * np.pi * R_b ** 2 * len(ra_all) / max(len(ra_all), 1)
+        dens = (bb.d < 15).sum() / (len(big) * np.pi * 15 ** 2)   # rays per mm^2 near pillars
+        loss_big = f_b * len(big) * np.pi * R_b ** 2 * dens / len(ra_all)
+        print(f'\nBIG pillars ({len(big)}): Gerber r = {R_geo:.2f} mm; blurred-disc fit (f=1): '
+              f'R_eff = {R_b:.2f} +- {eR:.2f} mm, pointing sigma = {s_b:.2f} +- {es:.2f} mm; '
+              f'loss = {100*loss_big:.2f}% of active rays (zone for 27: R + 2 sigma = {R_b + 2*s_b:.1f} mm)')
+        bt.to_csv(f'{out_dir}/big_pillar_profile{sfx}.csv', index=False)
+        pd.DataFrame([dict(f=f_b, R=R_b, sigma=s_b, zone=R_b + 2 * s_b, loss=loss_big)]).to_csv(
+            f'{out_dir}/big_pillar_fit{sfx}.csv', index=False)
+        bp = (bt, f_b, R_b, s_b, R_geo, b0, blurred, loss_big)
+
     plt.rcParams.update({'font.size': 10, 'axes.edgecolor': INK2, 'xtick.color': INK2, 'ytick.color': INK2})
-    fig, (ax, ax2) = plt.subplots(1, 2, figsize=(14, 5.2), gridspec_kw={'width_ratios': [1.6, 1]})
+    fig, (ax, ax3, ax2) = plt.subplots(1, 3, figsize=(19, 5.2), gridspec_kw={'width_ratios': [1.6, 1.3, 1]})
+    if bp is not None:
+        bt, f_b, R_b, s_b, R_geo, b0, blurred, loss_big = bp
+        ax3.errorbar(bt.d, 100 * bt.nohit, 100 * bt.err, fmt='o', color=C_DATA, ms=6, lw=1.5,
+                     label='data: no hit vs distance to a big pillar')
+        dd_ = np.linspace(0, 16, 200)
+        ax3.plot(dd_, 100 * (b0 + f_b * blurred(dd_, R_b, s_b)), color=C_FIT, lw=2.2,
+                 label=f'fully-dead disc ⊗ pointing: R_eff = {R_b:.2f} mm, σ = {s_b:.2f} mm')
+        ax3.axvline(R_geo, color=C_GEO, ls='--', lw=1.4, label=f'Gerber radius {R_geo:.2f} mm')
+        ax3.set_xlabel('distance from the track to the nearest BIG pillar centre [mm]')
+        ax3.set_ylabel('no hit at all [%]')
+        ax3.set_title(f'Big pillars: loss smeared by the pointing ({100*loss_big:.2f}% of rays)',
+                      loc='left', fontweight='bold', color=INK)
+        ax3.legend(frameon=False, fontsize=8.5); ax3.grid(True, color=GRID); ax3.set_axisbelow(True)
+        for s_ in ('top', 'right'):
+            ax3.spines[s_].set_visible(False)
+    else:
+        ax3.axis('off')
     ax.errorbar(t.theta, 100 * t.nohit, 100 * t.err, fmt='o', color=C_DATA, ms=6, lw=1.5,
                 label=f'data: interior no-hit (n={n_all:,})')
     th = np.linspace(0, 30, 300)
