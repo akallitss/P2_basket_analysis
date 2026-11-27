@@ -112,8 +112,10 @@ gain-map or position-dependent efficiency study.
   (`49_deform_decomposition.py --scan-dir <44 output>`), anchored at the nominal field. The dry Magboltz
   table for Ar/iC4H10 95/5 is right above 600 V/cm and 5-35 % too fast between 500 and 250 V/cm on the bench.
   The bench gas behaves like Ar/iC4H10 with ~0.7 % water (`gas_studies/water_scan/`): slow at low field and,
-  if that is right, 18 % faster than dry gas at 750 V/cm. So gap RATIOS between zones are solid, absolute
-  millimetres carry a common factor 1.0-1.18 until the water content or one gap is measured directly.
+  18 % faster than dry gas at 750 V/cm. A drift scan alone cannot separate more water from a thinner gap (a
+  valley: 0.9 % at 3.5 mm to 0.5 % at 5.0 mm), but a gap cannot replace the water. The drift time at the
+  operating point from the pad pairs breaks the tie (det2: 0.55 % water, nominal zone 4.7 mm). Gap RATIOS
+  between zones are solid; the millimetres of stage 49 are on the dry-gas scale, best factor 1.17 (1.05-1.25).
 - Time spread from all hits contains pad sharing (a pad that sees only part of the gap fires early or late).
   The intrinsic number is on single-pad events.
 - To say which surface is displaced, use the M3 track height per gap class with estimators that do not use
