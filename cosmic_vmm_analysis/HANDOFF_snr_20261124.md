@@ -73,21 +73,15 @@ which hid that. The note now uses mV with "relative to gain 3" rows.
 - Since then, another session added section 10 "det5 at P2_MID and the read-out swap" (`28f1453`). Current order: …
   8 (with S/N), 9 same pads with DREAM, 10 det5 at MID, 11 Open points, 12 References.
 
-## 3. TRAP: do not full-rebuild the note from main
+## 3. Rebuilding the note (updated 27 Nov, after the merges)
 
-`muon_funnel_page.py` on main generates only sections 1-8 + Open points + References.
-- Section 9 is added by `dream_same_pads_section.py` (`insert_html`, env `SAME_PADS_HTML`) and lives only on branch
-  `note-dream-vmm-same-pads` (commit 4bf96d6, worktree `.claude/worktrees/note-dream-vmm-same-pads`).
-- Section 10 (det5) comes from the det5 session (see memory `project_det5_mid_night_20261123.md` /
-  `HANDOFF_det5_night_20261124.md`, branch note-dream-vmm-same-pads / det5-mid-chamber).
+`note-dream-vmm-same-pads` (sections 9 and 10) and this work are now all in main (a940ceb). The generator inserts:
+- section 9 only when `SAME_PADS_HTML=<fragment from dream_same_pads_section.py --out>` is set;
+- section 10 only when `SWAP_HTML=<fragment from det5_swap_section.py --out>` is set.
 
-A rebuild with the recipe in HANDOFF_analysis_20261122.md would silently drop sections 9 and 10 again. Until those
-branches are merged into main and the generator inserts both, edit the live HTML by splicing:
-- the S/N block can be regenerated in place with the snr markers (the pattern was: exec the `SNR`..`svg_snr_ratio`
-  definitions + the `A('<!-- snr:begin -->')`..`A('<!-- snr:end -->')` lines of the generator and replace between
-  the markers);
-- section 9 sits between `<!-- same-pads:begin/end -->` and `<!-- same-pads:top/topend -->`.
-
+**A rebuild WITHOUT both env vars still silently drops sections 9 and 10.** Always set them, and check the `<h2>` list
+afterwards (it must run 1-8, 9 same pads, 10 det5, 11 Open points, 12 References). The S/N part of section 8 is
+generated (between snr markers), so it needs nothing extra. For the env-var recipe see `HANDOFF_swap_20261127.md`.
 Then `cd ~/Documents/PostDocSaclay/cern-site && python3 scripts/build_hub.py && git commit && scripts/deploy.sh &&
 git push`.
 
@@ -95,7 +89,7 @@ git push`.
 1. **Noise faster than gain:** measure the pedestal (noise) width in mV at g3/g6/g9, or fit log-rate vs T² of the
    bscan baseline-scan curves per channel; it tests the Gaussian assumption behind S/T ≈ S/N. This needs the scan
    points on the DAQ box (`~/trim_work/out/gain_20261118/`, bscan_analyze curves).
-2. Merge `note-dream-vmm-same-pads` (+ det5 section code) into main so a full rebuild keeps sections 9-10.
+2. (done 27 Nov: merged into main.)
 3. The section 9 VMM numbers predate the 92-run / paddle-cut funnel; recompute with `dream_same_pads_section.py` on
    `analysis/muon_funnel_physical`.
 4. The user's last message was cut off: "I have moved det2 from the P2_MID position to the …". The new position is
