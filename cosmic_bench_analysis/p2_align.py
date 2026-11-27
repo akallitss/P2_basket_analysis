@@ -254,8 +254,26 @@ class Transform:
         return M[:, 0], M[:, 1]
 
 
-def fit_transform(x_m3, y_m3, x_pad, y_pad):
-    """Best-fit rigid+reflection+scale transform pad->m3 (Procrustes/SVD)."""
+def fit_transform(x_m3, y_m3, x_pad, y_pad, trim_mm=None, n_iter=5):
+    """Best-fit rigid+reflection+scale transform pad->m3 (Procrustes/SVD).
+
+    trim_mm: if set, refit n_iter times keeping only pairs whose residual under
+    the previous fit is < trim_mm. Use it whenever the pairs are not all the
+    same particle: on det2_long_repos ~4.7 % of (track, max-cluster) pairs are a
+    second particle/noise ~100 mm away, and the plain least-squares fit then
+    SHRINKS the scale (0.978 instead of 1.000, i.e. 4.4 mm at +-200 mm) and
+    inflates the apparent pointing to ~3 mm (true: 0.7 mm). See stages 34/35.
+    Default None keeps the historical behaviour."""
+    if trim_mm is not None:
+        x_m3, y_m3 = np.asarray(x_m3, float), np.asarray(y_m3, float)
+        x_pad, y_pad = np.asarray(x_pad, float), np.asarray(y_pad, float)
+        t = fit_transform(x_m3, y_m3, x_pad, y_pad)
+        for _ in range(n_iter):
+            px, py = t.apply(x_pad, y_pad)
+            k = np.hypot(px - x_m3, py - y_m3) < trim_mm
+            t = fit_transform(x_m3[k], y_m3[k], x_pad[k], y_pad[k])
+        t.n_used, t.n_trimmed = int(k.sum()), int((~k).sum())
+        return t
     x_m3, y_m3 = np.asarray(x_m3), np.asarray(y_m3)
     x_pad, y_pad = np.asarray(x_pad), np.asarray(y_pad)
     pad_mean = np.array([x_pad.mean(), y_pad.mean()])
