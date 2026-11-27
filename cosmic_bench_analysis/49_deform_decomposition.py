@@ -36,7 +36,7 @@ Cross-checks printed: gap per region against the drift-scan estimates of stage
 44 (timing lambda and amplitude-curve stretch, another day) and the micro-TPC
 drift times of stage 48.
 
-Out (<run>/49_deform_decomposition/): pads.csv, regions.csv, classes.csv,
+Out (<run>/49_deform_decomposition/): pads.csv, regions.csv, regions_all.csv, classes.csv,
 deformation_maps.png, consistency.png, effects.png, ridge_profile.png (+ csv), summary.txt
 Usage: python3 49_deform_decomposition.py [run_key] [--scan-dir DIR] [--gas CSV]
 """
@@ -357,6 +357,7 @@ def main():
         q24['z_mesh'] = q24.dz_c_corr - (q24.gap - GAP0) / 2
         q24['z_window'] = q24.dz_c_corr + (q24.gap - GAP0) / 2
     q24.reset_index().to_csv(f'{out}/regions.csv', index=False)
+    RG.to_csv(f'{out}/regions_all.csv', index=False)       # 24 and 48 regions: T_fit, T_s, S, lnG, gap
 
     # ---- ridge geometry (if there is a thick zone) --------------------------------------------
     thick = P[P.gap > P.gap.median() + 2.0]
@@ -418,7 +419,7 @@ def main():
     ra = pd.read_pickle(f'{d34}/rays_aligned.pkl')
     pxy = ((ra[['x', 'y']].to_numpy() - T.m3_mean) / T.s) @ T.R + T.pad_mean
     dd, ii = cKDTree(xy).query(pxy)
-    ra['gap'] = P.gap.to_numpy()[ii]; ra['dpad'] = dd
+    ra['gap'] = P.gap.to_numpy()[ii]; ra['dpad'] = dd; ra['lnG'] = P.lnG.to_numpy()[ii]
     ra['nohit'] = ~ra.eventId.isin(hits.eventId)
     lat = cfg.out_dir('41_pillar_lattice') + '/lattice_pad.npz'
     if os.path.isfile(lat):
@@ -472,6 +473,38 @@ def main():
                  f'{r_.amp_med:6.0f}   {r_.landau_lnwidth:.3f}   {100*r_.frac_below_300:4.1f} %  {r_.lnG:+.2f}   '
                  f'{r_.nohit_0_8:4.2f}+-{r_.e_nohit_0_8:.2f} / {r_.nohit_8_14:4.2f}+-{r_.e_nohit_8_14:.2f} / '
                  f'{r_.nohit_14_40:4.2f}+-{r_.e_nohit_14_40:.2f}   {sh}')
+    # ---- lost muons against local gap, local gain and angle (track-level logistic fit) ----------
+    ql = qr[qr.gap.notna() & qr.lnG.notna()].copy()
+    ql['tan'] = np.tan(np.radians(ql.theta))
+
+    def logit(cols, y):
+        from scipy.optimize import minimize
+        X = np.column_stack([np.ones(len(y))] + cols)
+        nll = lambda b_: np.sum(np.logaddexp(0, X @ b_) - y * (X @ b_))
+        jac = lambda b_: X.T @ (1 / (1 + np.exp(-(X @ b_))) - y)
+        r_ = minimize(nll, np.zeros(X.shape[1]), jac=jac, method='BFGS')
+        pr = 1 / (1 + np.exp(-(X @ r_.x)))
+        return r_.x, np.sqrt(np.diag(np.linalg.inv(X.T @ (X * (pr * (1 - pr))[:, None])))), r_.fun
+    yl = ql.nohit.to_numpy(float)
+    b3, e3, n3 = logit([np.log(ql.gap / GAP0).to_numpy(), ql.lnG.to_numpy(), ql.tan.to_numpy()], yl)
+    _, _, n1 = logit([ql.tan.to_numpy()], yl)
+    L.append(f'lost muons, logistic fit on {len(ql):,} tracks (no-hit {100*yl.mean():.2f} %): log-odds = a '
+             f'{b3[1]:+.2f} +- {e3[1]:.2f} * ln(gap / {GAP0:g} mm) {b3[2]:+.2f} +- {e3[2]:.2f} * ln(G / median) '
+             f'{b3[3]:+.2f} +- {e3[3]:.2f} * tan(theta); -lnL {n3:.1f} against {n1:.1f} with the angle only. '
+             f'One e-fold of intrinsic gain multiplies the odds of losing a muon by {np.exp(b3[2]):.2f}, '
+             f'a gap 1.5 x thicker by {np.exp(b3[1]*np.log(1.5)):.2f}.')
+    if 'dl' in ql:
+        for lab, m_ in (('within 0.6 mm of a pillar', ql.dl < 0.6), ('more than 1.2 mm from a pillar', ql.dl > 1.2)):
+            bb, ee, _ = logit([np.log(ql.gap[m_] / GAP0).to_numpy(), ql.lnG[m_].to_numpy(), ql.tan[m_].to_numpy()],
+                              yl[m_.to_numpy()])
+            L.append(f'   {lab} ({int(m_.sum()):,} tracks, no-hit {100*yl[m_.to_numpy()].mean():.2f} %): ln(gap) {bb[1]:+.2f} +- {ee[1]:.2f}, '
+                     f'ln G {bb[2]:+.2f} +- {ee[2]:.2f}, tan(theta) {bb[3]:+.2f} +- {ee[3]:.2f}')
+    nom = ql[(ql.gap > 3.6) & (ql.gap < 4.4)]
+    if len(nom) > 3000:
+        nom = nom.assign(gt=pd.qcut(nom.lnG, 3, labels=False))
+        L.append('   nominal-gap class by intrinsic-gain tercile (ln G mean: no-hit all angles / below 8 deg): '
+                 + '; '.join(f'{gq.lnG.mean():+.2f}: {100*gq.nohit.mean():.2f} / {100*gq.nohit[gq.theta < 8].mean():.2f} %'
+                             for _, gq in nom.groupby('gt')))
     L.append('assumptions: reference drift time = the stage-47 argument (see its summary; the micro-TPC of stage 48 gives the absolute scale), '
              f'gap = T_d inverted with {gas_name}; lattice of stage 41 (measured, pad frame) for the shadow; '
              'active tracks = at least 2 mm inside the live area (stage-34 trimmed alignment); no-hit = no P2 hit in the event; '

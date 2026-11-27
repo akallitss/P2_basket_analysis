@@ -40,7 +40,8 @@ folders of the run. Rules distilled from this audit are in `P2_basket_analysis/C
 6. **Effects.** Amplitude follows the drift gap (982 / 1104 / 1452 / 1859 ADC for 3.4 / 4.0 / 4.8 / 6.3 mm),
    the time resolution follows the drift time in proportion (19.8 / 21.1 / 24.7 / 32.4 ns), and the lost
    muons fall with the gap: 3.8 / 3.4 / 2.4 / 0.9 % of the tracks without a hit; near a pillar, for vertical
-   tracks, 23 / 21 / 15 / 4 % (section 6). The pillar shadow depends on the local drift gap.
+   tracks, 23 / 21 / 15 / 4 % (section 6). The pillar shadow depends on the local drift gap, and at a
+   given gap the loss follows the intrinsic gain (4.7 / 3.2 / 2.1 % for low / mid / high gain).
 7. **Static.** Same pattern on 24 and 25 Nov (r = 0.97, the chamber was moved in between) and constant
    over the 7.6 h of the long run. No electronics delay is involved (zero-drift-field offsets 4.6 ns rms).
 
@@ -174,6 +175,13 @@ Far from the pillars (> 1.25 mm) the no-hit rate is 1.3-2.1 % in every class. La
 one (stage 41, pad frame). Tracks at least 2 mm inside the live area, trimmed alignment, no-hit = no P2 hit
 in the event. Time spread: single-pad pulses, 20 % leading edge, pad medians removed, includes the trigger.
 
+- Both components matter for the lost muons. Logistic fit on 40,513 tracks: log-odds of no hit =
+  a - (1.75 +- 0.20) ln(gap / 4 mm) - (1.13 +- 0.10) ln(G / median) - (4.8 +- 0.3) tan(theta). One e-fold of
+  intrinsic gain multiplies the odds of losing a muon by 0.32, a gap 1.5 x thicker by 0.49. Within the
+  nominal-gap class, by gain tercile (ln G = -0.36 / -0.04 / +0.30): 4.7 / 3.2 / 2.1 % lost (6.3 / 5.6 /
+  3.7 % below 8 deg). Near a pillar (< 0.6 mm) the dependences are steeper (gap -2.4 +- 0.3, gain
+  -1.3 +- 0.2); far from the pillars (> 1.2 mm) the gain term is the same (-1.1 +- 0.2) and the gap term
+  weaker (-1.0 +- 0.4).
 - The pillar shadow is set by the local drift gap: a thicker gap gives more primary charge, more lateral
   spread of an inclined track (gap x tan theta) and more transverse diffusion. This is the position
   dependence of the shadow depth that the 27 Nov audit left open.

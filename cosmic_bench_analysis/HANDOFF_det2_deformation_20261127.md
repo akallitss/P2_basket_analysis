@@ -11,7 +11,7 @@
 | det2 products | `…/Analysis/det2/p2_det2_long_run_430_repositioned_11-25-26/long_run_det2_430_730/{43_deformation, 45_deform_local_z, 46_deform_fe55_vs_mip, 47_deform_pulse_maps, 48_deform_microtpc, 49_deform_decomposition}` | final re-run with the committed code |
 | det2 scan products | `…/Analysis/det2/p2_det2_alignment_mesh_drift_scan_long_run_430_11-24-26/44_deform_scan_regions/` | done |
 | det1 / det5 cross-check | same folder names under `det1/…/long_run_det1_415_615/` and `det5/…/long_run_det5_420_820/` (43, 47, 48, 49) | first pass only (audit section 9) |
-| CERN note | not touched | the deformation results are not in the note |
+| CERN note | `cern-site/notes/2026-11-27-how-det2-is-bent-reading-a-detectors-shape-from-its-pulses.html` (commit `e7e2311`, pushed) | **deployed and live**: pedagogical page with cartoons, an interactive pulse builder and charts drawn from `49_deform_decomposition` (data bundle built by a scratch script from pads.csv, classes.csv, regions*.csv, 45/48 tables; regenerate the numbers by hand if the stages are re-run). The 26 Nov note is unchanged. |
 
 ## Rerun (det2)
 
