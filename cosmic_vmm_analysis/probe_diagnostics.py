@@ -46,7 +46,7 @@ import pandas as pd
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 NAME = {3: 'P2_IN', 2: 'P2_MID', 1: 'P2_OUT'}
-DETV = {3: range(2, 8), 2: range(8, 14), 1: range(14, 20)}
+from stand_map import CHIPS as DETV   # chip -> chamber of the stand layout in force (VMM_STAND, stand_map.py)
 ELEC_DET = {'IN': 'P2_IN', 'MID': 'P2_MID', 'OUT': 'P2_OUT'}
 CAUSES = ['hv_bad_time', 'discharge', 'out_of_time', 'own_dead_time', 'next_to_masked', 'chamber_silent',
           'near_miss', 'far_only']

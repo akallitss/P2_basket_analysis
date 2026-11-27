@@ -3,7 +3,9 @@
 # 4 in parallel (~1.5 GB each). Submit from an AFS dir with muon_funnel.sub; outputs $W/analysis/muon_funnel/run*.json
 # OUTDIR (default analysis/muon_funnel) and EXTRA (extra muon_funnel.py options, e.g. --pointing FILE) from the
 # environment (muon_funnel_pointing.sub)
-W=/eos/experiment/ntof/data/x17/p2_sps_july/vmm_cosmic_run_oct26/analysis_lxplus/weekend_20261119
+W=${W:-/eos/experiment/ntof/data/x17/p2_sps_july/vmm_cosmic_run_oct26/analysis_lxplus/weekend_20261119}
+# S = the area holding analysis/muon_funnel/*.py, paddles and pointing.json (default: W itself)
+S=${S:-$W}
 cd $W || exit 1
 export OUTDIR=${OUTDIR:-analysis/muon_funnel} EXTRA=${EXTRA:-}
 source pipeline/env.sh
@@ -21,7 +23,7 @@ import json, os; d=json.load(open('pseudo/chunks.json'))
 f = [f'tags/eff_run{k}.json' for k, v in sorted(d.items()) if v['run'] == $r]
 print(' '.join(f) if f and all(os.path.exists(x) for x in f) else '')")
     if [ -z "$J" ]; then echo "run $r: not fully dumped yet, skipped"; return; fi
-    python3 analysis/muon_funnel/muon_funnel.py $J --paddles analysis/muon_funnel/paddles_fit_20261104.json $EXTRA \
+    python3 $S/analysis/muon_funnel/muon_funnel.py $J --paddles $S/analysis/muon_funnel/paddles_fit_20261104.json $EXTRA \
         --out $OUTDIR/run$r.json > $OUTDIR/run$r.log 2>&1
     echo "run $r rc=$? $(date '+%T')"
 }

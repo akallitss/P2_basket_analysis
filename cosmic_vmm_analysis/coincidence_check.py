@@ -23,7 +23,7 @@ import sys
 import numpy as np
 
 SRS_TICK_NS = 22.5   # ns per SRS marker timestamp tick (= the 44.44 MHz BCID clock); was 25.0 until 19 Nov 2026
-CH = {3: range(2, 8), 2: range(8, 14), 1: range(14, 20)}
+from stand_map import CHIPS as CH   # chip -> chamber of the stand layout in force (VMM_STAND, stand_map.py)
 CHAMBER = {v: d for d, r in CH.items() for v in r}
 
 
