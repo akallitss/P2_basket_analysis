@@ -89,3 +89,33 @@ no-hit study.
   (the `origin` SSH remote has no key here; never the CEA GitLab remotes).
 - Python: `P2_basket_analysis/.venv/bin/python`; `run_p2_pipeline.sh` by
   absolute path; `garfield_inputs/*.csv*` are git-ignored.
+
+## 7. Deformation, drift gap and pulse timing (audit of 27 Nov 2026)
+
+Source: `cosmic_bench_analysis/AUDIT_det2_deformation_20261127.md`. Read it before any timing-map,
+gain-map or position-dependent efficiency study.
+
+- The drift gap of det2 is **not 4 mm**: 3.3 mm in the centre, 4.0 mm over most of the area, 6-7 mm in a
+  ridge along the left side (per-pad table: `<run>/49_deform_decomposition/pads.csv`). Anything that
+  depends on the drift field, the primary charge or the lateral spread of a track (pillar shadow,
+  efficiency, time resolution, amplitude) changes with it. Quote such numbers per drift-gap class, or say
+  that they are chamber averages over an uneven gap.
+- A map of peak time, rise time or pulse width is three things at once (drift time, ion tail, delay). Do
+  not read it as one of them. Use the quantities that isolate one: the pulse-to-pulse time spread on
+  single-pad events and the pad-pair time difference vs the M3 slope (drift only), the mean-pulse cross fit
+  (drift if the response is the same), the zero-drift-field point and the early quantiles (delay).
+  Stages 47, 48, 44.
+- A muon amplitude map is not a gain map. Divide by the primary charge (proportional to the local gap) and
+  the collection at the local field first (stage 49 `lnG`). The uncorrected map correlates with the gap
+  at r = 0.5.
+- Convert a drift time into a gap with the drift velocity measured in the chamber's own drift scan
+  (`49_deform_decomposition.py --scan-dir <44 output>`), anchored at the nominal field. The dry Magboltz
+  table for Ar/iC4H10 95/5 is right above 600 V/cm and 5-35 % too fast between 500 and 250 V/cm on the bench.
+- Time spread from all hits contains pad sharing (a pad that sees only part of the gap fires early or late).
+  The intrinsic number is on single-pad events.
+- To say which surface is displaced, use the M3 track height per gap class with estimators that do not use
+  the amplitude ratio of two pads (stage 45). Stage 35's tilt and bow numbers are void (corner-touching pads
+  were counted as neighbours).
+- Do not re-read `decoded_root` for a pulse-shape question: stage 43 writes every hit and track-near
+  waveform of a run once (`43_deformation/wf_table.pkl`, `wf.npy`); `p2_deform.load(run_key)` returns it
+  with the shape features.

@@ -6,6 +6,11 @@
 > 0.23 mm at 800-1200 V/cm). §3 "no shadow" and §4 "mechanism open" below are wrong; stage 27's 2.18 % row was right.
 > New stages 41/42; stage 36 now uses the measured lattice. Clustering re-examined (audit §8): keep as is.
 > Project rules distilled from this in `P2_basket_analysis/CLAUDE.md` (read first in the next session).
+>
+> **Deformation study (27 Nov, night).** See `AUDIT_det2_deformation_20261127.md` and
+> `HANDOFF_det2_deformation_20261127.md`: the drift gap of det2 is not uniform (3.3 mm centre, 4.0 mm,
+> 6-7 mm ridge along the left side); the pillar shadow, the lost muons, the amplitude and the time spread
+> follow it. Numbers below are chamber averages over that. New stages 43-49.
 
 **Start here.** This supersedes the morning handoff (`HANDOFF_det2_efficiency_20261127.md` on `main`) for the
 analysis. It also absorbs the running notes in `HANDOFF_det2_cluster_align_pillar_20261127.md` (same branch, more
