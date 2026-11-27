@@ -41,3 +41,27 @@ Next: dump `decoded_root` waveforms of the pads under near-vertical no-hit track
 
 - The pipeline still uses the biased fit. Switching stages 06/11/12/16/17 to `trim_mm=15` and setting det2 `plane_z ≈ 246` changes every detector's maps. Re-run them all before quoting numbers side by side.
 - Not merged to main. The CERN note still says pointing 3 mm and pillar shadow 2.0 %: both need correcting.
+
+## 6. Implemented and validated on det2_long_repos only (27 Nov, later)
+
+Alexandra's decisions: implement the corrected alignment and the new guard on ONE detector first, validate it,
+hold the pillar theory, and put the findings in the CERN note.
+
+- Config (`p2_qa_config.py`, default off for every other key): `fit_trim_mm` (FIT_TRIM_MM) and `edge_guard_mm`
+  (EDGE_GUARD_MM). `det2_long_repos`: plane_z 240 → 246, fit_trim_mm 15, dead_guard 6 → 2, edge_guard 2.
+- Code: `p2_align.outer_edge_distance` + edge guard in `mask_dead_cells`; `trim_mm=cfg.FIT_TRIM_MM` in 06/11/12/16;
+  `ct.attrs['edge_guard']` set in 06/11/12/16/28. Stage 17 is det3-only (no cfg), so it was left alone.
+- Guard choice: dead-border excess with the corrected alignment is +14.6/+5.2/+2.9/+1.7/+0.7 % in 0.5 mm bins and 0
+  from 2.5 mm; the efficiency plateau starts at 1.5–2 mm → 2 mm (≈ 3σ of the 0.7 mm pointing), same at the outer edge.
+- 37 step table (same data): A old 36,382 / 95.89 → B trimmed fit 37,892 / 95.38 → C z 246 37,827 / 95.40 →
+  D guard 2 43,202 / 95.48 → E + edge guard 40,530 / 95.92; control (guards 2/2, old alignment) 39,103 / 95.09.
+- Full pipeline re-run (`run_p2_pipeline.sh det2_long_repos`): 06 = 40,530 rays, 95.9 % / 96.8 %, s 1.000, RMSE 4.7 mm;
+  12 = 0/7 flags, core σ 3.6/3.4 mm, z plateau peaks at 246; 03's own z-scan now finds z* = 246.0;
+  27: only-distant 0.65 → 0.60 %, pad edges 0.14 → 0, big pillars 0.26 → 0.24 %; 33: det2 share 0.09–0.18 %.
+  Old products are kept in `long_run_det2_430_730__v1_stage06_align_20261127/`.
+- Still old/held: 27 books 2.18 % to "small pillars" from 31's angle model (χ²/ndf 42.6/10). 38 shows the angle
+  trend is identical ≥ 1.4 mm from any pillar, so this attribution is wrong but left untouched (pillar theory on hold).
+  Stage 31's big-pillar fit still floats σ = 2.4 mm (with σ fixed at 0.72: R_eff 3.40 mm): worth a look later.
+- CERN note: callout at the top, correction markers in §7/§8/§11 and glossary, new §12 (alignment, pointing, step
+  table, re-run table, new map, model-free no-hit vs angle), todo renumbered to §13. Edited in the cern-site working
+  tree, NOT committed or deployed yet (waiting for her go-ahead).
