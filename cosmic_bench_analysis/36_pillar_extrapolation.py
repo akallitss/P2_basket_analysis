@@ -148,6 +148,21 @@ def main():
     pil = pmap.load_pillars(cfg.MASK_GBR_PATH)
     px, py = T.apply(pil.x.to_numpy(), pil.y.to_numpy())
     pil_m3 = pil.assign(x=px, y=py, r=pil.r * T.s)
+    # Measured lattice (stage 41) overrides the Gerber small pillars: on det2 the
+    # physical pillar lattice is 3.0 mm, not the drawn 4.0 mm (audit 2026-11-27).
+    lat = os.path.join(cfg.out_dir('41_pillar_lattice'), 'lattice_pad.npz')
+    if os.path.isfile(lat):
+        la = np.load(lat)
+        n_ = 200; ii = np.arange(-n_, n_ + 1); I_, J_ = np.meshgrid(ii, ii)
+        Lp = la['origin'] + I_.ravel()[:, None] * la['a1'] + J_.ravel()[:, None] * la['a2']
+        lx, ly = T.apply(Lp[:, 0], Lp[:, 1])
+        lo_, hi_ = ra[['x', 'y']].min().to_numpy() - 5, ra[['x', 'y']].max().to_numpy() + 5
+        k_ = (lx > lo_[0]) & (lx < hi_[0]) & (ly > lo_[1]) & (ly < hi_[1])
+        r_small = float(pil_m3[~pil_m3.big].r.median()) if (~pil_m3.big).any() else 0.4 * T.s
+        small = pd.DataFrame({'x': lx[k_], 'y': ly[k_], 'r': r_small, 'big': False})
+        pil_m3 = pd.concat([small, pil_m3[pil_m3.big]], ignore_index=True)
+        L.append(f'small pillars taken from the MEASURED lattice (stage 41, pitch {float(la["pitch"]):.3f} mm, '
+                 f'{k_.sum()} points), drawn radius {r_small:.2f} mm assumed; Gerber lattice ignored')
     r_geo = float(pil_m3[~pil_m3.big].r.median()); R_big = float(pil_m3[pil_m3.big].r.median())
     origin, u1, u2, a = lattice_frame(pil_m3)
     L.append(f'small pillars: r_geo {r_geo:.3f} mm on a {a:.3f} mm lattice; {int(pil.big.sum())} big '

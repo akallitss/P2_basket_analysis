@@ -1,5 +1,11 @@
 # HANDOFF — det2 (P2_2) cosmic bench, end of 27 Nov 2026: alignment fix, pointing, no-hit investigation
 
+> **SUPERSEDED on the pillar / no-hit questions (27 Nov, night).** See `AUDIT_det2_pillar_lattice_20261127.md`:
+> the no-hit loss IS the small-pillar shadow. The pillars sit on a 3.0 mm lattice (not the 4.0 mm Gerber), the
+> mask film is offset ~2 mm, and the dead radius depends on gain / drift field (0.18-0.33 mm at 430/730,
+> 0.23 mm at 800-1200 V/cm). §3 "no shadow" and §4 "mechanism open" below are wrong; stage 27's 2.18 % row was right.
+> New stages 41/42; stage 36 now uses the measured lattice.
+
 **Start here.** This supersedes the morning handoff (`HANDOFF_det2_efficiency_20261127.md` on `main`) for the
 analysis. It also absorbs the running notes in `HANDOFF_det2_cluster_align_pillar_20261127.md` (same branch, more
 detail per study). Bench/hardware state (§7) is unchanged since the morning.
