@@ -38,8 +38,8 @@ folders of the run. Rules distilled from this audit are in `P2_basket_analysis/C
    still varies by 0.29 in ln G (robust sd), with large-scale structure: low at the top of the fan, high in
    the two lower corners. Where the gain is lower the ion tail is longer (-16 +- 5 ns per e-fold of gain,
    r = -0.5 to -0.6), which is what a larger amplification gap does and what a transparency or electronics
-   gain difference would not do. The size matches the mesh-scan sensitivity. If it is all gap: rms 8 um,
-   5-95 % range -16 to +12 um around 128 um. July Fe55 data show the same gain map (r = 0.81) and the
+   gain difference would not do. The size is compatible with the mesh-scan sensitivity. If it is all gap: rms
+   10 um, 5-95 % range -21 to +16 um around the nominal 150 um. July Fe55 data show the same gain map (r = 0.81) and the
    same gain-rise relation on other electronics channels (section 5).
 6. **Effects.** Amplitude follows the drift gap (982 / 1104 / 1452 / 1859 ADC for 3.4 / 4.0 / 4.8 / 6.3 mm),
    the time resolution follows the drift time in proportion (19.8 / 21.1 / 24.7 / 32.4 ns), and the lost
@@ -157,11 +157,13 @@ vs ln gap was +0.50) and the class means are flat (-0.05 / -0.01 / +0.10 / +0.05
   +12 ns. S against ln G: -16 +- 5 ns per e-fold (48 regions, r = -0.48), -19 within connectors, -17 with the
   other day's gain (24 regions, r = -0.56), pad level r = -0.56. With 24 regions of this run alone it is
   -11 +- 7.
-- Expected if the gain variation is the amplification gap: Magboltz gives d ln G / d gap = -0.036 per um at
-  430 V (1 e-fold = 27 um = 21 % of the gap, so +42 % of ion transit time). The mesh scan gives the pulse
-  response to the ion transit: the peak moves by -0.4 to -1.3 ns per 10 V at fixed amplitude (2.6 % of
-  transit time), i.e. 7-20 ns of peak shift, 15-40 ns of box-equivalent, per e-fold. The measured 16 ns is
-  inside. So the intrinsic gain variation is compatible with being all amplification gap.
+- Expected if the gain variation is the amplification gap (nominal gap 150 um; an earlier version of this
+  audit used 128 um, see the note at the end of this section): Magboltz gives d ln G / d gap = -0.029 per um
+  at 430 V (1 e-fold = 35 um = 23 % of the gap, so the ion transit time x 1.52). The mesh scan gives the
+  pulse response to the ion transit: the peak moves by -0.4 to -1.3 ns per 10 V at fixed amplitude (2.3 % of
+  transit time), i.e. 9-29 ns of peak shift, 18-58 ns of box-equivalent, per e-fold. The measured 16 +- 5 ns
+  is at the lower edge of that range. So the intrinsic gain variation is compatible with being mostly
+  amplification gap, and the ion tail does not require all of it to be.
 - Fe55 (July, P2_OUT position, FEU 3, other channels; stage 46 + this audit): gain map vs November
   intrinsic gain r = 0.81 (sliding 18 mm, 469 pads of connectors 4-7); Fe55 rise vs Fe55 gain -12 to -15 ns
   per e-fold (point-like charge, no drift box); November muon rise with the drift part removed vs July
@@ -169,6 +171,11 @@ vs ln gap was +0.50) and the class means are flat (-0.05 / -0.01 / +0.10 / +0.05
   the gap, with an independent gain).
   Not understood: the November gain contrast is 1.5 x the July one (slope of ln G vs ln G_Fe55), and in
   July 70-89 % of the photopeak events have one neighbour pad at 44-60 % of the amplitude.
+- **Amplification gap 150 um, not 128 um** (Alexandra, 27 Nov). It enters only the conversion of the gain
+  spread into microns and the expected ion-tail slope: d ln G / d gap -0.036 -> -0.029 per um, det2 rms
+  8 -> 10 um (6.3 -> 6.8 % of the gap), 5-95 % range -16..+12 -> -21..+16 um; det1 12 -> 14 um, det5 5 -> 6.5 um.
+  The drift-gap map, the surfaces, the gain map itself (ln G), the ion-tail slope and all efficiency and
+  timing numbers do not use it.
 - Electronics-sized terms: per-connector medians of S -5 to +7 ns, of the fitted delay -3 to +3 ns; the
   fitted delay map is smooth (-6 to +5 ns across the chamber), not connector-shaped (trigger light path is
   the candidate; not investigated).
@@ -295,7 +302,7 @@ They are a check that the method tells the two components apart, not a finished 
 
 - **det1 is the opposite case of det2.** Its drift time is nearly flat (spread 107-125 ns, gap 3.5-4.7 mm at
   5-95 %, and part of that follows the gain, so it is an upper limit), while its mean-pulse length varies by
-  a factor 1.9 and follows the gain. So the det1 timing map is the amplification gap (rms 12 um if all
+  a factor 1.9 and follows the gain. So the det1 timing map is the amplification gap (rms 14 um if all
   gap), as the October study (`RESULTS_gap_timing.md`) suspected from the Fe55 correlation. For det1 the
   gap map needs `--s-radius 20`: the gain varies on a shorter scale than the default 45 mm and the
   mean-pulse fit follows the ion tail (it would say 2.5-5.7 mm).
@@ -321,7 +328,7 @@ They are a check that the method tells the two components apart, not a finished 
 4. Gain contrast 1.5 x larger in November than in the July Fe55 map; the July neighbour-pad signal.
 5. The smooth +-6 ns fitted-delay map (trigger light path?).
 6. Amplification-gap numbers assume all the intrinsic gain variation is gap; the ion-tail slope supports it
-   within a factor 1.5 but does not prove it. A Garfield++ ion-transit calculation for 128 um at 430 V
+   within a factor 1.5 but does not prove it. A Garfield++ ion-transit calculation for 150 um at 430 V
    would turn the 16 ns per e-fold into a number to compare.
 7. The millimetre scale of the gap map: best estimate 1.11 x the dry-gas scale used here (1.04-1.19), from
    the joint fit of section 8. It rests on Magboltz's water cross-sections and diffusion and on the micro-TPC

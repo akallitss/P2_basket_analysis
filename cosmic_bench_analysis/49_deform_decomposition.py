@@ -140,6 +140,8 @@ def main():
     ap.add_argument('--scan-dir', default=None, help='stage-44 output folder (drift scan of the same chamber)')
     ap.add_argument('--gas', default=None, help='CSV with E [V/cm] and v_d columns; default dry Magboltz')
     ap.add_argument('--dv', type=float, default=None, help='V_drift - V_mesh [V]; default from the sub-run name')
+    ap.add_argument('--amp-gap-um', type=float, default=150.0,
+                    help='nominal amplification gap [um] (P2 bulks: 150); sets E_amp for d ln G / d gap')
     ap.add_argument('--s-radius', type=float, default=45.0,
                     help='smoothing radius [mm] of the ion-tail term S; use ~20 when the gain varies on a short scale (det1)')
     a = ap.parse_args()
@@ -251,13 +253,14 @@ def main():
     v_mesh = float(min(nums[-2:]))
     if os.path.isfile(amp_csv):
         g = pd.read_csv(amp_csv); g = g[g.region == 'amp'].sort_values('E_Vcm')
-        g_um = 128.0
+        g_um = a.amp_gap_um
         Ea = v_mesh / (g_um * 1e-4)
         al = np.interp(Ea, g.E_Vcm, g.alpha_cm)
         dal = np.gradient(g.alpha_cm.to_numpy(), g.E_Vcm.to_numpy())
         kg = -(al - Ea * np.interp(Ea, g.E_Vcm, dal)) * 1e-4          # per um
         k_note = (f'Magboltz (dry, no Penning): alpha = {al:.0f} /cm at {Ea/1e3:.1f} kV/cm ({v_mesh:g} V over {g_um:g} um), '
-                  f'd ln G / d gap = {-kg:+.4f} per um -> 1 e-fold of gain = {1/kg:.0f} um of amplification gap')
+                  f'd ln G / d gap = {-kg:+.4f} per um -> 1 e-fold of gain = {1/kg:.0f} um = {100/kg/g_um:.0f} % of the amplification gap '
+                  f'(ion transit time x {(1 + 1/kg/g_um)**2:.2f})')
     L.append(k_note)
     P['dgap_amp_um'] = -P.lnG / kg
     L.append(f'track-matched amplitude (sliding 18 mm): spread of ln A {pdf.s68(P.lnA):.3f} (robust sd); after removing '
@@ -508,7 +511,7 @@ def main():
     L.append('assumptions: reference drift time = the stage-47 argument (see its summary; the micro-TPC of stage 48 gives the absolute scale), '
              f'gap = T_d inverted with {gas_name}; lattice of stage 41 (measured, pad frame) for the shadow; '
              'active tracks = at least 2 mm inside the live area (stage-34 trimmed alignment); no-hit = no P2 hit in the event; '
-             'gain correction assumes primary charge proportional to the gap; amplification-gap conversion assumes a 128 um gap '
+             f'gain correction assumes primary charge proportional to the gap; amplification-gap conversion assumes a {a.amp_gap_um:g} um gap '
              'and dry-gas Townsend coefficients (no Penning transfer), i.e. only the logarithmic derivative is used.')
 
     P.to_csv(f'{out}/pads.csv', index=False)

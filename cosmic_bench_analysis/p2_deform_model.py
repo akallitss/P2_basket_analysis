@@ -130,7 +130,7 @@ def ser(T_ion, t_peak, f_e=0.1, dt=1.0, t_max=2400.0):
 # --------------------------------------------------------------------------- #
 def simulate(n, d_mm=4.0, dV=300.0, T_ion=180.0, t_peak=123.0, theta_deg=0.0, V0=0.0,
              f_e=0.1, noise=0.0, adc_per_e=40.0, t_first=230.0, polya_theta=1.0,
-             heed=None, rng=None, z_range=None, phase=True):
+             heed=None, rng=None, z_range=None, phase=True, v_mm_ns=None, dl_sqrtcm=None):
     """Simulate n muon pulses. Returns (WF [n, 32] ADC, ftst_ns [n], truth DataFrame).
 
     z_range=(z0, z1) [fractions of the gap]: keep only the charge created in that
@@ -140,7 +140,7 @@ def simulate(n, d_mm=4.0, dV=300.0, T_ion=180.0, t_peak=123.0, theta_deg=0.0, V0
     rng = rng or np.random.default_rng(1)
     heed = heed or Heed()
     E = max(dV - V0, 0.0) / (d_mm / 10.0)
-    v = float(vdrift(E))
+    v = float(vdrift(E)) if v_mm_ns is None else float(v_mm_ns)      # v_mm_ns / dl_sqrtcm: another gas than the dry table
     it, z, ne = heed.throw(n, d_mm, theta_deg, rng)
     if z_range is not None:
         k = (z >= z_range[0] * d_mm) & (z < z_range[1] * d_mm)
@@ -148,7 +148,7 @@ def simulate(n, d_mm=4.0, dV=300.0, T_ion=180.0, t_peak=123.0, theta_deg=0.0, V0
     # one row per electron
     ie = np.repeat(it, ne)
     ze = np.repeat(z, ne)
-    sig_l = float(dlong(E)) * np.sqrt(ze / 10.0) * 10.0          # mm
+    sig_l = (float(dlong(E)) if dl_sqrtcm is None else float(dl_sqrtcm)) * np.sqrt(ze / 10.0) * 10.0          # mm
     te = (ze + rng.normal(0, 1, len(ze)) * sig_l) / v
     ge = rng.gamma(polya_theta + 1.0, 1.0 / (polya_theta + 1.0), len(ze))
     ts, s = ser(T_ion, t_peak, f_e)
