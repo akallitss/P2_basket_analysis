@@ -8,8 +8,8 @@ detail per study). Bench/hardware state (§7) is unchanged since the morning.
 
 | What | Where | State |
 |---|---|---|
-| Analysis code | `P2_basket_analysis` branch **`det2-cluster-align-pillar`**, worktree `P2_basket_analysis/.claude/worktrees/det2-cluster-align-pillar` | commits on top of `main` (631c6b5), **NOT merged**. Pushed to GitHub `origin` (akallitss/P2_basket_analysis, branch `det2-cluster-align-pillar`). Per the new rule (work on `main`, no worktrees unless agreed), the next step is for Alexandra to merge it into `main` and continue on `main` |
-| Python | `P2_basket_analysis/.venv/bin/python` (the worktree has no .venv; put that `bin` on PATH or call it explicitly) | |
+| Analysis code | `P2_basket_analysis` **`main`** (branch `det2-cluster-align-pillar` fast-forwarded into main on 27 Nov and deleted locally; worktree removed) | merged; work on `main` from now on |
+| Python | `P2_basket_analysis/.venv/bin/python` | |
 | det2 outputs | `…/data/Cosmic_Bench/Analysis/det2/p2_det2_long_run_430_repositioned_11-25-26/long_run_det2_430_730/` (new) | re-run with the corrected config |
 | "Before" outputs | same folder `…/long_run_det2_430_730__v1_stage06_align_20261127/` | backup of the old-alignment products |
 | 11-24 scan study | `…/p2_det2_long_run_430_repositioned_11-25-26/40_nohit_vs_field_11-24/` | |
@@ -120,11 +120,11 @@ hid the misalignment at dead pads.
 3. Correct stage 27's loss table once the no-hit cause is understood (the "small pillars 2.18 %" row).
 4. Only after the above: switch other run keys (det2 scans, det1/det3/det4/det5) to `fit_trim_mm`/guards, re-run
    everything, and compare. All of their maps carry the same ~2 % scale bias today.
-5. Merge the branch into `main` (Alexandra), then work on `main` from now on. Push to GitHub origin via gh HTTPS, never to the CEA GitLab.
+5. Done: merged into `main`. Push `main` to GitHub origin via gh HTTPS (never the CEA GitLab); the remote branch `det2-cluster-align-pillar` on GitHub can be deleted.
 6. CERN note: section 12 describes the alignment and the pillar re-examination. The no-hit/drift-field findings
    (§4) are **not** in the note yet; add them when the cause is clearer or if asked.
 
-## 6. New stages (all on the branch)
+## 6. New stages (all on `main`)
 
 | stage | purpose |
 |---|---|
