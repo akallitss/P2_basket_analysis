@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
+project(water_scan CXX)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+find_package(Garfield REQUIRED)
+add_executable(water_scan water_scan.cpp)
+target_link_libraries(water_scan Garfield::Garfield)

@@ -111,6 +111,9 @@ gain-map or position-dependent efficiency study.
 - Convert a drift time into a gap with the drift velocity measured in the chamber's own drift scan
   (`49_deform_decomposition.py --scan-dir <44 output>`), anchored at the nominal field. The dry Magboltz
   table for Ar/iC4H10 95/5 is right above 600 V/cm and 5-35 % too fast between 500 and 250 V/cm on the bench.
+  The bench gas behaves like Ar/iC4H10 with ~0.7 % water (`gas_studies/water_scan/`): slow at low field and,
+  if that is right, 18 % faster than dry gas at 750 V/cm. So gap RATIOS between zones are solid, absolute
+  millimetres carry a common factor 1.0-1.18 until the water content or one gap is measured directly.
 - Time spread from all hits contains pad sharing (a pad that sees only part of the gap fires early or late).
   The intrinsic number is on single-pad events.
 - To say which surface is displaced, use the M3 track height per gap class with estimators that do not use

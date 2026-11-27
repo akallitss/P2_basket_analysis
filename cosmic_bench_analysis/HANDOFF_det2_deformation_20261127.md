@@ -44,5 +44,7 @@ gain, which surface), `effects.png` (lost muons, pillar shadow, amplitude, time 
    det5 drift-field or timing number; then redo 47 with `--amp-min 120` (low gain).
 3. Put the deformation into the efficiency story: stage 27's loss table and the 27 Nov pillar audit quote
    chamber averages over an uneven gap; the shadow model of stage 36 should take the local gap.
-4. Low-field drift velocity (audit section 8).
+4. Gas: ~0.7 % water reproduces the drift scan (audit section 8). Confirm with a hygrometer / flow scan; it sets
+   the common mm scale of the gap map (factor 1.0-1.18). Repeat 62 and 125 V/cm at the end of a drift scan
+   (amplitude loss at low field is not attachment).
 5. July Fe55 open points (gain contrast, neighbour-pad signal), amplification-gap number from Garfield++.

@@ -1,0 +1,19 @@
+# key  then Magboltz components (name percent ...). Contaminants replace argon.
+dry_95_5            ar 95     ic4h10 5
+h2o_0p05            ar 94.95  ic4h10 5 h2o 0.05
+h2o_0p1             ar 94.9   ic4h10 5 h2o 0.1
+h2o_0p2             ar 94.8   ic4h10 5 h2o 0.2
+h2o_0p3             ar 94.7   ic4h10 5 h2o 0.3
+h2o_0p5             ar 94.5   ic4h10 5 h2o 0.5
+h2o_0p75            ar 94.25  ic4h10 5 h2o 0.75
+h2o_1p0             ar 94.0   ic4h10 5 h2o 1.0
+h2o_1p5             ar 93.5   ic4h10 5 h2o 1.5
+h2o_2p0             ar 93.0   ic4h10 5 h2o 2.0
+h2o_3p0             ar 92.0   ic4h10 5 h2o 3.0
+air_0p5             ar 94.5   ic4h10 5 n2 0.395 o2 0.105
+air_1p0             ar 94.0   ic4h10 5 n2 0.79  o2 0.21
+air_2p0             ar 93.0   ic4h10 5 n2 1.58  o2 0.42
+air_5p0             ar 90.0   ic4h10 5 n2 3.95  o2 1.05
+iso_90_10           ar 90     ic4h10 10
+iso_85_15           ar 85     ic4h10 15
+iso_80_20           ar 80     ic4h10 20

@@ -1,0 +1,5 @@
+# water + air combinations (air = N2/O2 79/21), contaminants replace argon
+h2oair_0p6_1p0      ar 93.4   ic4h10 5 h2o 0.6  n2 0.79  o2 0.21
+h2oair_0p75_0p5     ar 93.75  ic4h10 5 h2o 0.75 n2 0.395 o2 0.105
+h2oair_0p75_1p0     ar 93.25  ic4h10 5 h2o 0.75 n2 0.79  o2 0.21
+h2oair_0p75_2p0     ar 92.25  ic4h10 5 h2o 0.75 n2 1.58  o2 0.42

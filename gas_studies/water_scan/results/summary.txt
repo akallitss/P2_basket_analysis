@@ -1,0 +1,210 @@
+Magboltz gases loaded: 21: air_0p5, air_1p0, air_2p0, air_5p0, dry_95_5, h2o_0p05, h2o_0p1, h2o_0p2, h2o_0p3, h2o_0p5, h2o_0p75, h2o_1p0, h2o_1p5, h2o_2p0, h2o_3p0, h2oair_0p6_1p0, h2oair_0p75_0p5, h2oair_0p75_1p0, iso_80_20, iso_85_15, iso_90_10
+dataset chamber: chamber (all pads)  (21 drift points)
+dataset reg24_good: reg24 regions with |d/4mm-1|<5 %: [5, 11, 17, 20, 22, 23]  (21 drift points)
+dataset reg8_good: reg8 regions with |d/4mm-1|<5 %: [2, 3, 6, 7]  (21 drift points)
+
+=== dry gas, chamber ===
+  chamber      d=4 fixed, c from MC (s=1)   dV>=  20: chi2   9222.7/21  d  4.00  s 1.000  dt0  -0.5
+  chamber      d=4 fixed, c from MC (s=1)   dV>= 200: chi2     47.9/13  d  4.00  s 1.000  dt0  -4.1
+  chamber      d=4 fixed, s free            dV>=  20: chi2   6840.8/20  d  4.00  s 0.282  dt0 +47.0
+  chamber      d=4 fixed, s free            dV>= 200: chi2     21.6/12  d  4.00  s 0.857  dt0  +5.9
+  chamber      d free, s=1                  dV>=  20: chi2   7546.6/20  d  1.00  s 1.000  dt0 +47.6
+  chamber      d free, s=1                  dV>= 200: chi2     24.8/12  d  3.73  s 1.000  dt0  +0.0
+  chamber      d free, s free               dV>=  20: chi2    969.0/19  d  9.91  s 0.458  dt0  -0.0
+  chamber      d free, s free               dV>= 200: chi2     24.8/11  d  3.73  s 0.998  dt0  +0.0
+  reg24_good   d=4 fixed, c from MC (s=1)   dV>=  20: chi2   2794.9/21  d  4.00  s 1.000  dt0  +0.0
+  reg24_good   d=4 fixed, c from MC (s=1)   dV>= 200: chi2     17.4/13  d  4.00  s 1.000  dt0  -3.7
+  reg24_good   d=4 fixed, s free            dV>=  20: chi2   2032.4/20  d  4.00  s 0.261  dt0 +48.8
+  reg24_good   d=4 fixed, s free            dV>= 200: chi2      6.5/12  d  4.00  s 0.857  dt0  +6.3
+  reg24_good   d free, s=1                  dV>=  20: chi2   2161.2/20  d  1.00  s 1.000  dt0 +48.0
+  reg24_good   d free, s=1                  dV>= 200: chi2      6.5/12  d  3.74  s 1.000  dt0  +0.0
+  reg24_good   d free, s free               dV>=  20: chi2    202.6/19  d 10.22  s 0.616  dt0 -25.2
+  reg24_good   d free, s free               dV>= 200: chi2      5.3/11  d  3.53  s 1.051  dt0  +0.0
+  reg8_good    d=4 fixed, c from MC (s=1)   dV>=  20: chi2   5365.3/21  d  4.00  s 1.000  dt0  -1.1
+  reg8_good    d=4 fixed, c from MC (s=1)   dV>= 200: chi2     34.8/13  d  4.00  s 1.000  dt0  -4.8
+  reg8_good    d=4 fixed, s free            dV>=  20: chi2   3848.2/20  d  4.00  s 0.239  dt0 +49.3
+  reg8_good    d=4 fixed, s free            dV>= 200: chi2     20.2/12  d  4.00  s 0.931  dt0  -0.0
+  reg8_good    d free, s=1                  dV>=  20: chi2   4164.8/20  d  1.00  s 1.000  dt0 +47.1
+  reg8_good    d free, s=1                  dV>= 200: chi2     11.3/12  d  3.61  s 1.000  dt0  +1.1
+  reg8_good    d free, s free               dV>=  20: chi2    289.0/19  d  9.98  s 0.625  dt0 -25.5
+  reg8_good    d free, s free               dV>= 200: chi2     11.7/11  d  3.59  s 1.022  dt0  +0.0
+
+=== family profiles (all dV >= 25 V; fraction error: Delta chi2 = max(1, chi2/ndf)) ===
+  chamber      h2o  d=4 fixed, c from MC (s=1)   sys  0: f =  0.700 [ 0.700, 0.720] % H2O     chi2    167.2/20  d  4.00  s 1.000  dt0  +6.1
+  chamber      h2o  d=4 fixed, c from MC (s=1)   sys  2: f =  0.680 [ 0.680, 0.680] % H2O     chi2     17.7/20  d  4.00  s 1.000  dt0  +6.1
+  chamber      h2o  d=4 fixed, s free            sys  0: f =  0.760 [ 0.760, 0.760] % H2O     chi2     42.1/19  d  4.00  s 0.845  dt0 +15.5
+  chamber      h2o  d=4 fixed, s free            sys  2: f =  0.720 [ 0.720, 0.740] % H2O     chi2      9.1/19  d  4.00  s 0.925  dt0 +10.6
+  chamber      h2o  d free, s=1                  sys  0: f =  1.040 [ 1.020, 1.040] % H2O     chi2     31.0/19  d  3.29  s 1.000  dt0 +16.7
+  chamber      h2o  d free, s=1                  sys  2: f =  0.880 [ 0.820, 0.960] % H2O     chi2      9.4/19  d  3.57  s 1.000  dt0 +12.3
+  chamber      h2o  d free, s free               sys  0: f =  1.020 [ 0.980, 1.020] % H2O     chi2     30.8/18  d  3.33  s 0.990  dt0 +16.7
+  chamber      h2o  d free, s free               sys  2: f =  0.520 [ 0.500, 0.820] % H2O     chi2      7.8/18  d  4.79  s 0.810  dt0  +8.0
+  chamber      air  d=4 fixed, c from MC (s=1)   sys  0: f =  0.850 [ 0.350, 1.850] % air     chi2   7539.7/20  d  4.00  s 1.000  dt0  +5.9
+  chamber      air  d=4 fixed, c from MC (s=1)   sys  2: f =  1.000 [ 0.350, 2.250] % air     chi2   3338.7/20  d  4.00  s 1.000  dt0 +12.0
+  chamber      air  d=4 fixed, s free            sys  0: f =  0.000 [ 0.000, 1.500] % air     chi2   6840.8/19  d  4.00  s 0.282  dt0 +47.0
+  chamber      air  d=4 fixed, s free            sys  2: f =  1.000 [ 0.150, 2.300] % air     chi2   3336.2/19  d  4.00  s 1.206  dt0  +0.0
+  chamber      air  d free, s=1                  sys  0: f =  0.200 [ 0.150, 0.250] % air     chi2   1798.9/19  d  9.62  s 1.000  dt0 -72.3
+  chamber      air  d free, s=1                  sys  2: f =  0.150 [ 0.100, 0.150] % air     chi2    289.0/19  d  9.27  s 1.000  dt0 -67.5
+  chamber      air  d free, s free               sys  0: f =  0.100 [ 0.100, 0.100] % air     chi2    653.1/18  d  9.93  s 0.679  dt0 -31.6
+  chamber      air  d free, s free               sys  2: f =  4.150 [ 3.700, 4.700] % air     chi2    339.2/18  d 11.34  s 1.040  dt0 -34.0
+  chamber      iso  d=4 fixed, c from MC (s=1)   sys  0: f = 15.250 [14.000,17.000] % iC4H10  chi2   2308.3/20  d  4.00  s 1.000  dt0 +20.5
+  chamber      iso  d=4 fixed, c from MC (s=1)   sys  2: f = 20.000 [19.750,20.000] % iC4H10  chi2    352.9/20  d  4.00  s 1.000  dt0 +21.6
+  chamber      iso  d=4 fixed, s free            sys  0: f = 12.750 [12.750,13.000] % iC4H10  chi2    418.7/19  d  4.00  s 2.316  dt0 -43.1
+  chamber      iso  d=4 fixed, s free            sys  2: f = 14.250 [13.750,15.000] % iC4H10  chi2    125.7/19  d  4.00  s 1.930  dt0 -22.0
+  chamber      iso  d free, s=1                  sys  0: f =  7.500 [ 7.250, 7.750] % iC4H10  chi2    343.4/19  d  7.05  s 1.000  dt0 -30.1
+  chamber      iso  d free, s=1                  sys  2: f =  8.000 [ 7.750, 8.750] % iC4H10  chi2     73.6/19  d  6.96  s 1.000  dt0 -26.8
+  chamber      iso  d free, s free               sys  0: f =  7.750 [ 7.250, 8.250] % iC4H10  chi2    333.7/18  d  6.77  s 1.087  dt0 -33.4
+  chamber      iso  d free, s free               sys  2: f =  6.750 [ 6.250, 8.000] % iC4H10  chi2     68.9/18  d  8.24  s 0.791  dt0 -25.0
+  reg24_good   h2o  d=4 fixed, c from MC (s=1)   sys  0: f =  0.780 [ 0.760, 0.780] % H2O     chi2     54.3/20  d  4.00  s 1.000  dt0  +6.9
+  reg24_good   h2o  d=4 fixed, s free            sys  0: f =  0.800 [ 0.800, 0.800] % H2O     chi2     34.2/19  d  4.00  s 0.894  dt0 +13.2
+  reg24_good   h2o  d free, s=1                  sys  0: f =  1.040 [ 0.980, 1.080] % H2O     chi2     27.8/19  d  3.41  s 1.000  dt0 +15.5
+  reg24_good   h2o  d free, s free               sys  0: f =  1.220 [ 1.160, 1.220] % H2O     chi2     24.9/18  d  3.02  s 1.185  dt0 +13.0
+  reg24_good   air  d=4 fixed, c from MC (s=1)   sys  0: f =  1.150 [ 0.400, 2.100] % air     chi2   2249.8/20  d  4.00  s 1.000  dt0  +7.2
+  reg24_good   air  d=4 fixed, s free            sys  0: f =  0.000 [ 0.000, 2.400] % air     chi2   2032.4/19  d  4.00  s 0.261  dt0 +48.8
+  reg24_good   air  d free, s=1                  sys  0: f =  0.150 [ 0.150, 0.250] % air     chi2    689.3/19  d  9.72  s 1.000  dt0 -73.5
+  reg24_good   air  d free, s free               sys  0: f =  0.000 [ 0.000, 0.000] % air     chi2    202.6/18  d 10.22  s 0.616  dt0 -25.2
+  reg24_good   iso  d=4 fixed, c from MC (s=1)   sys  0: f = 16.250 [14.500,18.000] % iC4H10  chi2    726.9/20  d  4.00  s 1.000  dt0 +21.1
+  reg24_good   iso  d=4 fixed, s free            sys  0: f = 13.500 [13.000,13.750] % iC4H10  chi2    218.6/19  d  4.00  s 2.239  dt0 -37.4
+  reg24_good   iso  d free, s=1                  sys  0: f =  7.750 [ 7.250, 8.000] % iC4H10  chi2    173.2/19  d  7.08  s 1.000  dt0 -29.0
+  reg24_good   iso  d free, s free               sys  0: f =  6.750 [ 6.750, 7.750] % iC4H10  chi2    165.4/18  d  8.10  s 0.835  dt0 -28.2
+  reg8_good    h2o  d=4 fixed, c from MC (s=1)   sys  0: f =  0.720 [ 0.700, 0.720] % H2O     chi2    101.5/20  d  4.00  s 1.000  dt0  +5.5
+  reg8_good    h2o  d=4 fixed, s free            sys  0: f =  0.760 [ 0.760, 0.760] % H2O     chi2     33.1/19  d  4.00  s 0.852  dt0 +14.4
+  reg8_good    h2o  d free, s=1                  sys  0: f =  1.040 [ 1.020, 1.060] % H2O     chi2     23.7/19  d  3.30  s 1.000  dt0 +15.9
+  reg8_good    h2o  d free, s free               sys  0: f =  1.100 [ 1.100, 1.100] % H2O     chi2     24.2/18  d  3.18  s 1.048  dt0 +15.4
+  reg8_good    air  d=4 fixed, c from MC (s=1)   sys  0: f =  1.100 [ 0.400, 2.100] % air     chi2   4244.2/20  d  4.00  s 1.000  dt0  +6.2
+  reg8_good    air  d=4 fixed, s free            sys  0: f =  0.000 [ 0.000, 2.600] % air     chi2   3848.2/19  d  4.00  s 0.239  dt0 +49.3
+  reg8_good    air  d free, s=1                  sys  0: f =  0.200 [ 0.150, 0.250] % air     chi2   1047.1/19  d  9.59  s 1.000  dt0 -72.5
+  reg8_good    air  d free, s free               sys  0: f =  0.000 [ 0.000, 0.000] % air     chi2    289.0/18  d  9.98  s 0.625  dt0 -25.5
+  reg8_good    iso  d=4 fixed, c from MC (s=1)   sys  0: f = 15.750 [14.250,17.250] % iC4H10  chi2   1302.1/20  d  4.00  s 1.000  dt0 +20.1
+  reg8_good    iso  d=4 fixed, s free            sys  0: f = 13.000 [12.750,13.250] % iC4H10  chi2    303.6/19  d  4.00  s 2.291  dt0 -42.0
+  reg8_good    iso  d free, s=1                  sys  0: f =  7.500 [ 7.250, 7.750] % iC4H10  chi2    238.2/19  d  7.08  s 1.000  dt0 -31.1
+  reg8_good    iso  d free, s free               sys  0: f =  6.500 [ 6.250, 8.250] % iC4H10  chi2    233.5/18  d  8.14  s 0.822  dt0 -28.9
+
+=== water + air combinations (discrete Magboltz points) ===
+  chamber      h2oair_0p75_0p5    d free, s free               chi2     91.6/19 d  3.65 s 1.286
+  chamber      h2oair_0p6_1p0     d free, s free               chi2    325.6/19 d  3.86 s 1.765
+  chamber      h2oair_0p75_1p0    d free, s free               chi2    381.0/19 d  3.40 s 1.861
+  chamber      h2oair_0p75_0p5    d free, s=1                  chi2    298.6/20 d  3.91 s 1.000
+  chamber      h2oair_0p6_1p0     d free, s=1                  chi2    933.1/20 d  4.44 s 1.000
+  chamber      h2oair_0p75_1p0    d free, s=1                  chi2   1156.4/20 d  3.93 s 1.000
+  chamber      h2oair_0p75_0p5    d=4 fixed, c from MC (s=1)   chi2    337.0/21 d  4.00 s 1.000
+  chamber      h2oair_0p75_1p0    d=4 fixed, c from MC (s=1)   chi2   1172.9/21 d  4.00 s 1.000
+  chamber      h2oair_0p6_1p0     d=4 fixed, c from MC (s=1)   chi2   1357.4/21 d  4.00 s 1.000
+  chamber      h2oair_0p75_0p5    d=4 fixed, s free            chi2    332.3/20 d  4.00 s 1.027
+  chamber      h2oair_0p6_1p0     d=4 fixed, s free            chi2    356.3/20 d  4.00 s 1.619
+  chamber      h2oair_0p75_1p0    d=4 fixed, s free            chi2   1029.2/20 d  4.00 s 1.180
+  reg24_good   h2oair_0p75_0p5    d free, s free               chi2     35.1/19 d  3.84 s 1.234
+  reg24_good   h2oair_0p75_1p0    d free, s free               chi2    180.1/19 d  3.81 s 1.286
+  reg24_good   h2oair_0p6_1p0     d free, s free               chi2    189.1/19 d  4.44 s 1.095
+  reg24_good   h2oair_0p75_0p5    d free, s=1                  chi2     86.3/20 d  4.04 s 1.000
+  reg24_good   h2oair_0p6_1p0     d free, s=1                  chi2    226.1/20 d  4.59 s 1.000
+  reg24_good   h2oair_0p75_1p0    d free, s=1                  chi2    289.2/20 d  4.07 s 1.000
+  reg24_good   h2oair_0p75_0p5    d=4 fixed, c from MC (s=1)   chi2     87.8/21 d  4.00 s 1.000
+  reg24_good   h2oair_0p75_1p0    d=4 fixed, c from MC (s=1)   chi2    294.2/21 d  4.00 s 1.000
+  reg24_good   h2oair_0p6_1p0     d=4 fixed, c from MC (s=1)   chi2    465.8/21 d  4.00 s 1.000
+  reg24_good   h2oair_0p75_0p5    d=4 fixed, s free            chi2     54.9/20 d  4.00 s 1.144
+  reg24_good   h2oair_0p6_1p0     d=4 fixed, s free            chi2    114.5/20 d  4.00 s 1.718
+  reg24_good   h2oair_0p75_1p0    d=4 fixed, s free            chi2    203.7/20 d  4.00 s 1.219
+  reg8_good    h2oair_0p75_0p5    d free, s free               chi2     37.2/19 d  3.68 s 1.263
+  reg8_good    h2oair_0p75_1p0    d free, s free               chi2    167.5/19 d  3.44 s 1.774
+  reg8_good    h2oair_0p6_1p0     d free, s free               chi2    309.6/19 d  4.26 s 1.122
+  reg8_good    h2oair_0p75_0p5    d free, s=1                  chi2    127.9/20 d  3.91 s 1.000
+  reg8_good    h2oair_0p6_1p0     d free, s=1                  chi2    399.5/20 d  4.44 s 1.000
+  reg8_good    h2oair_0p75_1p0    d free, s=1                  chi2    506.0/20 d  3.95 s 1.000
+  reg8_good    h2oair_0p75_0p5    d=4 fixed, c from MC (s=1)   chi2    147.4/21 d  4.00 s 1.000
+  reg8_good    h2oair_0p75_1p0    d=4 fixed, c from MC (s=1)   chi2    510.7/21 d  4.00 s 1.000
+  reg8_good    h2oair_0p6_1p0     d=4 fixed, c from MC (s=1)   chi2    666.2/21 d  4.00 s 1.000
+  reg8_good    h2oair_0p75_0p5    d=4 fixed, s free            chi2    146.7/20 d  4.00 s 1.013
+  reg8_good    h2oair_0p6_1p0     d=4 fixed, s free            chi2    153.1/20 d  4.00 s 1.576
+  reg8_good    h2oair_0p75_1p0    d=4 fixed, s free            chi2    449.3/20 d  4.00 s 1.152
+
+=== amplitude / shape check (chamber, d = 4 mm, s = 1, timing-fit models) ===
+   model                     amp/amp(750): 62  125  187  250 V/cm | ioa: 62 125 187 | s68 chi2 (sigma0 free)
+   data                                0.27  0.57  0.75  0.83 | 6.30 5.67 5.30
+   dry                       0.98  1.01  1.02  1.02 | 5.27 5.12 5.10 |    4946/20 sigma0 16.9 | att(62 V/cm) = 0.000
+   h2o 0.70                  0.63  0.85  0.96  0.99 | 7.75 5.87 5.31 |     852/20 sigma0 18.7 | att(62 V/cm) = 0.000
+   air 0.85                  0.72  0.88  0.93  0.95 | 5.30 5.13 5.10 |    4518/20 sigma0 18.6 | att(62 V/cm) = 0.714
+   iso 15.25                 0.77  0.95  0.98  0.99 | 6.35 5.32 5.16 |    3071/20 sigma0 20.0 | att(62 V/cm) = 0.000
+   h2oair_0p6_1p0            0.33  0.62  0.76  0.87 | 6.59 5.66 5.26 |    1279/20 sigma0 19.6 | att(62 V/cm) = 1.938
+   h2oair_0p75_0p5           0.41  0.69  0.83  0.90 | 7.42 5.96 5.35 |     484/20 sigma0 19.5 | att(62 V/cm) = 0.990
+   h2oair_0p75_1p0           0.28  0.54  0.74  0.86 | 6.59 5.89 5.35 |     679/20 sigma0 19.6 | att(62 V/cm) = 2.354
+
+=== attachment required by the amplitudes (T from timing, d = 4 mm, amp normalised at 750 V/cm) ===
+   E   62.4  T   684 ns  amp/amp750 0.270  eta*d 2.36 [2.27,2.45]  eta 5.90/cm  ioa data 6.30  MC(no att) 7.65  MC(att) 6.44
+   E  124.9  T   309 ns  amp/amp750 0.571  eta*d 0.89 [0.83,0.94]  eta 2.22/cm  ioa data 5.67  MC(no att) 5.89  MC(att) 5.81
+   E  187.4  T   189 ns  amp/amp750 0.754  eta*d 0.51 [0.47,0.56]  eta 1.28/cm  ioa data 5.30  MC(no att) 5.36  MC(att) 5.34
+   E  249.9  T   141 ns  amp/amp750 0.827  eta*d 0.38 [0.34,0.43]  eta 0.96/cm  ioa data 5.19  MC(no att) 5.20  MC(att) 5.19
+   E  311.8  T   121 ns  amp/amp750 0.917  eta*d 0.17 [0.14,0.21]  eta 0.43/cm  ioa data 5.15  MC(no att) 5.15  MC(att) 5.15
+   E  374.6  T   113 ns  amp/amp750 0.930  eta*d 0.15 [0.13,0.18]  eta 0.38/cm  ioa data 5.14  MC(no att) 5.13  MC(att) 5.13
+   E  437.4  T   113 ns  amp/amp750 0.940  eta*d 0.13 [0.10,0.16]  eta 0.33/cm  ioa data 5.14  MC(no att) 5.13  MC(att) 5.13
+   E  499.9  T   111 ns  amp/amp750 0.962  eta*d 0.09 [0.06,0.12]  eta 0.22/cm  ioa data 5.13  MC(no att) 5.13  MC(att) 5.13
+   E  562.4  T   114 ns  amp/amp750 0.972  eta*d 0.06 [0.03,0.10]  eta 0.16/cm  ioa data 5.15  MC(no att) 5.13  MC(att) 5.13
+   E  624.3  T   117 ns  amp/amp750 1.000  eta*d 0.00 [0.00,0.04]  eta 0.01/cm  ioa data 5.15  MC(no att) 5.14  MC(att) 5.14
+
+=== water fraction with the empirical attenuation from the amplitudes in the response ===
+  chamber      d=4 fixed, c from MC (s=1)   sys  0: f =  0.78 [ 0.76, 0.80] % H2O  chi2   679.5/20  d  4.00  s 1.000  dt0  +8.3
+  chamber      d=4 fixed, c from MC (s=1)   sys  2: f =  0.84 [ 0.80, 0.90] % H2O  chi2   532.7/20  d  4.00  s 1.000  dt0  +8.4
+  chamber      d=4 fixed, s free            sys  0: f =  0.76 [ 0.72, 0.78] % H2O  chi2   590.5/19  d  4.00  s 1.145  dt0  +0.0
+  chamber      d=4 fixed, s free            sys  2: f =  0.66 [ 0.62, 0.72] % H2O  chi2   357.4/19  d  4.00  s 1.588  dt0 -25.9
+  chamber      d free, s=1                  sys  0: f =  0.50 [ 0.40, 0.76] % H2O  chi2   641.9/19  d  4.96  s 1.000  dt0  -5.2
+  chamber      d free, s=1                  sys  2: f =  0.30 [ 0.20, 0.50] % H2O  chi2   456.5/19  d  6.25  s 1.000  dt0 -23.3
+  reg24_good   d=4 fixed, c from MC (s=1)   sys  0: f =  0.82 [ 0.80, 0.84] % H2O  chi2   139.6/20  d  4.00  s 1.000  dt0  +9.1
+  reg24_good   d=4 fixed, c from MC (s=1)   sys  2: f =  0.84 [ 0.82, 0.88] % H2O  chi2   120.9/20  d  4.00  s 1.000  dt0  +9.1
+  reg24_good   d=4 fixed, s free            sys  0: f =  0.78 [ 0.78, 0.80] % H2O  chi2   118.3/19  d  4.00  s 1.160  dt0  +0.0
+  reg24_good   d=4 fixed, s free            sys  2: f =  0.76 [ 0.74, 0.80] % H2O  chi2    94.5/19  d  4.00  s 1.257  dt0  -5.5
+  reg24_good   d free, s=1                  sys  0: f =  0.74 [ 0.50, 0.82] % H2O  chi2   134.0/19  d  4.22  s 1.000  dt0  +6.0
+  reg24_good   d free, s=1                  sys  2: f =  0.50 [ 0.42, 0.74] % H2O  chi2   109.4/19  d  5.11  s 1.000  dt0  -6.4
+  reg8_good    d=4 fixed, c from MC (s=1)   sys  0: f =  0.78 [ 0.76, 0.78] % H2O  chi2   227.8/20  d  4.00  s 1.000  dt0  +7.6
+  reg8_good    d=4 fixed, c from MC (s=1)   sys  2: f =  0.80 [ 0.78, 0.84] % H2O  chi2   187.1/20  d  4.00  s 1.000  dt0  +7.6
+  reg8_good    d=4 fixed, s free            sys  0: f =  0.74 [ 0.74, 0.76] % H2O  chi2   200.5/19  d  4.00  s 1.132  dt0  +0.0
+  reg8_good    d=4 fixed, s free            sys  2: f =  0.70 [ 0.68, 0.74] % H2O  chi2   134.6/19  d  4.00  s 1.329  dt0 -11.5
+  reg8_good    d free, s=1                  sys  0: f =  0.74 [ 0.48, 0.80] % H2O  chi2   224.5/19  d  4.09  s 1.000  dt0  +6.3
+  reg8_good    d free, s=1                  sys  2: f =  0.50 [ 0.28, 0.64] % H2O  chi2   170.8/19  d  5.00  s 1.000  dt0  -6.5
+
+=== timing-only limit on depth-dependent attachment: att = k * att_required(dV), water free (d=4, s=1, sys 2 ns) ===
+  chamber      k 0.00 (eta*d at 62 V/cm 0.00): f 0.68 %  chi2    17.7/20  Delta    +0.0  dt0  +6.1
+  chamber      k 0.05 (eta*d at 62 V/cm 0.12): f 0.70 %  chi2    11.3/20  Delta    -6.4  dt0  +6.1
+  chamber      k 0.10 (eta*d at 62 V/cm 0.24): f 0.70 %  chi2    11.3/20  Delta    -6.4  dt0  +6.3
+  chamber      k 0.20 (eta*d at 62 V/cm 0.47): f 0.72 %  chi2    18.6/20  Delta    +0.8  dt0  +6.5
+  chamber      k 0.30 (eta*d at 62 V/cm 0.71): f 0.74 %  chi2    44.9/20  Delta   +27.1  dt0  +6.7
+  chamber      k 0.50 (eta*d at 62 V/cm 1.18): f 0.78 %  chi2   143.2/20  Delta  +125.4  dt0  +7.1
+  chamber      k 0.75 (eta*d at 62 V/cm 1.77): f 0.82 %  chi2   330.5/20  Delta  +312.8  dt0  +7.6
+  chamber      k 1.00 (eta*d at 62 V/cm 2.36): f 0.84 %  chi2   532.7/20  Delta  +514.9  dt0  +8.4
+  reg24_good   k 0.00 (eta*d at 62 V/cm 0.00): f 0.76 %  chi2    18.5/20  Delta    +0.0  dt0  +6.7
+  reg24_good   k 0.05 (eta*d at 62 V/cm 0.11): f 0.76 %  chi2    16.6/20  Delta    -2.0  dt0  +6.9
+  reg24_good   k 0.10 (eta*d at 62 V/cm 0.21): f 0.76 %  chi2    16.1/20  Delta    -2.4  dt0  +7.0
+  reg24_good   k 0.20 (eta*d at 62 V/cm 0.43): f 0.78 %  chi2    15.9/20  Delta    -2.6  dt0  +7.2
+  reg24_good   k 0.30 (eta*d at 62 V/cm 0.64): f 0.78 %  chi2    20.4/20  Delta    +1.9  dt0  +7.5
+  reg24_good   k 0.50 (eta*d at 62 V/cm 1.07): f 0.80 %  chi2    40.2/20  Delta   +21.6  dt0  +8.0
+  reg24_good   k 0.75 (eta*d at 62 V/cm 1.61): f 0.82 %  chi2    75.6/20  Delta   +57.0  dt0  +8.5
+  reg24_good   k 1.00 (eta*d at 62 V/cm 2.15): f 0.84 %  chi2   120.9/20  Delta  +102.4  dt0  +9.1
+
+=== loss mechanism (chamber): depth-dependent attachment vs depth-independent loss, MC at the data-implied T ===
+   E   62.4 T  684 no loss      : y  365.1 (data  365.3)  amp 0.644 (0.270)  ioa 7.65 (6.30)  sel 0.93 (0.50)
+   E   62.4 T  684 attachment   : y  177.1 (data  365.3)  amp 0.265 (0.270)  ioa 6.41 (6.30)  sel 0.56 (0.50)
+   E   62.4 T  684 uniform loss : y  360.7 (data  365.3)  amp 0.270 (0.270)  ioa 7.24 (6.30)  sel 0.59 (0.50)
+   E  124.9 T  309 no loss      : y  173.1 (data  173.1)  amp 0.856 (0.571)  ioa 5.89 (5.67)  sel 0.97 (0.67)
+   E  124.9 T  309 attachment   : y  145.9 (data  173.1)  amp 0.569 (0.571)  ioa 5.81 (5.67)  sel 0.89 (0.67)
+   E  124.9 T  309 uniform loss : y  172.9 (data  173.1)  amp 0.571 (0.571)  ioa 5.88 (5.67)  sel 0.91 (0.67)
+   E  187.4 T  189 no loss      : y  101.8 (data  101.9)  amp 0.955 (0.754)  ioa 5.36 (5.30)  sel 0.98 (0.71)
+   E  187.4 T  189 attachment   : y   93.9 (data  101.9)  amp 0.751 (0.754)  ioa 5.34 (5.30)  sel 0.94 (0.71)
+   E  187.4 T  189 uniform loss : y  101.8 (data  101.9)  amp 0.754 (0.754)  ioa 5.36 (5.30)  sel 0.96 (0.71)
+   E  249.9 T  141 no loss      : y   74.5 (data   74.5)  amp 0.988 (0.827)  ioa 5.20 (5.19)  sel 0.98 (0.74)
+   E  249.9 T  141 attachment   : y   70.4 (data   74.5)  amp 0.823 (0.827)  ioa 5.19 (5.19)  sel 0.96 (0.74)
+   E  249.9 T  141 uniform loss : y   74.5 (data   74.5)  amp 0.827 (0.827)  ioa 5.20 (5.19)  sel 0.97 (0.74)
+
+   water fraction: reference 0.70 % (chamber, d = 4, s = 1); spread over data sets and variants (water only, d / s free, sys 0 / 2 ns): 0.52 ... 1.22 %
+
+=== drift time T -> gap d (T = d / v_d(dV/d)) ===
+   best water fraction (chamber, d = 4 fixed, s = 1): 0.70 % [0.52, 1.22]
+   dV 200 V  T   107 ns : d_dry 3.665  d_best 4.370  [band 4.129, 4.377]  delta +0.705 mm (+19.2 %)
+   dV 200 V  T   125 ns : d_dry 4.588  d_best 5.040  [band 4.579, 5.108]  delta +0.452 mm ( +9.9 %)
+   dV 200 V  T   170 ns : d_dry 6.817  d_best 6.321  [band 5.428, 6.621]  delta -0.496 mm ( -7.3 %)
+   dV 200 V  T   190 ns : d_dry 7.743  d_best 6.750  [band 5.727, 7.144]  delta -0.993 mm (-12.8 %)
+   dV 300 V  T   107 ns : d_dry 3.145  d_best 3.885  [band 3.677, 4.266]  delta +0.740 mm (+23.5 %)
+   dV 300 V  T   125 ns : d_dry 3.851  d_best 4.871  [band 4.649, 5.089]  delta +1.020 mm (+26.5 %)
+   dV 300 V  T   170 ns : d_dry 5.975  d_best 6.942  [band 6.436, 6.942]  delta +0.967 mm (+16.2 %)
+   dV 300 V  T   190 ns : d_dry 7.010  d_best 7.648  [band 6.920, 7.766]  delta +0.638 mm ( +9.1 %)
+   dV 400 V  T   107 ns : d_dry 2.981  d_best 3.419  [band 3.292, 3.827]  delta +0.438 mm (+14.7 %)
+   dV 400 V  T   125 ns : d_dry 3.562  d_best 4.253  [band 4.050, 4.808]  delta +0.691 mm (+19.4 %)
+   dV 400 V  T   170 ns : d_dry 5.271  d_best 6.666  [band 6.387, 6.942]  delta +1.396 mm (+26.5 %)
+   dV 400 V  T   190 ns : d_dry 6.181  d_best 7.674  [band 7.448, 7.762]  delta +1.493 mm (+24.2 %)
