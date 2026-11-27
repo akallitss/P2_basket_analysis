@@ -199,7 +199,25 @@ in the event. Time spread: single-pad pulses, 20 % leading edge, pad medians rem
 
 ## 8. Drift velocity at low field
 
-GAS_SECTION_PLACEHOLDER
+What the data say (stage 44, hits of the 24 Nov drift scan, mesh 430 V):
+
+- Above about 500 V/cm the chamber follows dry-gas Magboltz for a 4 mm gap: (median peak time - zero-field
+  time) / T_gas is 0.49 at 500 V/cm and 0.48 at 1312 V/cm.
+- Below it the electrons are slower than dry gas, more and more so: in the nominal-gap regions v_d is 33.8
+  instead of 38.2 um/ns at 375 V/cm, 30.8 instead of 39.8 at 312, 26.1 instead of 40.6 at 250; chamber-wide
+  the implied drift time is about 370 ns at 125 V/cm and 780 ns at 62 V/cm against 108 and 174 ns. The
+  velocity maximum sits near 400-500 V/cm instead of 200. A constant voltage offset does not describe it
+  (the implied offset grows from 19 V at dV = 25 V to 54 V at 75 V).
+- The same behaviour was seen on det1 in July and at the SPS in another gas (`RESULTS_gap_timing.md`, part B),
+  so it is not specific to det2 or to this week.
+
+Consequence for this audit: none on the method, a 7 % smaller ridge than the dry-gas table would give
+(section 3), because stage 49 uses the measured velocity.
+
+Cause: not established. A contaminant with a large cross-section at low electron energy (water vapour
+through the 50 um window or from outgassing; air would also attach electrons) is the first suspect. A
+Magboltz scan of water / air / isobutane fractions against the drift-scan curve is in `gas_studies/water_scan/`
+(README there for the result and its caveats).
 
 ## 9. Other chambers
 
