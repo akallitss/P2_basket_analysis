@@ -6,8 +6,7 @@ committed; the code is on `main` after the 27 Nov end-of-day sweep (branch was
 
 Public write-up (pedagogical, all figures): `cern-site/notes/2026-11-26-chasing-det2s-lost-muons-a-cosmic-bench-efficiency-investigation.html`
 -> https://alexandra-kallitsopoulou.web.cern.ch/notes/2026-11-26-chasing-det2s-lost-muons-a-cosmic-bench-efficiency-investigation.html
-(**committed + pushed to GitHub but NOT deployed yet**: run `scripts/deploy.sh` in cern-site from a
-real terminal, lxplus needs the password).
+(deployed and live, verified on EOS 2026-11-27).
 
 ---
 
@@ -95,7 +94,7 @@ Gotchas:
 
 1. **Bench**: inspect det2 mesh leak (burn mark? humidity? cable? try another HV channel), re-solder board
    connectors 2/3/8, check connector 5 row; only then retake the 3 h batch 2 (config ready).
-2. Deploy the CERN note (`cd cern-site && scripts/deploy.sh`, password).
+2. (done 2026-11-27) CERN note deployed.
 3. Re-run the other detectors' keys (det1/det5…) with the new clustering + dead-cell + any-cluster definitions
    before comparing them with det2; det5's earlier "pillars 1.09 pp" estimate was position-based and likely low.
 4. Optional: sub-threshold-pulse study vs angle to separate pillar shadow from gain tail more cleanly; project
