@@ -65,3 +65,26 @@ hold the pillar theory, and put the findings in the CERN note.
 - CERN note: callout at the top, correction markers in §7/§8/§11 and glossary, new §12 (alignment, pointing, step
   table, re-run table, new map, model-free no-hit vs angle), todo renumbered to §13. Edited in the cern-site working
   tree, NOT committed or deployed yet (waiting for her go-ahead).
+
+## 7. No-hit investigation (27 Nov, evening) — stages 39, 40, nohit_checks/
+
+- 39 (raw waveforms, all 14 decoded files, ~8 min): all 1,298 no-hit events exist in both P2 FEUs' data. On the
+  best pad within 3 mm of the track: ~87 % pure noise (matched-filter significance = noise control), ~13 % a
+  3–6 σ sub-threshold pulse (fraction angle-independent). Stacked mean on the crossed pad ≈ 3 ADC = 0.2 % of a hit.
+  → not a threshold effect; the charge never arrives.
+- M3 side (nohit_checks/m3tests.py): no-hit tracks identical to hit tracks (top/bottom-pair kink, χ², NClus,
+  dt to neighbouring triggers) → real straight muons that crossed the det2 plane.
+- Spatial (spots*.py): clustering only at 4 of the 5 big pillars (4 % of no-hits). Away from them, vertical no-hits
+  are spatially random (pairs < 1 mm: 6 vs 4.2 ± 2.1).
+- Geometry (masktest/offscan*): no shadow at Saclay V1/V2 or CERN pillar positions, nor for any global or
+  per-quadrant shift of the pattern within one lattice cell. Mask strokes are only outlines; board vias are
+  1 per pad (0.1 % of the area).
+- 40 (11-24 drift/mesh scans, same detector, one trimmed alignment, z 246.3): the vertical excess
+  (no-hit 0–6° minus ≥ 12°) FALLS WITH DRIFT FIELD: ~11 pts < 200 V/cm, 8.8 (200–400), 4.9 (400–600),
+  2.1 (600–800), 0.5 ± 0.4 (800–1000), then 1.7–2.6 above 1000 V/cm. Mesh scan: excess 2–5 pts, roughly flat;
+  the overall level follows the gain.
+- Path-length (1/cos θ) mechanisms are excluded by the size of the angle effect; the cause must depend on the
+  lateral spread 4 mm·tan θ, at a scale below the 0.7 mm pointing, and on the drift field. Mechanism still open.
+- Practical: the minimum is at 800–1000 V/cm drift field (drift 750–830 V at mesh 430), vs 750 V/cm used.
+- Run-to-run: at 430/730 the 11-24 alignment run has a vertical excess of ~1.6 pts (2.98 vs 1.36 %), the
+  11-25 long run ~4 pts (5.4 vs 1.3 %) at the same voltages (position changed; mesh leak developing?).
