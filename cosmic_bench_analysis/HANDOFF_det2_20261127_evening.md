@@ -4,7 +4,8 @@
 > the no-hit loss IS the small-pillar shadow. The pillars sit on a 3.0 mm lattice (not the 4.0 mm Gerber), the
 > mask film is offset ~2 mm, and the dead radius depends on gain / drift field (0.18-0.33 mm at 430/730,
 > 0.23 mm at 800-1200 V/cm). §3 "no shadow" and §4 "mechanism open" below are wrong; stage 27's 2.18 % row was right.
-> New stages 41/42; stage 36 now uses the measured lattice.
+> New stages 41/42; stage 36 now uses the measured lattice. Clustering re-examined (audit §8): keep as is.
+> Project rules distilled from this in `P2_basket_analysis/CLAUDE.md` (read first in the next session).
 
 **Start here.** This supersedes the morning handoff (`HANDOFF_det2_efficiency_20261127.md` on `main`) for the
 analysis. It also absorbs the running notes in `HANDOFF_det2_cluster_align_pillar_20261127.md` (same branch, more

@@ -183,3 +183,41 @@ for a scan series. Outputs: `.../long_run_det2_430_730/41_pillar_lattice/`,
 `.../p2_det2_long_run_430_repositioned_11-25-26/42_pillar_shadow_vs_field_det2_initial2/`.
 Stages 38 and `nohit_checks/masktest|offscan*` still use the Gerber and should be read as "no shadow on the
 4 mm lattice", which is now expected.
+
+## 8. Clustering re-examined (same night)
+
+Stage 34's matrix stands: tile adjacency and CC-20 clusters are identical (12.3 % multi-pad), time cuts do not
+separate in-time second particles, seed thresholds only remove muons (50 ADC costs 0.8 pt, and those are the
+soft-edge pillar tracks). The only thing below the hit finder's 5-sigma / 3-sample threshold is a matched-filter
+second pass on the pad under the track (stage 39 tables, `pad_waveform_features.csv`):
+
+| matched-filter cut | no-hit tracks with a pulse | noise control | net gain |
+|---|---|---|---|
+| 3 sigma | 14.0 % | 1.4 % | +0.40 pt |
+| 4 sigma | 9.3 % | 0.6 % | +0.28 pt |
+| 5 sigma | 4.2 % | 0.4 % | +0.12 pt |
+
+The recoverable fraction is the same near and far from a pillar (13 / 14 / 15 %) and at all angles: it is the
+Landau low tail, not the shadow. Pillar-lost tracks have 0.2 % of a normal pulse and cannot be recovered by any
+clustering or threshold choice. Neighbour-seeded thresholds find 0.05 sub-threshold neighbour pads per hit track:
+useless on 12 mm pads without charge spreading. Recommendation: keep the clustering; an optional track-guided
+4-sigma second pass is a bench-only +0.3 pt, to be quoted separately if ever used. No code added.
+
+## 9. How the mistake happened, and the rules that prevent it
+
+1. Every pillar test (36, 38, `nohit_checks/masktest|offscan*`) folded the tracks on the Gerber lattice and
+   scanned offsets within one cell. That excludes only that lattice and pitch; it was read as "no pillar
+   effect". Rule: run the model-free periodicity search (`41_pillar_lattice.py`) BEFORE folding on any drawing.
+2. The no-hit signatures (sub-mm scale, lateral-spread dependence, charge never arrives) all pointed at a dense
+   periodic dead structure; the one contradicting test was trusted over three agreeing signatures. Rule: when
+   one test contradicts the simplest mechanism, audit the test's assumptions first.
+3. Stage 31's big-pillar edge of 2.4 mm against a 0.7 mm pointing was explained away as a "gain zone". It was
+   the film offset. Rule: fit objects individually (centre + radius + edge) before fitting them jointly at
+   drawn positions; an unphysical edge width is a registration error until proven otherwise.
+4. Drawings, bulk sheets and slides all agreed on 4 mm; agreement among documents is not a measurement.
+   Rule: a geometry used in a loss budget must be measured on the detector (data or microscope) and the
+   measurement cited next to the number.
+5. The run-to-run difference at identical voltages was filed under "position / mesh leak". Rule: a change in
+   the vertical-track excess is first a shadow-depth (margin) question; check `42` before alignment.
+
+These rules are also in `P2_basket_analysis/CLAUDE.md` so every session loads them.
