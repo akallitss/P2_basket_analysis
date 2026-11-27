@@ -115,6 +115,7 @@ def main():
                                   strategy=args.strategy,
                                   drop_connectors=cfg.DEAD_CONNECTORS, drop_channels=cfg.DEAD_CHANNELS, cluster_link=cfg.CLUSTER_LINK_MM, dead_guard=cfg.DEAD_GUARD_MM,
                                   strategy_overrides=cfg.STRATEGY_OVERRIDES)
+    ct.attrs['edge_guard'] = cfg.EDGE_GUARD_MM   # None = historical ACTIVE_R-only edge
     if cfg.DEAD_CONNECTORS:
         print(f'  dropped dead connectors: {list(cfg.DEAD_CONNECTORS)}')
 
@@ -153,7 +154,8 @@ def main():
         print(f'Too few matched events ({len(fitm)}) to fit the pad->M3 '
               'transform — skipping the efficiency maps for this variant.')
         return
-    T = pa.fit_transform(fitm['x_m3'], fitm['y_m3'], fitm['x_pad'], fitm['y_pad'])
+    T = pa.fit_transform(fitm['x_m3'], fitm['y_m3'], fitm['x_pad'], fitm['y_pad'],
+                         trim_mm=cfg.FIT_TRIM_MM)
     print(f'transform: rotation {T.rotation_deg:.2f} deg, reflection {T.reflection}, '
           f'scale {T.s:.3f}, fit RMSE {T.rmse:.1f} mm (N={len(fitm)})')
 

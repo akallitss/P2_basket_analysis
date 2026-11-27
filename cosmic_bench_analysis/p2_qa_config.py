@@ -133,7 +133,7 @@ class _Config:
                  strategy_overrides=None,
                  t_max_h=None, min_amp=0.0, out_tag=None, noisy_pads=(),
                  hot_pad_ratio=5.0, t_min_h=None, active_r=8.4,
-                 drift_gap_mm=4.0):
+                 drift_gap_mm=4.0, fit_trim_mm=None, edge_guard_mm=None):
         self.KEY = key
         self.DATA_ROOT = data_root
         self.RUN = run
@@ -188,6 +188,19 @@ class _Config:
         # 11-26 (stage 30): miss rate 29% at a dead edge, back to the interior
         # level by ~6 mm -> det2 keys use 6. 0 = Voronoi cell only.
         self.DEAD_GUARD_MM = float(dead_guard_mm)
+        # Trimmed pad->M3 alignment fit [mm] (p2_align.fit_transform trim_mm).
+        # None = historical plain least squares. That fit is biased by the ~5 %
+        # of (track, max-cluster) pairs that are NOT the muon (second particle /
+        # noise ~100 mm away): det2_long_repos scale 0.978 instead of 1.000
+        # (4.4 mm at +-200 mm), apparent pointing ~3 mm instead of 0.7 mm.
+        # Stages 34/35 (2026-11-27). Enabled per run key while it is validated.
+        self.FIT_TRIM_MM = None if fit_trim_mm is None else float(fit_trim_mm)
+        # Outer-edge guard [mm]. None = historical ACTIVE_R-only edge: a ray up
+        # to ACTIVE_R (8.4 mm) from an edge pad centre counts, i.e. up to ~2.4 mm
+        # OUTSIDE the outermost pad tiles. If set, a ray must also lie inside the
+        # pad array (live + dead tiles) and at least this far from its outer
+        # boundary -- the same rule DEAD_GUARD_MM applies at dead pads.
+        self.EDGE_GUARD_MM = None if edge_guard_mm is None else float(edge_guard_mm)
         # Per-connector-half within-half channel order, for a ribbon cabled
         # differently from the rest of the detector: {(connector_N, half):
         # strategy}, e.g. {(8, 'top'): 'linear'} on an otherwise 'reverse' det.
@@ -797,7 +810,7 @@ RUNS = {
         det_tag='det2',
         spark_channel='1:0',
         dead_connectors=(1, 10),
-        plane_z=240.0,   # 03 z-fit 244 (FOM 1.872) vs 240 -> same eff (12 z-plateau PASS)
+        plane_z=246.0,   # 34/35 slope fit with the trimmed alignment: 246.0 (was 240 from 03's FOM scan)
         t_max_h=7.58,    # mesh trip at 7.615 h (11-26 01:07:36)
         # Connector 9 top (FEU 7 ch 448-511) is cabled in the opposite order:
         # a ray over expected ch c fires ch ~959-c (mirror within the half),
@@ -821,7 +834,15 @@ RUNS = {
                           ((6, 236), (6, 238)), ((6, 241), (6, 243)),
                           ((7, 271), (7, 272), (7, 273)), ((7, 338), (7, 339), (7, 340)),
                           ((7, 351), (7, 352)), ((7, 353), (7, 354), (7, 355))),
-        dead_guard_mm=6.0,   # stage 30: dead-pad miss excess gone by ~6 mm (2 x 3 mm pointing)
+        # 2026-11-27 alignment validation (stages 34/35, branch det2-cluster-align-pillar):
+        # trimmed fit + slope-fitted plane z; with it the dead-border miss excess is
+        # +14.6/+5.2/+2.9/+1.7/+0.7 % in 0.5 mm steps and gone by 2.5 mm (0.7 mm pointing),
+        # so the guard drops 6 -> 2 mm, applied to the outer edge as well.
+        # Was: plane_z 240, plain fit (scale 0.978), dead_guard 6 mm (backup of those
+        # products: long_run_det2_430_730__v1_stage06_align_20261127/).
+        dead_guard_mm=2.0,
+        edge_guard_mm=2.0,
+        fit_trim_mm=15.0,
         min_amp=0.0),
 
     # det1 DRIFT scan (7-19-26 afternoon), taken right after the mesh scan

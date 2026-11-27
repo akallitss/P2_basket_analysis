@@ -165,6 +165,40 @@ def mask_dead_cells(nn, xy, channel_table, T):
     guard = float(channel_table.attrs.get('dead_guard', 0.0) or 0.0)
     if guard > 0:
         out = np.where(dist_to_dead_tiles(xy, channel_table, T) < guard, np.inf, out)
+    edge = channel_table.attrs.get('edge_guard')
+    if edge is not None:
+        out = np.where(outer_edge_distance(xy, channel_table, T) < float(edge), np.inf, out)
+    return out
+
+
+def outer_edge_distance(xy, channel_table, T, res=0.2):
+    """Signed distance [mm] of M3-frame points to the OUTER boundary of the pad
+    array (union of live + dropped tiles): + inside, - outside. Rasterised at
+    `res` mm (the tiles nearly touch: Gerber inter-pad gap ~0.07 mm < res, so
+    inter-pad gaps do not open holes). Used for the EDGE_GUARD_MM cut."""
+    from PIL import Image, ImageDraw
+    from scipy.ndimage import distance_transform_edt
+    import p2_mapping as pmap
+    xy = np.asarray(xy, dtype=float)
+    _, v0 = pmap.pad_tiles(channel_table)
+    vx, vy = T.apply(v0[:, :, 0].ravel(), v0[:, :, 1].ravel())
+    q = np.stack([vx.reshape(-1, 4), vy.reshape(-1, 4)], axis=2)
+    dq = dead_tiles_m3(channel_table, T)
+    if len(dq):
+        q = np.concatenate([q, dq])
+    lo = q.reshape(-1, 2).min(0) - 30.0
+    hi = q.reshape(-1, 2).max(0) + 30.0
+    W, H = ((hi - lo) / res).astype(int) + 1
+    im = Image.new('1', (int(W), int(H)), 0)
+    dr = ImageDraw.Draw(im)
+    for t in q:
+        dr.polygon([tuple(p) for p in (t - lo) / res], fill=1)
+    m = np.array(im, dtype=bool)
+    sd = np.where(m, distance_transform_edt(m) * res, -distance_transform_edt(~m) * res)
+    ij = np.floor((xy - lo) / res).astype(int)
+    ok = (ij[:, 0] >= 0) & (ij[:, 0] < W) & (ij[:, 1] >= 0) & (ij[:, 1] < H)
+    out = np.full(len(xy), -np.inf)
+    out[ok] = sd[ij[ok, 1], ij[ok, 0]]
     return out
 
 

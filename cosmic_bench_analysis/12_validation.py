@@ -175,6 +175,7 @@ def main():
                                   strategy=args.strategy,
                                   drop_connectors=cfg.DEAD_CONNECTORS, drop_channels=cfg.DEAD_CHANNELS, cluster_link=cfg.CLUSTER_LINK_MM, dead_guard=cfg.DEAD_GUARD_MM,
                                   strategy_overrides=cfg.STRATEGY_OVERRIDES)
+    ct.attrs['edge_guard'] = cfg.EDGE_GUARD_MM   # None = historical ACTIVE_R-only edge
     hits_dir, m3_dir = cfg.combined_hits_dir, cfg.m3_tracking_dir
 
     print(f'Loading M3 (z={z0:.0f}) + P2 centroids ...')
@@ -197,7 +198,8 @@ def main():
     matched = m3.merge(p2, on='eventId', how='inner')
     fitm = matched[(matched['x_m3'].abs() < args.fit_fiducial) &
                    (matched['y_m3'].abs() < args.fit_fiducial)]
-    T0 = pa.fit_transform(fitm['x_m3'], fitm['y_m3'], fitm['x_pad'], fitm['y_pad'])
+    T0 = pa.fit_transform(fitm['x_m3'], fitm['y_m3'], fitm['x_pad'], fitm['y_pad'],
+                         trim_mm=cfg.FIT_TRIM_MM)
     print(f'nominal transform: rot {T0.rotation_deg:.2f} deg, scale {T0.s:.3f}, '
           f'RMSE {T0.rmse:.1f} mm')
 
@@ -312,7 +314,8 @@ def main():
         mz = mz[np.isfinite(mz['x_m3']) & np.isfinite(mz['y_m3'])]
         mm = mz.merge(p2, on='eventId', how='inner')
         fm = mm[(mm['x_m3'].abs() < args.fit_fiducial) & (mm['y_m3'].abs() < args.fit_fiducial)]
-        Tz = pa.fit_transform(fm['x_m3'], fm['y_m3'], fm['x_pad'], fm['y_pad'])
+        Tz = pa.fit_transform(fm['x_m3'], fm['y_m3'], fm['x_pad'], fm['y_pad'],
+                         trim_mm=cfg.FIT_TRIM_MM)
         rc, tr, _, _ = reco_and_tree(Tz, p2, ct)
         dz = ray_table(mz, rc, tr, hit_events, ct, Tz, clusters)
         e, _, _ = eff_of(dz, R0, AR0)

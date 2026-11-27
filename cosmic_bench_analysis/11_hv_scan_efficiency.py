@@ -177,6 +177,7 @@ def main():
                                   strategy=args.strategy,
                                   drop_connectors=cfg.DEAD_CONNECTORS, drop_channels=cfg.DEAD_CHANNELS, cluster_link=cfg.CLUSTER_LINK_MM, dead_guard=cfg.DEAD_GUARD_MM,
                                   strategy_overrides=cfg.STRATEGY_OVERRIDES)
+    ct.attrs['edge_guard'] = cfg.EDGE_GUARD_MM   # None = historical ACTIVE_R-only edge
 
     subruns = find_subruns(cfg)
     if not subruns:
@@ -210,7 +211,8 @@ def main():
     if args.fit_fiducial > 0:
         fitm = pool[(pool['x_m3'].abs() < args.fit_fiducial) &
                     (pool['y_m3'].abs() < args.fit_fiducial)]
-    T = pa.fit_transform(fitm['x_m3'], fitm['y_m3'], fitm['x_pad'], fitm['y_pad'])
+    T = pa.fit_transform(fitm['x_m3'], fitm['y_m3'], fitm['x_pad'], fitm['y_pad'],
+                         trim_mm=cfg.FIT_TRIM_MM)
     print(f'\nPooled transform (all HV): rotation {T.rotation_deg:.2f} deg, '
           f'reflection {T.reflection}, scale {T.s:.3f}, RMSE {T.rmse:.1f} mm '
           f'(N={len(fitm):,})')

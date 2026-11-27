@@ -57,6 +57,7 @@ def main():
                                   drop_channels=cfg.DEAD_CHANNELS,
                                   cluster_link=cfg.CLUSTER_LINK_MM, dead_guard=cfg.DEAD_GUARD_MM,
                                   strategy_overrides=cfg.STRATEGY_OVERRIDES)
+    ct.attrs['edge_guard'] = cfg.EDGE_GUARD_MM   # None = historical ACTIVE_R-only edge
     padc = ct[ct['mapped']].drop_duplicates('channel_id').reset_index(drop=True)
     fp = pd.read_csv(f'{cfg.out_dir("06_efficiency")}/pad_footprint{sfx}.csv')
     if len(fp) != len(padc):
