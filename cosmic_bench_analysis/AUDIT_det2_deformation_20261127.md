@@ -23,8 +23,8 @@ folders of the run. Rules distilled from this audit are in `P2_basket_analysis/C
    independent measurements agree (section 3). The ratios between zones are the solid result (centre 0.85 x,
    ridge 1.6 x the nominal zone, 1.8 x at its peak). The millimetres quoted in this document use the dry-gas
    drift velocity at 750 V/cm. The gas is not dry: the drift scan together with the drift time at the operating
-   point gives 0.55 % of water and a common scale factor of 1.17 (section 8), i.e. nominal zone 4.7 mm
-   (4.2-5.0), centre 4.0 mm, ridge 7.4 mm (class mean) to 8.4 mm (peak).
+   point gives 0.6 % of water (0.55-0.70) and a common scale factor of 1.11 (1.04-1.19) (section 8), i.e.
+   nominal zone 4.4 mm (4.1-4.7), centre 3.7 mm, ridge 7.0 mm (class mean) to 8.0 mm (peak).
 3. **Shape.** The thick zone is a ridge parallel to the left side of the fan, about 400 mm long end to end
    (240 mm above half height), peaking 60 mm inside the edge of the pad array, falling back both towards
    the edge and towards the interior (3.9 mm at 118 mm from the edge), and back to 3.6-3.8 mm about
@@ -111,8 +111,9 @@ Uncertainties: statistical +-0.1 mm per pad (sliding 18 mm). Drift-time scale: t
 >= 112 ns). Millimetre scale: drift time x v_d(750 V/cm), and v_d there is 31.2 um/ns in dry gas but
 36.7 um/ns with 0.7 % water (section 8), so the common scale factor of all gaps is 1.0 (dry, nominal zone
 3.96 mm, the design value) to 1.18 (wet, 4.7 mm). The drift scan alone trades gap against water fraction;
-with the operating-point drift time it gives a factor 1.17 (1.05-1.25), section 8. Ratios between zones are
-not affected. In the
+with the operating-point drift time it gives a factor 1.11 (1.04-1.19), section 8. Ratios between zones are
+not affected. The micro-TPC numbers of the table above use dry-gas diffusion in the model; with the diffusion
+of the wet gas they are 12 % lower (102 / 118 / 166 ns). In the
 ridge the three time estimates differ by +-4 % (174 / 186 / 189 ns), i.e. +-0.3 mm. Lowering the amplitude
 cut of the timing sample from 300 to 150 ADC moves the regional drift times by < 0.5 ns (mean-pulse fit)
 and <= 3 ns (spread).
@@ -243,12 +244,27 @@ Cause (Magboltz scan, `gas_studies/water_scan/`, Garfield++ / Magboltz 11.19 on 
   maximum at 450 V/cm instead of 200. What the scan leaves open is a valley: more water with a thinner gap
   or less water with a thicker one (0.90 % at 3.5 mm, 0.75 % at 4.0 mm, 0.60 % at 4.5 mm, 0.50 % at 5.0 mm;
   68 % region 0.35-0.85 %, 3.7-5.7 mm). Along that valley the drift time at the operating point changes:
-  96 / 108 / 120 / 132 ns. It is measured independently of the scan and of any pulse-shape response: 129 +- 3 ns
-  from the pad pairs (stage 48), 125 ns from the mean-pulse fit (stage 47). With T(300 V) = 127 +- 5 ns the
-  joint fit gives **0.55 % water (0.50-0.60) and a nominal-zone gap of 4.7 mm (4.5-4.9)**, the same for the
-  chamber and for the nominal-gap regions. Allowing for the micro-TPC dilution model (raw plateau alone:
-  T >= 112 ns) the range is 0.5-0.7 % and 4.2-5.0 mm. The response scale comes out at 0.81: the pulse-response
-  Monte Carlo overestimates the peak-time response by 20 %.
+  96 / 108 / 120 / 132 ns. It is measured independently of the scan and of any pulse-shape response by the
+  pad pairs (stage 48) and by the mean-pulse fit (stage 47, 125 ns).
+- **The pad-pair number depends on the transverse diffusion, which depends on the water.** The dilution
+  factor (D = kappa T / 2) is 0.67 with dry-gas diffusion and 0.76 with the diffusion of 0.5-0.75 % water
+  (Magboltz: 0.83-0.88 of dry) for |slope| > 0.15. The measured S-curve rises faster than the dry-diffusion
+  model and matches the smaller diffusion (D at slope 0.18 / 0.23 relative to the plateau: data 0.90 / 0.94,
+  dry model 0.75 / 0.88, diffusion x 0.7-0.85: 0.83-0.90 / 0.94-0.96). Consistent treatment: nominal zone
+  T = 118 +- 3 ns (129 +- 3 with dry diffusion); thin 102 +- 7, ridge 166 +- 5 ns.
+- **Joint result**, T(300 V) = 120 +- 6 ns (covers 118 and 125): **0.60 % water (0.55-0.70), nominal-zone gap
+  4.4 mm (4.1-4.7)**, the same for the chamber and for the nominal-gap regions (4.6 mm).
+- **Independent repeat on the other day, hits only** (stage 50): the pad-pair time difference at every point
+  of the 24 Nov drift scan (no pulse response, no zero-time reference; 19-180 pairs per point) gives, for the
+  nominal-gap pads, 0.70 % water (0.60-0.80) and 4.0 mm (3.9-4.2) with kappa = 0.76, and 0.55 % / 4.6 mm with
+  kappa = 0.67; all pads: 0.55 % / 4.4 mm. Dry gas with any gap: chi2 60 against 25 (19 dof). With kappa free
+  the shape alone does not fix the gap (statistics of the low-field points).
+- So the trade-off is pinned to about +-0.3 mm (4.0-4.7 mm, 0.55-0.75 % water) and what limits it is one
+  number, the dilution factor of the pad pairs. Other variables in the data were looked at and do not help:
+  the time spread per unit drift time and the Landau width (both depend on the number of clusters, i.e. on
+  the gap in mm, but only by 5 % per mm and with unknown extra broadening); the rate of two-pad events
+  against track angle (a pure geometric ruler in principle, but data and model differ by a factor two in
+  absolute rate); the July Fe55 gain (other voltages, electronics and gas state).
 - Water moves the velocity maximum to ~450 V/cm and makes the gas 18 % faster at 750 V/cm (36.7 against
   31.1 um/ns). That is the scale uncertainty of section 3.
 - The amplitude drop at low field (0.27 / 0.57 / 0.75 of the 750 V/cm value at 62 / 125 / 187 V/cm) is NOT
@@ -307,10 +323,13 @@ They are a check that the method tells the two components apart, not a finished 
 6. Amplification-gap numbers assume all the intrinsic gain variation is gap; the ion-tail slope supports it
    within a factor 1.5 but does not prove it. A Garfield++ ion-transit calculation for 128 um at 430 V
    would turn the 16 ns per e-fold into a number to compare.
-7. The millimetre scale of the gap map: best estimate 1.17 x the dry-gas scale used here (range 1.05-1.25),
-   from the joint fit of section 8. It rests on Magboltz's water cross-sections (10-20 %) and on the micro-TPC
-   dilution model. A hygrometer on the exhaust, one mechanical measurement of the gap in the live area, or
-   the pad-pair time difference at every point of a drift scan (hits are enough) would each check it.
+7. The millimetre scale of the gap map: best estimate 1.11 x the dry-gas scale used here (1.04-1.19), from
+   the joint fit of section 8. It rests on Magboltz's water cross-sections and diffusion and on the micro-TPC
+   dilution model. Measurements that would fix it independently: a hygrometer on the exhaust (water
+   directly); the capacitance between window and mesh (about 250 pF, proportional to the mean of 1/gap: a
+   10 % scale change is 25 pF); Fe55 at the voltages and electronics settings of the cosmic run (number of
+   primary electrons of a muon, proportional to the gap); a long drift scan with waveforms (20x the pair
+   statistics at low field would let stage 50 fit the dilution factor instead of assuming it).
 8. The amplitude loss at low drift field (not attachment, section 8).
 
 ## 11. Code and products

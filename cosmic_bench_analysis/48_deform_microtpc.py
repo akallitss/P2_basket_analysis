@@ -22,7 +22,11 @@ have a longer drift time (thicker gap, or slower drift in the same gap).
 
 Out (<run>/48_deform_microtpc/): pairs.csv, curve_by_zone.csv, toy_curves.csv,
 microtpc.png, summary.txt
-Usage: python3 48_deform_microtpc.py [run_key]
+Usage: python3 48_deform_microtpc.py [run_key] [--dt-scale=0.85]
+
+The dilution factor depends on the transverse diffusion, and that on the gas: with 0.5-0.75 % water it is
+0.83-0.88 of the dry-gas value (Magboltz), which lowers the fitted drift times by ~12 % (det2: nominal zone
+129 -> 113 ns). The S-curve shape itself prefers the smaller diffusion.
 """
 import os
 import sys
@@ -66,13 +70,13 @@ def curve(p, est='t_pk', nboot=200):
     return pd.DataFrame(rows, columns=['s', 'n_pos', 'n_neg', 'D', 'e'])
 
 
-def toy_curve(d_mm, v_scale, ser_par, amp_scale, n=6000, dV=300.0):
+def toy_curve(d_mm, v_scale, ser_par, amp_scale, n=6000, dV=300.0, dt_scale=1.0):
     """Model D(|s|) with the data selection (both pads hit, B > AMP_B, A 300-3500)."""
     H = dm.Heed()
     rows = []
     for lo, hi in zip(SB[:-1], SB[1:]):
         sl = 0.5 * (lo + hi)
-        WA, WB, ph, info = dm.simulate_pair(n, sl, d_mm=d_mm, dV=dV, v_scale=v_scale, adc_per_e=amp_scale, noise=12.0,
+        WA, WB, ph, info = dm.simulate_pair(n, sl, d_mm=d_mm, dV=dV, v_scale=v_scale, adc_per_e=amp_scale, noise=12.0, dt_scale=dt_scale,
                                             heed=H, rng=RNG, **ser_par)
         FA = pdf.features(WA); FB = pdf.features(WB)
         A, B, sw = pairs_from_features(FA, FB)
@@ -90,9 +94,14 @@ def toy_curve(d_mm, v_scale, ser_par, amp_scale, n=6000, dV=300.0):
 
 
 def main():
-    run_key = sys.argv[1] if len(sys.argv) > 1 else 'det2_long_repos'
+    args = [x for x in sys.argv[1:] if not x.startswith('--')]
+    run_key = args[0] if args else 'det2_long_repos'
+    # transverse diffusion of the model relative to dry Magboltz: 1.0 (dry) or ~0.85 (0.5-0.75 % water);
+    # a non-default value writes to 48_deform_microtpc_dt<scale>
+    dt_scale = float([x.split('=')[1] for x in sys.argv if x.startswith('--dt-scale=')][0]) if any(
+        x.startswith('--dt-scale=') for x in sys.argv) else 1.0
     R, WF, cfg = pdf.load(run_key)
-    out = cfg.out_dir('48_deform_microtpc')
+    out = cfg.out_dir('48_deform_microtpc' + ('' if dt_scale == 1.0 else f'_dt{dt_scale:g}'))
     L = []
     t = R[R.good & R.near_track & R.is_hit & ~R.saturated & (R.amp > AMP_B) & (R.imax >= 4) & (R.imax <= 12)].copy()
     t = t.sort_values(['eventId', 'amp'], ascending=[True, False])
@@ -144,7 +153,7 @@ def main():
             'gap 7.0 mm': (7.0, 1.0), 'gap 4.0 mm, drift 1.5x slower': (4.0, 1 / 1.5)}
     TC = []
     for name, (d, vs) in toys.items():
-        c = toy_curve(d, vs, ser_par, amp_scale, dV=dV); c['model'] = name; c['d_mm'] = d; c['v_scale'] = vs; TC.append(c)
+        c = toy_curve(d, vs, ser_par, amp_scale, dV=dV, dt_scale=dt_scale); c['model'] = name; c['d_mm'] = d; c['v_scale'] = vs; TC.append(c)
     TC = pd.concat(TC, ignore_index=True)
     TC.to_csv(f'{out}/toy_curves.csv', index=False)
 
@@ -180,7 +189,7 @@ def main():
         L.append(line)
     pd.DataFrame(res).to_csv(f'{out}/drift_time_by_zone.csv', index=False)
     L.append('assumptions: model SER = fit to the reference mean pulse (T_ion 278, peaking 174 ns, f_e 0.6; only the '
-             'threshold/dilution factor depends on it), Magboltz dry Ar/iC4H10 95/5 for v_d and diffusion, thresholds '
+             f'threshold/dilution factor depends on it), Magboltz dry Ar/iC4H10 95/5 for v_d, its transverse diffusion x {dt_scale:g}, thresholds '
              f'as in data (both pads > {AMP_B:g} ADC), amplitude scale set to the data median of central tracks ({amp_data:.0f} ADC); zones from '
              'the stage-47 preliminary per-pad gap (mean of the two pads).')
 

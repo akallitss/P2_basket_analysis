@@ -227,7 +227,7 @@ def _sample(ie, te, ge, n, ph, T_ion, t_peak, f_e, t_first):
 
 
 def simulate_pair(n, slope, d_mm=4.0, dV=300.0, T_ion=180.0, t_peak=123.0, f_e=0.1, adc_per_e=40.0,
-                  t_first=230.0, x_half=6.0, v_scale=1.0, noise=0.0, heed=None, rng=None):
+                  t_first=230.0, x_half=6.0, v_scale=1.0, noise=0.0, heed=None, rng=None, dt_scale=1.0):
     """Inclined tracks across the boundary (x = 0) between pad A (x < 0) and pad B (x > 0).
 
     The track is at x_m + slope * z at height z above the mesh (x_m uniform in
@@ -243,7 +243,7 @@ def simulate_pair(n, slope, d_mm=4.0, dV=300.0, T_ion=180.0, t_peak=123.0, f_e=0
     it, z, ne = heed.throw(n, d_mm, theta, rng)
     xm = rng.uniform(-x_half, x_half, n)
     ie = np.repeat(it, ne); ze = np.repeat(z, ne)
-    xe = xm[ie] + slope * ze + rng.normal(0, 1, len(ze)) * float(dtrans(E)) * np.sqrt(ze / 10.0) * 10.0
+    xe = xm[ie] + slope * ze + rng.normal(0, 1, len(ze)) * dt_scale * float(dtrans(E)) * np.sqrt(ze / 10.0) * 10.0
     te = (ze + rng.normal(0, 1, len(ze)) * float(dlong(E)) * np.sqrt(ze / 10.0) * 10.0) / v
     ge = rng.gamma(2.0, 0.5, len(ze))
     ph = rng.uniform(0, TS, n)

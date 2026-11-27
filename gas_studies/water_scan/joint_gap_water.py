@@ -3,12 +3,13 @@
 
 The drift scan alone (median peak time - zero-field time vs dV) constrains a COMBINATION of the gap d and
 the water fraction f. The drift time at the operating point, measured independently of the scan and of the
-pulse-shape response (pad-pair micro-TPC of stage 48: 129 +- 3 ns; mean-pulse fit of stage 47: 125 ns), is
+pulse-shape response (pad-pair micro-TPC of stage 48: 118 +- 3 ns with the transverse diffusion of wet gas,
+129 +- 3 ns with dry-gas diffusion; mean-pulse fit of stage 47: 125 ns), is
 T(dV = 300 V) = d / v_d(f, 300 V / d): a second combination with the opposite slope. This script profiles
 both on a (f, d) grid.
 
   scan chi2(f, d): response scale s and time offset dt0 free (dt0 with its 5 ns prior), 2 ns per-point syst.
-  T constraint   : ((T(300; f, d) - T_OP) / E_OP)^2, T_OP = 127 ns, E_OP = 5 ns (covers the two estimates)
+  T constraint   : ((T(300; f, d) - T_OP) / E_OP)^2, T_OP = 120 ns, E_OP = 6 ns (covers the estimates)
 
 Out: results/joint_gap_water.csv, results/joint_gap_water.png, printed summary.
 """
@@ -20,7 +21,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import analyze_water as aw
 
-T_OP, E_OP = 127.0, 5.0
+T_OP, E_OP = 120.0, 6.0
 gas = aw.load_gases(); resp = aw.Response(); data = aw.load_data()
 tabs = sorted([(f, gas[k]) for k, f in aw.FAMILIES['h2o'] if k in gas], key=lambda a: a[0])
 F = np.arange(0.0, 2.01, 0.05); Dg = np.arange(3.0, 6.01, 0.1)

@@ -23,6 +23,9 @@ $PY 48_deform_microtpc.py det2_long_repos
 $PY 45_deform_local_z.py                               # reads 47's pad_gap_prelim.csv
 $PY 44_deform_scan_regions.py                          # 24 Nov scans, hit level
 $PY 49_deform_decomposition.py det2_long_repos --scan-dir <…/44_deform_scan_regions>
+$PY 48_deform_microtpc.py det2_long_repos --dt-scale=0.85   # wet-gas diffusion -> 48_deform_microtpc_dt0.85/
+$PY 50_deform_scan_microtpc.py                          # pad pairs at every scan point (hits only)
+(cd ../gas_studies/water_scan && $PY joint_gap_water.py)  # gap vs water, with the operating-point drift time
 ```
 
 For another chamber: 34 (alignment) must exist for the run key; `47` takes `--ref-conn` (connectors used as
