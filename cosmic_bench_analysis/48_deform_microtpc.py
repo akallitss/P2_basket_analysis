@@ -22,7 +22,7 @@ have a longer drift time (thicker gap, or slower drift in the same gap).
 
 Out (<run>/48_deform_microtpc/): pairs.csv, curve_by_zone.csv, toy_curves.csv,
 microtpc.png, summary.txt
-Usage: python3 48_deform_microtpc.py [run_key] [--dt-scale=0.85]
+Usage: python3 48_deform_microtpc.py [run_key] [--dt-scale=0.85] [--ser=T_ion,t_peak,f_e]
 
 The dilution factor depends on the transverse diffusion, and that on the gas: with 0.5-0.75 % water it is
 0.83-0.88 of the dry-gas value (Magboltz), which lowers the fitted drift times by ~12 % (det2: nominal zone
@@ -101,7 +101,9 @@ def main():
     dt_scale = float([x.split('=')[1] for x in sys.argv if x.startswith('--dt-scale=')][0]) if any(
         x.startswith('--dt-scale=') for x in sys.argv) else 1.0
     R, WF, cfg = pdf.load(run_key)
-    out = cfg.out_dir('48_deform_microtpc' + ('' if dt_scale == 1.0 else f'_dt{dt_scale:g}'))
+    ser_arg = [x.split('=')[1] for x in sys.argv if x.startswith('--ser=')]      # T_ion,t_peak,f_e
+    out = cfg.out_dir('48_deform_microtpc' + ('' if dt_scale == 1.0 else f'_dt{dt_scale:g}')
+                      + ('' if not ser_arg else '_ser' + ser_arg[0].replace(',', '_')))
     L = []
     t = R[R.good & R.near_track & R.is_hit & ~R.saturated & (R.amp > AMP_B) & (R.imax >= 4) & (R.imax <= 12)].copy()
     t = t.sort_values(['eventId', 'amp'], ascending=[True, False])
@@ -137,6 +139,8 @@ def main():
     # ---- forward model with the same selection --------------------------------------
     # SER parameters: fit of the model to the reference mean pulse (stage 47 exploration)
     ser_par = dict(T_ion=278.0, t_peak=174.0, f_e=0.6)
+    if ser_arg:
+        v_ = [float(x) for x in ser_arg[0].split(',')]; ser_par = dict(T_ion=v_[0], t_peak=v_[1], f_e=v_[2])
     # amplitude scale: median single-pad amplitude of a vertical muon = data (~1150 ADC)
     nums = [int(x) for x in cfg.SUB_RUN.split('_') if x.isdigit()]
     dV = float(abs(nums[-1] - nums[-2]))
@@ -188,7 +192,7 @@ def main():
             line += f'  {est}: T_d = {Td:5.1f} +- {esc*tm.T_d.iloc[0]:4.1f} ns (chi2 {chi:.1f}/{int(k.sum())-1})'
         L.append(line)
     pd.DataFrame(res).to_csv(f'{out}/drift_time_by_zone.csv', index=False)
-    L.append('assumptions: model SER = fit to the reference mean pulse (T_ion 278, peaking 174 ns, f_e 0.6; only the '
+    L.append(f'assumptions: model SER T_ion {ser_par["T_ion"]:g}, peaking {ser_par["t_peak"]:g} ns, f_e {ser_par["f_e"]:g} (default = fit to the reference mean pulse: 278 / 174 / 0.6; only the '
              f'threshold/dilution factor depends on it), Magboltz dry Ar/iC4H10 95/5 for v_d, its transverse diffusion x {dt_scale:g}, thresholds '
              f'as in data (both pads > {AMP_B:g} ADC), amplitude scale set to the data median of central tracks ({amp_data:.0f} ADC); zones from '
              'the stage-47 preliminary per-pad gap (mean of the two pads).')

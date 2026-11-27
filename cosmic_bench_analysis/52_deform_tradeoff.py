@@ -224,6 +224,20 @@ def main():
     L.append('   k(angle) = s68 / T_d averaged over the gap classes (single-pad / all events; rms between classes): '
              + '; '.join(f'{lo}-{hi} deg: {v[0]:.3f} / {v[1]:.3f} ({v[2]:.3f})' for (lo, hi), v in kang.items()))
 
+    # ---- is the time spread proportional to the drift time at other fields? (stage 51, scan waveforms) -------
+    f51 = os.path.abspath(os.path.join(cfs.OUT_BASE, '..', '51_deform_scan_waveforms', 'spread_vs_drift_time.csv'))
+    k51 = 'not checked (run 51_deform_scan_waveforms.py)'
+    if os.path.isfile(f51):
+        K5 = pd.read_csv(f51); L.append('time-spread law at other drift fields (stage 51, single-pad events, all angles, scan day):')
+        for zn, q in K5.groupby('zone', sort=False):
+            h_ = q[q.dV >= 100]
+            L.append(f'   zone {zn:8s} {len(h_)} points dV 100-525 V, T_d {h_["T"].min():.0f}-{h_["T"].max():.0f} ns: s68 / T_d = '
+                     f'{h_.k.mean():.3f}, rms {h_.k.std():.3f} ({100*h_.k.std()/h_.k.mean():.0f} %); dV 50 / 75 V (T_d up to '
+                     f'{q["T"].max():.0f} ns): ' + ' / '.join(f'{v:.3f}' for v in q[q.dV < 100].k))
+        qn = K5[(K5.zone == 'nominal')]
+        k51 = (f'checked on the scan waveforms: in the nominal zone s68 / T_d = {qn.k.mean():.3f} with an rms of '
+               f'{100*qn.k.std()/qn.k.mean():.0f} % over 20 drift fields (T_d {qn["T"].min():.0f}-{qn["T"].max():.0f} ns)')
+
     # ---- drift velocity measured in the chamber (stage 49) -------------------------------------
     vt = pd.read_csv(cfg.out_dir('49_deform_decomposition') + '/drift_velocity_measured.csv')
     vd = lambda E: np.interp(E, vt.E_Vcm, vt.vd_measured_mm_ns)
@@ -258,7 +272,7 @@ def main():
              'gap, gain and field of the pad under the track from the stage-49 map (dry-gas gap scale inside the model; the '
              'local field is dV / gap on that scale); the model is fitted for dV >= 100 V; the time spread includes the '
              'trigger jitter and is taken proportional to the drift time, with the drift velocity measured in the chamber; '
-             'k(angle) from the 430/730 V run only (no check yet at other fields); the day offset is the difference between '
+             'k(angle) from the 430/730 V run; proportionality to the drift time ' + k51 + '; the day offset is the difference between '
              '24 and 25 Nov at identical voltages (gas / charging state) and is a floor on how well misses transfer between runs.')
 
     # ---- figure --------------------------------------------------------------------------------

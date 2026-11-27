@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""51_deform_scan_waveforms.py -- absolute drift time vs drift field from the WAVEFORMS of a drift scan.
+"""51_deform_scan_waveforms.py -- drift time vs drift field from the WAVEFORMS of a drift scan.
+
+RESULT ON det2 (27 Nov 2026): the method closes on simulated pulses, but on the data the absolute value is
+driven by the single lowest-field point and trades against a +17 ns delay of that pulse (153 ns without
+delays, flat between 80 and 150 ns with them), so it does NOT fix the absolute scale with 30 min per point.
+What the scan waveforms do give: drift times relative to the reference point, the time-spread law
+s68 = k T at every field (k constant to 4 % from 104 to 334 ns), and a pulse shape that hardly changes with
+the mesh voltage (ion transit short).
+
 
 On one set of pads the single-electron response (ion tail (x) shaper) and the delays are the same at every
 drift voltage; only the arrival box changes:  M_k(t) = box(T_k) (x) SER.  Hence for two scan points
@@ -25,7 +33,7 @@ Steps
      boxes I_ref * V_ref / V gives the ion transit time I_ref in absolute terms.
 
 Out (<scan run>/51_deform_scan_waveforms/): <sub_run>/{wf_table.pkl, wf.npy}, points.csv, drift_times.csv,
-gas_fit.csv, mean_pulses.npz, scan_waveforms.png, summary.txt
+gas_fit.csv, spread_vs_drift_time.csv, mean_pulses.npz, scan_waveforms.png, summary.txt
 Usage: python3 51_deform_scan_waveforms.py [scan_key] [ref_key] [--rebuild]
 """
 import glob
@@ -290,6 +298,14 @@ def main():
                  f'T_ref = {t_ref:.1f} +- {e_ref:.1f} ns (bootstrap over pulses); with a free delay per point: {t_ref_dt:.1f} ns, '
                  f'fitted delays {np.median([v[2] for v in bestd.values()]):+.1f} ns median, {np.min([v[2] for v in bestd.values()]):+.1f} .. '
                  f'{np.max([v[2] for v in bestd.values()]):+.1f}')
+        sse0 = {p_[0]: p_[1] for p_ in pr}; sse1 = {p_[0]: p_[1] for p_ in prd}
+        lowk = min(M)
+        L.append(f'   caution: the profile is driven by the lowest-field point (dV = {lowk} V). Summed squared residual x 1e3 at '
+                 f'T_ref = 110 / 120 / 150 ns: no delay {1e3*sse0[110.0]:.1f} / {1e3*sse0[120.0]:.1f} / {1e3*sse0[150.0]:.1f}; free delays '
+                 f'{1e3*sse1[110.0]:.2f} / {1e3*sse1[120.0]:.2f} / {1e3*sse1[150.0]:.2f} (flat). A delay of '
+                 f'{pair_fit(M[lowk], M[ref], 115.0, True)[2]:+.0f} ns of the dV = {lowk} V pulse makes T_ref = 115 ns fit as well. '
+                 'So this method does NOT fix the absolute drift time with 30 min per point; the no-delay value disagrees '
+                 'with the pad pairs (stage 48: raw plateau alone gives T >= 105 ns and <= 136 ns for any diffusion).')
         res_rows.append(dict(zone=zn, dV=ref, T=t_ref, e_T=e_ref, scale=1.0, dt_free=0.0))
         for k in sorted(best):
             res_rows.append(dict(zone=zn, dV=k, T=best[k][0], e_T=float(np.std(bT[k])), scale=best[k][1], dt_free=bestd[k][2]))
@@ -340,6 +356,95 @@ def main():
         L.append('   fwhm  : ' + ' '.join(f'{v:6.1f}' for v in mrow.fwhm))
         L.append('   amp   : ' + ' '.join(f'{v:6.0f}' for v in mrow.amp_med))
         L.append('   n     : ' + ' '.join(f'{v:6d}' for v in mrow.n))
+    # ---- time-spread law at other fields: s68 / T with T relative to the pad-pair value at the reference -----
+    d48 = cfg_r.out_dir('48_deform_microtpc_dt0.85') + '/drift_time_by_zone.csv'
+    tref_ext = {'nominal': 118.0, 'thin': 102.0, 'ridge': 166.0}
+    if os.path.isfile(d48):
+        t48 = pd.read_csv(d48); t48 = t48[t48.est == 't_pk'].set_index('zone').T_d
+        tref_ext = {'nominal': float(t48.get('gap 3.6-4.4 mm', 118.0)), 'thin': float(t48.get('gap < 3.6 mm', 102.0)),
+                    'ridge': float(t48.get('gap > 5.5 mm', 166.0))}
+    krows = []
+    for zn, (M, _, _) in keep.items():
+        q = PT[(PT.zone == zn) & PT.kind.isin(['drift', 'alignment'])]
+        q = q.groupby('dV').apply(lambda g_: pd.Series({'s68': np.average(g_.s68_l20, weights=g_.n_single), 'n1': g_.n_single.sum()})).reset_index()
+        for r_ in q.itertuples():
+            k_ = int(r_.dV)
+            if k_ not in M:
+                continue
+            Tk = tref_ext[zn] if k_ == 300 else pair_fit(M[k_], M[300], tref_ext[zn], True)[0]
+            krows.append(dict(zone=zn, dV=k_, T=Tk, s68=r_.s68, k=r_.s68 / Tk, n_single=int(r_.n1)))
+    KT = pd.DataFrame(krows); KT.to_csv(f'{out}/spread_vs_drift_time.csv', index=False)
+    for zn, q in KT.groupby('zone', sort=False):
+        hi_ = q[q.dV >= 100]
+        L.append(f'time-spread law, zone {zn} (drift times relative to {tref_ext[zn]:.0f} ns at 300 V, pad pairs with wet-gas diffusion): '
+                 f'single-pad s68 / T = {hi_.k.mean():.3f} +- {hi_.k.std():.3f} (rms over {len(hi_)} points, dV 100-525 V, '
+                 f'T {hi_["T"].min():.0f}-{hi_["T"].max():.0f} ns); at dV 50 / 75 V (T {q["T"].max():.0f} ns): '
+                 + ' / '.join(f'{v:.3f}' for v in q[q.dV < 100].k))
+    # ---- absolute drift time from the SCALING of the time spread: if s68 = k T with k independent of the field,
+    #      the low-field points (long lever arm) fix the reference drift time: s68_k / s68_ref = T_k(T_ref) / T_ref
+    for zn, (M, _, _) in keep.items():
+        q = PT[(PT.zone == zn) & PT.kind.isin(['drift', 'alignment'])]
+        q = q.groupby('dV').apply(lambda g_: pd.Series({'s68': np.average(g_.s68_l20, weights=g_.n_single), 'n1': g_.n_single.sum()}))
+        if 300 not in q.index:
+            continue
+        low = [k_ for k_ in sorted(M) if k_ <= 125 and k_ in q.index]
+        tg_ = np.arange(90.0, 171.0, 5.0); c2 = []
+        for tr_ in tg_:
+            c_ = 0.0
+            for k_ in low:
+                Tk = pair_fit(M[k_], M[300], tr_, True)[0]
+                pred = q.s68[300] * Tk / tr_; err = q.s68[k_] * np.hypot(1 / np.sqrt(q.n1[k_]), 1 / np.sqrt(q.n1[300]))
+                c_ += ((q.s68[k_] - pred) / err) ** 2
+            c2.append(c_)
+        c2 = np.array(c2); tb_ = parab_min(tg_, c2); ok_ = tg_[c2 <= c2.min() + 1.0]
+        L.append(f'absolute drift time from the time-spread scaling, zone {zn}: the spread at dV = {", ".join(str(k_) for k_ in low)} V '
+                 f'relative to 300 V equals the drift-time ratio for T_ref = {tb_:.0f} ns ({ok_.min():.0f}-{ok_.max():.0f}; chi2 {c2.min():.1f} '
+                 f'for {len(low)} points; chi2 at 150 ns: {c2[np.argmin(abs(tg_ - 150))]:.0f}). Assumes s68 / T_d independent of the '
+                 'drift field (found the same within 10 % for the four gap classes at 475-890 V/cm); the no-delay profile value '
+                 'would need s68 / T_d to be 30 % larger at 125 V/cm.')
+        pd.DataFrame(dict(zone=zn, T_ref=tg_, chi2=c2)).to_csv(f'{out}/drift_time_from_spread_{zn}.csv', index=False)
+    if len(Mm) >= 4:
+        kk = (TG >= 150) & (TG <= 1000)
+        cen = {V_: float((TG[kk] * m_[kk]).sum() / m_[kk].sum()) for V_, m_ in Mm.items()}
+        vs_ = sorted(cen); sl = np.polyfit(np.log(np.array(vs_) / 430.0), [cen[v_] for v_ in vs_], 1)[0]
+        rms_ = float(np.std([cen[v_] for v_ in vs_]))
+        L.append('   mesh scan, centroid of the mean pulse [ns] (150-1000 ns): ' + ' '.join(f'{v_}: {cen[v_]:.1f}' for v_ in vs_))
+        L.append(f'   slope d centroid / d ln V = {sl:+.1f} ns (rms of the points {rms_:.1f} ns). An ion box I scaling as 1/V moves the '
+                 f'centroid by -I/2 per unit ln V, so I = {max(-2*sl, 0):.0f} ns, below ~{2*(abs(sl) + 2*rms_/0.235):.0f} ns at 2 sigma: '
+                 'the pulse shape hardly changes with the mesh voltage.')
+        # same at FIXED pulse height (250-700 ADC), so that an amplitude-dependent response cannot hide a change
+        def _shape(m_):
+            c_ = float((TG[kk] * m_[kk]).sum() / m_[kk].sum()); i_ = int(np.argmax(m_)); h_ = m_[i_] / 2
+            j_ = i_
+            while m_[j_] > h_:
+                j_ -= 1
+            up_ = TG[j_] + (h_ - m_[j_]) / (m_[j_ + 1] - m_[j_]) * 10
+            j_ = i_
+            while m_[j_] > h_:
+                j_ += 1
+            return c_, TG[j_ - 1] + (m_[j_ - 1] - h_) / (m_[j_ - 1] - m_[j_]) * 10 - up_
+        fa = {}
+        for (z_, k_, mesh_, drift_), (rw, ft, am, WF_) in MP.items():
+            if z_ != 'nominal' or not (k_ in ('mesh', 'alignment') or (k_ == 'drift' and drift_ - mesh_ == 300)):
+                continue
+            sel_ = (am >= 250) & (am < 700)
+            if sel_.sum() >= 150:
+                fa.setdefault(mesh_, []).append((int(sel_.sum()),) + _shape(mean_pulse(WF_, rw[sel_], ft[sel_], am[sel_])))
+        if len(fa) >= 4:
+            vs_ = sorted(fa); n_ = np.array([sum(x[0] for x in fa[v_]) for v_ in vs_])
+            c_ = np.array([np.average([x[1] for x in fa[v_]], weights=[x[0] for x in fa[v_]]) for v_ in vs_])
+            f_ = np.array([np.average([x[2] for x in fa[v_]], weights=[x[0] for x in fa[v_]]) for v_ in vs_])
+            lx = np.log(np.array(vs_) / 430.0); sc_ = np.polyfit(lx, c_, 1, w=np.sqrt(n_))[0]; sf_ = np.polyfit(lx, f_, 1, w=np.sqrt(n_))[0]
+            pd.DataFrame(dict(mesh=vs_, n=n_, centroid=c_, fwhm=f_)).to_csv(f'{out}/mesh_scan_shape_fixed_amp.csv', index=False)
+            L.append('   at fixed pulse height (250-700 ADC): mesh V / centroid / FWHM [ns]: '
+                     + '  '.join(f'{v_}: {a_:.1f} / {b_:.1f}' for v_, a_, b_ in zip(vs_, c_, f_)))
+            L.append(f'   slopes: d centroid / d ln V = {sc_:+.1f} ns, d FWHM / d ln V = {sf_:+.1f} ns. One e-fold of gain is '
+                     f'{1/0.032:.0f} V = {1/0.032/430:.3f} in ln V, so changing the gain by a factor e WITH THE VOLTAGE changes the '
+                     f'pulse width by {sf_/0.032/430:+.1f} ns: the -16 +- 5 ns per e-fold seen across the board (stage 49) is '
+                     'not a generic "more gain, shorter pulse" effect. A gap change is the 7x stronger lever on the ion transit '
+                     '(T_ion ~ gap^2 / V: +52 % per e-fold through the gap, -7.5 % through the voltage). An ion box of 240-350 ns '
+                     '(mobility 1.5-2.2 cm2/Vs, 150 um, 430 V) scaling as 1/V would move the centroid by 27-40 ns over this scan; '
+                     'it moves by less than 3 ns. Centroid: I < ~40 ns; FWHM narrowing: I ~ 100 ns; board slope: I ~ 60 ns.')
     np.savez(f'{out}/mean_pulses.npz', t=TG, **{f'{zn}_dV{k}': m for zn, (M, _, _) in keep.items() for k, m in M.items()},
              **{f'mesh_{k}': m for k, m in Mm.items()})
 
